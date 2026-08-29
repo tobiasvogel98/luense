@@ -4,7 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#26333d">
   <title>Lünse</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
   <script src="lib/pouchdb.min.js"></script>
 </head>
@@ -94,6 +98,11 @@
 
     await aktualisiereAuswahl();
     zeigeModul(); // ohne Baustellen landet man automatisch im Stamm
+
+    // Offline-Faehigkeit: Service-Worker cacht alle App-Dateien.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js');
+    }
   </script>
 
 </body>
