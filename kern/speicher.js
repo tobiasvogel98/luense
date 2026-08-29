@@ -21,6 +21,17 @@ export async function get(id) {
   return db.get(id);
 }
 
+// Anhänge (z. B. Fotos) am Dokument. Holt vor dem Anhängen die aktuelle
+// Revision, damit mehrere Anhänge nacheinander sauber durchgehen.
+export async function haengeAnhangAn(docId, name, blob) {
+  const doc = await db.get(docId);
+  return db.putAttachment(docId, name, doc._rev, blob, blob.type || 'image/jpeg');
+}
+
+export async function holeAnhang(docId, name) {
+  return db.getAttachment(docId, name);
+}
+
 // Alle Dokumente eines Typs, optional auf eine Baustelle gefiltert.
 // Sortiert nach datum, neuste zuerst.
 export async function abfrage({ typ, baustelleId } = {}) {

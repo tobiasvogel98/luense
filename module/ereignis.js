@@ -1,8 +1,9 @@
 // module/ereignis.js — Ereignis-Journal, erstes Modul der Shell.
-// Erfassung (Tag, Ort/KV, Notiz) und gefilterte Liste, neuste zuerst.
+// Erfassung (Tag, Ort/KV, Notiz, Fotos) und gefilterte Liste, neuste zuerst.
 // Spricht ausschliesslich über den Kern mit der Datenbank.
 
-import { put, abfrage } from '../kern/speicher.js';
+import { put, abfrage, haengeAnhangAn, holeAnhang } from '../kern/speicher.js';
+import { verkleinereFoto } from '../kern/kamera.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
 
 const TAGS = ['Vorzustand', 'Fortschritt', 'Mangel', 'Regie', 'Abnahme'];
@@ -13,6 +14,8 @@ export default {
 
   render(container, baustelle) {
     const filter = new Set(); // gewählte Tag-Chips; leer = alle zeigen
+    let gewaehlteFotos = []; // Dateien, die beim Speichern angehängt werden
+    const objektUrls = []; // erzeugte Foto-URLs, beim Neuzeichnen freigeben
 
     container.innerHTML = `
       <section class="journal">
@@ -29,6 +32,12 @@ export default {
           </div>
           <label>Ort / KV<input name="ortKv" autocomplete="off"></label>
           <label>Notiz<textarea name="notiz" rows="3"></textarea></label>
+          <label class="foto-feld">
+            <span class="knopf">📷 Foto aufnehmen</span>
+            <input type="file" accept="image/*" capture="environment" multiple
+              data-rolle="foto-eingabe" class="visually-hidden">
+          </label>
+          <p class="hinweis" data-rolle="foto-info"></p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Eintrag speichern</button>
           </div>
@@ -41,8 +50,25 @@ export default {
 
     const formular = container.querySelector('[data-rolle="erfassung"]');
     const meldung = formular.querySelector('.meldung');
+    const fotoEingabe = formular.querySelector('[data-rolle="foto-eingabe"]');
+    const fotoInfo = formular.querySelector('[data-rolle="foto-info"]');
     const filterElement = container.querySelector('[data-rolle="filter"]');
     const listeElement = container.querySelector('[data-rolle="liste"]');
+
+    function zeigeFotoInfo() {
+      fotoInfo.textContent = gewaehlteFotos.length
+        ? `${gewaehlteFotos.length} Foto${gewaehlteFotos.length > 1 ? 's' : ''} bereit — ` +
+          'nochmals antippen für ein weiteres.'
+        : '';
+    }
+
+    // Jede Aufnahme wird gesammelt; so sind mehrere Fotos pro Eintrag möglich,
+    // obwohl die Kamera pro Antippen nur ein Bild liefert.
+    fotoEingabe.addEventListener('change', () => {
+      gewaehlteFotos.push(...fotoEingabe.files);
+      fotoEingabe.value = '';
+      zeigeFotoInfo();
+    });
 
     function zeichneFilter() {
       filterElement.innerHTML = TAGS.map((tag) => `
@@ -51,22 +77,52 @@ export default {
     }
 
     async function zeichneListe() {
+      objektUrls.forEach(URL.revokeObjectURL);
+      objektUrls.length = 0;
       const alle = await abfrage({ typ: 'ereignis', baustelleId: baustelle.baustelleId });
       const gezeigt = filter.size ? alle.filter((e) => filter.has(e.tag)) : alle;
       listeElement.innerHTML = gezeigt.length
-        ? gezeigt.map((e) => `
-            <article class="karte ereignis">
-              <div class="ereignis-kopf">
-                <span class="chip">${esc(e.tag)}</span>
-                <span class="hinweis">${formatDatumZeit(e.datum)}${
-                  e.ortKv ? ' · ' + esc(e.ortKv) : ''}</span>
-              </div>
-              ${e.notiz ? `<p class="ereignis-notiz">${esc(e.notiz)}</p>` : ''}
-            </article>`).join('')
+        ? gezeigt.map((e) => {
+            const fotos = Object.keys(e._attachments || {});
+            return `
+              <article class="karte ereignis">
+                <div class="ereignis-kopf">
+                  <span class="chip">${esc(e.tag)}</span>
+                  <span class="hinweis">${formatDatumZeit(e.datum)}${
+                    e.ortKv ? ' · ' + esc(e.ortKv) : ''}</span>
+                </div>
+                ${e.notiz ? `<p class="ereignis-notiz">${esc(e.notiz)}</p>` : ''}
+                ${fotos.length ? `
+                  <div class="foto-reihe">
+                    ${fotos.map((name) => `
+                      <img class="foto-thumb" alt="Foto zum Eintrag" loading="lazy"
+                        data-id="${esc(e._id)}" data-name="${esc(name)}">`).join('')}
+                  </div>` : ''}
+              </article>`;
+          }).join('')
         : `<p class="hinweis">${
             alle.length
               ? 'Keine Einträge zu dieser Tag-Auswahl.'
               : 'Noch keine Einträge auf dieser Baustelle.'}</p>`;
+
+      for (const bild of listeElement.querySelectorAll('.foto-thumb')) {
+        try {
+          const blob = await holeAnhang(bild.dataset.id, bild.dataset.name);
+          const url = URL.createObjectURL(blob);
+          objektUrls.push(url);
+          bild.src = url;
+        } catch {
+          bild.remove();
+        }
+      }
+    }
+
+    function zeigeVollbild(quelle) {
+      const overlay = document.createElement('div');
+      overlay.className = 'vollbild';
+      overlay.innerHTML = `<img src="${quelle}" alt="Foto in Vollbild">`;
+      overlay.addEventListener('click', () => overlay.remove());
+      document.body.append(overlay);
     }
 
     filterElement.addEventListener('click', (klick) => {
@@ -78,23 +134,43 @@ export default {
       zeichneListe();
     });
 
+    listeElement.addEventListener('click', (klick) => {
+      const bild = klick.target.closest('.foto-thumb');
+      if (bild?.src) zeigeVollbild(bild.src);
+    });
+
     formular.addEventListener('submit', async (abschicken) => {
       abschicken.preventDefault();
       const felder = Object.fromEntries(new FormData(formular));
+      const speichernKnopf = formular.querySelector('[type="submit"]');
+      speichernKnopf.disabled = true;
+      meldung.textContent = gewaehlteFotos.length ? 'Fotos werden verarbeitet …' : '';
       try {
-        await put({
+        // Erst verkleinern, dann Dokument und Anhänge schreiben.
+        const verkleinerte = [];
+        for (const datei of gewaehlteFotos) {
+          verkleinerte.push(await verkleinereFoto(datei));
+        }
+        const doc = await put({
           typ: 'ereignis',
           baustelleId: baustelle.baustelleId,
           tag: felder.tag,
           ortKv: (felder.ortKv || '').trim(),
           notiz: (felder.notiz || '').trim(),
         });
+        for (const [index, blob] of verkleinerte.entries()) {
+          await haengeAnhangAn(doc._id, `foto-${index + 1}.jpg`, blob);
+        }
         formular.elements.ortKv.value = '';
         formular.elements.notiz.value = '';
+        gewaehlteFotos = [];
+        zeigeFotoInfo();
         meldung.textContent = 'Eintrag gespeichert.';
         await zeichneListe();
       } catch (fehler) {
         meldung.textContent = fehler.message;
+      } finally {
+        speichernKnopf.disabled = false;
       }
     });
 

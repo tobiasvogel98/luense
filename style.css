@@ -345,6 +345,57 @@ body {
   white-space: pre-wrap;
 }
 
+/* Fotos: Aufnahme-Knopf, Thumbnails, Vollbild */
+
+.foto-feld {
+  display: block;
+}
+
+.foto-feld .knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--abstand-2);
+}
+
+.foto-feld:has(:focus-visible) .knopf {
+  outline: 2px solid var(--farbe-akzent);
+  outline-offset: 1px;
+}
+
+.foto-reihe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-2);
+  margin-top: var(--abstand-3);
+}
+
+.foto-thumb {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--farbe-linie);
+  cursor: zoom-in;
+}
+
+.vollbild {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.92);
+  cursor: zoom-out;
+  padding: var(--abstand-3);
+}
+
+.vollbild img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius);
+}
+
 details.archiv > summary,
 details.import > summary {
   min-height: var(--touch-ziel);
