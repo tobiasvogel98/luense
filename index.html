@@ -21,21 +21,54 @@
         <option>Noch keine Baustellen</option>
       </select>
     </label>
+    <button type="button" id="stamm-knopf" class="kopf-knopf" title="Baustellen-Stamm">
+      <span aria-hidden="true">⚙</span>
+      <span class="visually-hidden">Baustellen-Stamm öffnen</span>
+    </button>
   </header>
 
   <main id="modulbereich" class="modulbereich">
     <div class="leerzustand">
       <p class="leerzustand-titel">Noch kein Modul geladen</p>
-      <p class="leerzustand-text">Baustellen-Stamm und Ereignis-Journal folgen in den nächsten Etappen.</p>
+      <p class="leerzustand-text">Das Ereignis-Journal folgt in den nächsten Etappen.</p>
     </div>
   </main>
 
   <script type="module">
-    // Abend 1: nur Startkontrolle — Kern und Module folgen ab Abend 2.
-    if (typeof PouchDB !== 'function') {
-      document.querySelector('.leerzustand-text').textContent =
-        'Achtung: lib/pouchdb.min.js konnte nicht geladen werden.';
+    // Shell: Kopfzeilen-Auswahl füttern und den Baustellen-Stamm anbieten.
+    // Module werden ab Abend 3 über eine Liste registriert.
+    import { alleBaustellen, renderStammAnsicht } from './kern/stamm.js';
+
+    const auswahl = document.getElementById('baustellen-auswahl');
+    const modulbereich = document.getElementById('modulbereich');
+    const MERKER = 'luense.aktiveBaustelle'; // nur UI-Zustand, keine Daten
+
+    async function aktualisiereAuswahl() {
+      const baustellen = await alleBaustellen();
+      auswahl.innerHTML = '';
+      if (!baustellen.length) {
+        auswahl.append(new Option('Noch keine Baustellen', ''));
+        auswahl.disabled = true;
+        return baustellen;
+      }
+      auswahl.disabled = false;
+      for (const b of baustellen) {
+        auswahl.append(new Option(`${b.ktr} · ${b.name}`, b.baustelleId));
+      }
+      const gemerkt = localStorage.getItem(MERKER);
+      if (baustellen.some((b) => b.baustelleId === gemerkt)) auswahl.value = gemerkt;
+      localStorage.setItem(MERKER, auswahl.value);
+      return baustellen;
     }
+
+    auswahl.addEventListener('change', () => localStorage.setItem(MERKER, auswahl.value));
+
+    const zeigeStamm = () =>
+      renderStammAnsicht(modulbereich, { onAenderung: aktualisiereAuswahl });
+    document.getElementById('stamm-knopf').addEventListener('click', zeigeStamm);
+
+    const baustellen = await aktualisiereAuswahl();
+    if (!baustellen.length) zeigeStamm(); // erster Start: direkt zum Stamm
   </script>
 
 </body>

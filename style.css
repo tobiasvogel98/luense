@@ -143,6 +143,159 @@ body {
   font-size: var(--schrift-klein);
 }
 
+/* Knöpfe */
+
+.knopf {
+  min-height: var(--touch-ziel);
+  padding: 0 var(--abstand-4);
+  font: inherit;
+  font-weight: 600;
+  color: var(--farbe-text);
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.knopf-primaer {
+  color: var(--farbe-akzent-kontrast);
+  background: var(--farbe-akzent);
+  border-color: var(--farbe-akzent);
+}
+
+.knopfzeile {
+  display: flex;
+  gap: var(--abstand-2);
+  flex-wrap: wrap;
+}
+
+.kopf-knopf {
+  min-width: var(--touch-ziel);
+  min-height: var(--touch-ziel);
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--farbe-kopf-text);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+/* Karten und Stamm-Ansicht */
+
+.karte {
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  box-shadow: var(--schatten);
+  padding: var(--abstand-4);
+  margin-bottom: var(--abstand-4);
+}
+
+.stamm h2 {
+  font-size: var(--schrift-titel);
+  margin: var(--abstand-2) 0 var(--abstand-4);
+}
+
+.stamm h3 {
+  font-size: var(--schrift-basis);
+  margin-bottom: var(--abstand-3);
+}
+
+.formular label {
+  display: block;
+  margin-bottom: var(--abstand-3);
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--farbe-text-gedaempft);
+}
+
+.formular input {
+  display: block;
+  width: 100%;
+  min-height: var(--touch-ziel);
+  margin-top: var(--abstand-1);
+  padding: 0 var(--abstand-3);
+  font: inherit;
+  font-size: var(--schrift-basis);
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.formular input:focus-visible {
+  outline: 2px solid var(--farbe-akzent);
+  outline-offset: 1px;
+}
+
+.meldung {
+  min-height: 1.2em;
+  margin-top: var(--abstand-2);
+  font-size: var(--schrift-klein);
+  color: var(--farbe-akzent);
+}
+
+.hinweis {
+  color: var(--farbe-text-gedaempft);
+  font-size: var(--schrift-klein);
+  margin-bottom: var(--abstand-2);
+}
+
+.baustelle-kopf {
+  margin-bottom: var(--abstand-2);
+}
+
+.baustelle.archiviert {
+  opacity: 0.7;
+}
+
+.chip {
+  display: inline-block;
+  padding: 2px var(--abstand-2);
+  margin-left: var(--abstand-1);
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+  border: 1px solid var(--farbe-linie);
+  border-radius: 999px;
+}
+
+details.archiv > summary,
+details.import > summary {
+  min-height: var(--touch-ziel);
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+details.archiv {
+  margin-top: var(--abstand-4);
+}
+
+details.archiv > .karte {
+  margin-top: var(--abstand-3);
+}
+
+details.import[open] > summary {
+  margin-bottom: var(--abstand-2);
+}
+
+.import input[type='file'] {
+  width: 100%;
+  padding: var(--abstand-2) 0;
+  font: inherit;
+  font-size: var(--schrift-klein);
+}
+
+code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--farbe-hintergrund);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
 /* Hilfsklassen */
 
 .visually-hidden {
