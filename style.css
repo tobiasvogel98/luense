@@ -1,0 +1,155 @@
+/* Lünse — Design-Tokens und Shell-Layout. Mobile-first, Touch-Ziele ≥ 44 px. */
+
+:root {
+  /* Farben — helles Schema */
+  --farbe-hintergrund: #f4f3f0;
+  --farbe-flaeche: #ffffff;
+  --farbe-text: #1c1b18;
+  --farbe-text-gedaempft: #6b675f;
+  --farbe-linie: #d9d6cf;
+  --farbe-akzent: #d97b18;          /* Signalorange — Baustelle */
+  --farbe-akzent-kontrast: #ffffff;
+  --farbe-kopf: #26333d;            /* Stahlblau — Kopfzeile */
+  --farbe-kopf-text: #f4f3f0;
+
+  /* Typografie */
+  --schrift: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --schrift-basis: 1rem;
+  --schrift-klein: 0.875rem;
+  --schrift-titel: 1.25rem;
+
+  /* Abstände und Formen */
+  --abstand-1: 0.25rem;
+  --abstand-2: 0.5rem;
+  --abstand-3: 0.75rem;
+  --abstand-4: 1rem;
+  --abstand-5: 1.5rem;
+  --radius: 10px;
+  --touch-ziel: 44px;
+  --schatten: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --farbe-hintergrund: #15171a;
+    --farbe-flaeche: #1f2226;
+    --farbe-text: #e8e6e1;
+    --farbe-text-gedaempft: #9a968d;
+    --farbe-linie: #34383e;
+    --farbe-akzent: #e8933a;
+    --farbe-akzent-kontrast: #15171a;
+    --farbe-kopf: #1a232b;
+    --farbe-kopf-text: #e8e6e1;
+    --schatten: 0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Grundlayout */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html {
+  font-family: var(--schrift);
+  font-size: var(--schrift-basis);
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+}
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Kopfzeile */
+
+.kopfzeile {
+  background: var(--farbe-kopf);
+  color: var(--farbe-kopf-text);
+  padding: var(--abstand-3) var(--abstand-4);
+  padding-top: calc(var(--abstand-3) + env(safe-area-inset-top));
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-4);
+  flex-wrap: wrap;
+}
+
+.marke {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  font-size: var(--schrift-titel);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.marke-logo {
+  color: var(--farbe-akzent);
+  font-size: 1.4em;
+  line-height: 1;
+}
+
+.baustellen-wahl {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.baustellen-wahl select {
+  width: 100%;
+  min-height: var(--touch-ziel);
+  padding: 0 var(--abstand-3);
+  font: inherit;
+  font-size: var(--schrift-basis);
+  color: var(--farbe-text);
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.baustellen-wahl select:disabled {
+  color: var(--farbe-text-gedaempft);
+}
+
+/* Modulbereich */
+
+.modulbereich {
+  flex: 1;
+  width: 100%;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--abstand-4);
+  padding-bottom: calc(var(--abstand-4) + env(safe-area-inset-bottom));
+}
+
+.leerzustand {
+  background: var(--farbe-flaeche);
+  border: 1px dashed var(--farbe-linie);
+  border-radius: var(--radius);
+  padding: var(--abstand-5) var(--abstand-4);
+  text-align: center;
+  margin-top: var(--abstand-5);
+}
+
+.leerzustand-titel {
+  font-weight: 600;
+  margin-bottom: var(--abstand-2);
+}
+
+.leerzustand-text {
+  color: var(--farbe-text-gedaempft);
+  font-size: var(--schrift-klein);
+}
+
+/* Hilfsklassen */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
