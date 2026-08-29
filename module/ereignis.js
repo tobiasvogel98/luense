@@ -4,6 +4,7 @@
 
 import { put, abfrage, haengeAnhangAn, holeAnhang } from '../kern/speicher.js';
 import { verkleinereFoto } from '../kern/kamera.js';
+import { oeffneBericht } from '../kern/pdf.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
 
 const TAGS = ['Vorzustand', 'Fortschritt', 'Mangel', 'Regie', 'Abnahme'];
@@ -44,7 +45,10 @@ export default {
           <p class="meldung" role="status"></p>
         </form>
 
-        <div class="chips" data-rolle="filter"></div>
+        <div class="listen-kopf">
+          <div class="chips" data-rolle="filter"></div>
+          <button type="button" class="knopf" data-rolle="bericht">PDF-Bericht</button>
+        </div>
         <div data-rolle="liste"></div>
       </section>`;
 
@@ -124,6 +128,9 @@ export default {
       overlay.addEventListener('click', () => overlay.remove());
       document.body.append(overlay);
     }
+
+    container.querySelector('[data-rolle="bericht"]')
+      .addEventListener('click', () => oeffneBericht(baustelle));
 
     filterElement.addEventListener('click', (klick) => {
       const knopf = klick.target.closest('[data-tag]');
