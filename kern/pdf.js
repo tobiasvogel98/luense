@@ -24,7 +24,7 @@ export async function oeffneBericht(baustelle) {
   const dialog = document.createElement('div');
   dialog.className = 'vollbild dialog-hintergrund';
   dialog.innerHTML = `
-    <form class="karte dialog" data-rolle="bericht-dialog">
+    <form class="karte formular dialog" data-rolle="bericht-dialog">
       <h3>PDF-Fotobericht</h3>
       <p class="hinweis">${esc(baustelle.ktr)} ${esc(baustelle.name)}</p>
       <label>Von<input type="date" name="von"></label>

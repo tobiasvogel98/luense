@@ -2,7 +2,7 @@
 <html lang="de-CH">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#26333d">
   <title>Lünse</title>
@@ -38,9 +38,12 @@
     </div>
   </main>
 
+  <footer id="fusszeile" class="fusszeile"></footer>
+
   <script type="module">
     // Shell: Kopfzeilen-Auswahl füttern, Module registrieren, Stamm anbieten.
     import { alleBaustellen, renderStammAnsicht } from './kern/stamm.js';
+    import { renderBackupZeile } from './kern/export.js';
     import ereignisModul from './module/ereignis.js';
 
     // Modul-Registrierung: mehr Kopplung gibt es nicht.
@@ -94,6 +97,13 @@
     document.getElementById('stamm-knopf').addEventListener('click', () => {
       if (ansicht === 'stamm') zeigeModul();
       else zeigeStamm();
+    });
+
+    renderBackupZeile(document.getElementById('fusszeile'), {
+      nachImport: async () => {
+        await aktualisiereAuswahl();
+        zeigeModul();
+      },
     });
 
     await aktualisiereAuswahl();

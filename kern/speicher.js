@@ -32,6 +32,31 @@ export async function holeAnhang(docId, name) {
   return db.getAttachment(docId, name);
 }
 
+// Gesamtexport fürs Backup: alle Dokumente samt Anhängen (base64).
+export async function exportiereAlles() {
+  const ergebnis = await db.allDocs({ include_docs: true, attachments: true });
+  return ergebnis.rows.map((zeile) => zeile.doc);
+}
+
+// Import mit Duplikat-Schutz: ergänzt statt überschreibt — vorhandene
+// _ids bleiben unangetastet.
+export async function importiereDokumente(dokumente) {
+  const vorhandene = new Set((await db.allDocs()).rows.map((zeile) => zeile.id));
+  let neu = 0;
+  let uebersprungen = 0;
+  for (const doc of dokumente) {
+    if (!doc || !doc._id || vorhandene.has(doc._id)) {
+      uebersprungen++;
+      continue;
+    }
+    const { _rev, ...ohneRev } = doc;
+    await db.put(ohneRev);
+    vorhandene.add(doc._id);
+    neu++;
+  }
+  return { neu, uebersprungen };
+}
+
 // Alle Dokumente eines Typs, optional auf eine Baustelle gefiltert.
 // Sortiert nach datum, neuste zuerst.
 export async function abfrage({ typ, baustelleId } = {}) {
