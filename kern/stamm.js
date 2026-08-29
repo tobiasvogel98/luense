@@ -2,10 +2,7 @@
 // JSON-Import) und die Stamm-Ansicht für den Modulbereich.
 
 import { put, abfrage, neueId } from './speicher.js';
-
-const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+import { esc } from './ui.js';
 
 // ---------- Daten ----------
 

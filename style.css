@@ -210,7 +210,8 @@ body {
   color: var(--farbe-text-gedaempft);
 }
 
-.formular input {
+.formular input,
+.formular textarea {
   display: block;
   width: 100%;
   min-height: var(--touch-ziel);
@@ -224,7 +225,13 @@ body {
   border-radius: var(--radius);
 }
 
-.formular input:focus-visible {
+.formular textarea {
+  padding: var(--abstand-2) var(--abstand-3);
+  resize: vertical;
+}
+
+.formular input:focus-visible,
+.formular textarea:focus-visible {
   outline: 2px solid var(--farbe-akzent);
   outline-offset: 1px;
 }
@@ -258,6 +265,84 @@ body {
   color: var(--farbe-text-gedaempft);
   border: 1px solid var(--farbe-linie);
   border-radius: 999px;
+}
+
+/* Chips: Tag-Wahl im Formular und Filter über der Liste */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-2);
+  margin-bottom: var(--abstand-3);
+}
+
+.chip-wahl input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chip-wahl span,
+.chip-knopf {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-ziel);
+  padding: 0 var(--abstand-4);
+  font: inherit;
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--farbe-linie);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chip-knopf {
+  background: var(--farbe-flaeche);
+}
+
+.chip-wahl input:checked + span,
+.chip-knopf.aktiv {
+  color: var(--farbe-akzent-kontrast);
+  background: var(--farbe-akzent);
+  border-color: var(--farbe-akzent);
+}
+
+.chip-wahl input:focus-visible + span {
+  outline: 2px solid var(--farbe-akzent);
+  outline-offset: 1px;
+}
+
+/* Journal-Einträge */
+
+.journal h2 {
+  font-size: var(--schrift-titel);
+  margin: var(--abstand-2) 0 var(--abstand-4);
+}
+
+.ereignis {
+  padding: var(--abstand-3) var(--abstand-4);
+}
+
+.ereignis-kopf {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  flex-wrap: wrap;
+}
+
+.ereignis-kopf .chip {
+  margin-left: 0;
+}
+
+.ereignis-kopf .hinweis {
+  margin-bottom: 0;
+}
+
+.ereignis-notiz {
+  margin-top: var(--abstand-2);
+  white-space: pre-wrap;
 }
 
 details.archiv > summary,

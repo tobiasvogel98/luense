@@ -35,13 +35,17 @@
   </main>
 
   <script type="module">
-    // Shell: Kopfzeilen-Auswahl füttern und den Baustellen-Stamm anbieten.
-    // Module werden ab Abend 3 über eine Liste registriert.
+    // Shell: Kopfzeilen-Auswahl füttern, Module registrieren, Stamm anbieten.
     import { alleBaustellen, renderStammAnsicht } from './kern/stamm.js';
+    import ereignisModul from './module/ereignis.js';
+
+    // Modul-Registrierung: mehr Kopplung gibt es nicht.
+    const MODULE = [ereignisModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
     const modulbereich = document.getElementById('modulbereich');
     const MERKER = 'luense.aktiveBaustelle'; // nur UI-Zustand, keine Daten
+    let ansicht = 'modul'; // 'modul' oder 'stamm'
 
     async function aktualisiereAuswahl() {
       const baustellen = await alleBaustellen();
@@ -61,14 +65,35 @@
       return baustellen;
     }
 
-    auswahl.addEventListener('change', () => localStorage.setItem(MERKER, auswahl.value));
+    async function zeigeModul() {
+      const baustellen = await alleBaustellen();
+      const baustelle = baustellen.find((b) => b.baustelleId === auswahl.value);
+      if (!baustelle) {
+        zeigeStamm();
+        return;
+      }
+      ansicht = 'modul';
+      MODULE[0].render(modulbereich, baustelle);
+    }
 
-    const zeigeStamm = () =>
+    function zeigeStamm() {
+      ansicht = 'stamm';
       renderStammAnsicht(modulbereich, { onAenderung: aktualisiereAuswahl });
-    document.getElementById('stamm-knopf').addEventListener('click', zeigeStamm);
+    }
 
-    const baustellen = await aktualisiereAuswahl();
-    if (!baustellen.length) zeigeStamm(); // erster Start: direkt zum Stamm
+    auswahl.addEventListener('change', () => {
+      localStorage.setItem(MERKER, auswahl.value);
+      if (ansicht === 'modul') zeigeModul();
+    });
+
+    // ⚙ wechselt zwischen Stamm und aktivem Modul.
+    document.getElementById('stamm-knopf').addEventListener('click', () => {
+      if (ansicht === 'stamm') zeigeModul();
+      else zeigeStamm();
+    });
+
+    await aktualisiereAuswahl();
+    zeigeModul(); // ohne Baustellen landet man automatisch im Stamm
   </script>
 
 </body>
