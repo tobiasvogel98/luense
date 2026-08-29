@@ -145,5 +145,8 @@ async function zeigeDruckansicht(baustelle, eintraege, { von, bis }) {
     }
   }));
   const status = ansicht.querySelector('[data-rolle="lade-status"]');
-  status.textContent = `Bereit — ${eintraege.length} Einträge, ${bilder.length} Fotos.`;
+  const einheit = (anzahl, einzahl, mehrzahl) =>
+    `${anzahl} ${anzahl === 1 ? einzahl : mehrzahl}`;
+  status.textContent = `Bereit — ${einheit(eintraege.length, 'Eintrag', 'Einträge')}, ${
+    einheit(bilder.length, 'Foto', 'Fotos')}.`;
 }

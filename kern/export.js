@@ -97,7 +97,8 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
     try {
       const anzahl = await erstelleBackup();
       if (anzahl !== null) {
-        status.textContent = `Backup mit ${anzahl} Dokumenten erstellt.`;
+        status.textContent =
+          `Backup mit ${anzahl} ${anzahl === 1 ? 'Dokument' : 'Dokumenten'} erstellt.`;
         setTimeout(zeigeStand, 4000);
       }
     } catch (fehler) {
