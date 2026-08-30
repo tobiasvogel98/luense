@@ -290,6 +290,9 @@ body {
 
 .modul-nav .knopf {
   flex: 1;
+  padding: 0 var(--abstand-2);
+  font-size: var(--schrift-klein);
+  white-space: nowrap;
 }
 
 .modul-nav .knopf.aktiv {
@@ -413,8 +416,124 @@ body {
   color: var(--farbe-akzent);
 }
 
-.rapport-kopf .eintrag-loeschen {
+.rapport-knoepfe {
   margin-left: auto;
+  display: flex;
+  gap: var(--abstand-1);
+}
+
+/* Arbeiten-Blöcke im Rapport-Formular */
+
+.arbeit {
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  padding: var(--abstand-3);
+  margin-bottom: var(--abstand-3);
+}
+
+.arbeit-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--abstand-2);
+}
+
+.arbeit .formular label,
+.arbeit label {
+  margin-bottom: var(--abstand-2);
+}
+
+.arbeit input,
+.arbeit textarea {
+  background: var(--farbe-flaeche);
+}
+
+.gruppen-label {
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--farbe-text-gedaempft);
+  margin: var(--abstand-2) 0 var(--abstand-1);
+}
+
+.rapport-zeile {
+  display: flex;
+  gap: var(--abstand-1);
+  margin-bottom: var(--abstand-1);
+}
+
+.formular .rapport-zeile input {
+  width: auto;
+  margin-top: 0;
+}
+
+.rapport-zeile .zeile-name {
+  flex: 2 1 8rem;
+  min-width: 0;
+}
+
+.rapport-zeile .zeile-zahl {
+  flex: 1 1 4.5rem;
+  min-width: 0;
+  text-align: center;
+}
+
+.rapport-zeile .zeile-einheit {
+  flex: 1 1 3.5rem;
+  min-width: 0;
+  text-align: center;
+}
+
+.zeile-weg {
+  flex-shrink: 0;
+  min-width: var(--touch-ziel);
+  padding: 0;
+  color: var(--farbe-text-gedaempft);
+}
+
+.zeile-hinzu {
+  width: 100%;
+  border-style: dashed;
+  color: var(--farbe-akzent);
+  font-size: var(--schrift-klein);
+  margin-top: var(--abstand-1);
+}
+
+[data-aktion='arbeit-hinzu'] {
+  width: 100%;
+  border-style: dashed;
+  margin-bottom: var(--abstand-3);
+}
+
+.rapport-totale {
+  border-top: 1px solid var(--farbe-linie);
+  padding-top: var(--abstand-2);
+  margin-bottom: var(--abstand-3);
+}
+
+.rapport-totale div {
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 0;
+}
+
+.rapport-totale span:first-child {
+  color: var(--farbe-text-gedaempft);
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+}
+
+.rapport-totale span:last-child {
+  font-weight: 700;
+}
+
+.rapport-arbeit {
+  margin-top: var(--abstand-2);
+}
+
+.arbeit-titel {
+  font-weight: 600;
 }
 
 /* Fusszeile: Backup-Stand und -Knöpfe */
