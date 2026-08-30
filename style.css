@@ -683,6 +683,53 @@ body {
   border-radius: var(--radius);
 }
 
+/* Handnotiz: Vollbild-Zeichenfläche */
+
+.handnotiz {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--farbe-flaeche);
+}
+
+.handnotiz-leiste {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  padding: var(--abstand-2) var(--abstand-3);
+  padding-top: calc(var(--abstand-2) + env(safe-area-inset-top));
+  border-bottom: 1px solid var(--farbe-linie);
+  background: var(--farbe-hintergrund);
+}
+
+.handnotiz-platz {
+  flex: 1;
+}
+
+.handnotiz canvas {
+  flex: 1;
+  width: 100%;
+  display: block;
+  touch-action: none; /* Finger zeichnet, statt zu scrollen */
+  background: #ffffff;
+}
+
+.farb-knopf {
+  width: var(--touch-ziel);
+  height: var(--touch-ziel);
+  border-radius: 50%;
+  border: 3px solid var(--farbe-linie);
+  background: var(--stift);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.farb-knopf.aktiv {
+  border-color: var(--farbe-akzent);
+}
+
 /* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
 
 .betriebsstatus {

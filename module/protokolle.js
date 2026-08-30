@@ -5,9 +5,13 @@
 // wie das echte Papier-Protokoll (Vorbild: LünseDok). Neue Typen sind
 // reine Definitionen. Dokumenttyp «protokoll» mit Feld unterTyp.
 
-import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import {
+  put, abfrage, entferneDokument, haengeAnhangAn, holeAnhang, entferneAnhang,
+} from '../kern/speicher.js';
+import { verkleinereFoto } from '../kern/kamera.js';
+import { oeffneHandnotiz } from '../kern/handschrift.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
-import { esc } from '../kern/ui.js';
+import { esc, zeigeBildVollbild } from '../kern/ui.js';
 
 const CHECK_STATI = ['i. O.', 'Mangel', 'nicht zutreffend'];
 
@@ -328,6 +332,7 @@ export default {
     const filter = new Set();
     let inBearbeitung = null;
     let aktiverTyp = null;
+    const objektUrls = []; // Bild-URLs der Karten, beim Neuzeichnen freigeben
 
     // Anlege-Auswahl: Typen und ihre Vorlagen als eigene Einträge.
     const anlegeOptionen = PROTOKOLL_TYPEN.flatMap((typ) => (typ.vorlagen?.length
@@ -429,16 +434,36 @@ export default {
                       data-id="${esc(p._id)}">PDF</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="oeffnen"
                       data-id="${esc(p._id)}">Öffnen</button>
+                    <button type="button" class="knopf eintrag-loeschen" data-aktion="handnotiz"
+                      data-id="${esc(p._id)}">✍</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
                       data-id="${esc(p._id)}" aria-label="Protokoll löschen">Löschen</button>
                   </span>
                 </div>
                 ${kurz ? `<p class="hinweis">${esc(kurz)}</p>` : ''}
+                ${Object.keys(p._attachments || {}).length ? `
+                  <div class="foto-reihe">
+                    ${Object.keys(p._attachments).map((name) => `
+                      <img class="foto-thumb" alt="Handnotiz" loading="lazy"
+                        data-id="${esc(p._id)}" data-name="${esc(name)}">`).join('')}
+                  </div>` : ''}
                 ${aktionen ? `<div class="knopfzeile protokoll-aktionen">${aktionen}</div>` : ''}
               </article>`;
           }).join('')
         : `<p class="hinweis">${
             alle.length ? 'Keine Protokolle zu dieser Auswahl.' : 'Noch keine Protokolle auf dieser Baustelle.'}</p>`;
+      objektUrls.forEach(URL.revokeObjectURL);
+      objektUrls.length = 0;
+      for (const bild of listeElement.querySelectorAll('.foto-thumb')) {
+        try {
+          const blob = await holeAnhang(bild.dataset.id, bild.dataset.name);
+          const url = URL.createObjectURL(blob);
+          objektUrls.push(url);
+          bild.src = url;
+        } catch {
+          bild.remove();
+        }
+      }
     }
 
     container.querySelector('[data-aktion="anlegen"]').addEventListener('click', () => {
@@ -508,6 +533,16 @@ export default {
     });
 
     listeElement.addEventListener('click', async (klick) => {
+      const bild = klick.target.closest('.foto-thumb');
+      if (bild?.src) {
+        zeigeBildVollbild(bild.src, {
+          onLoeschen: async () => {
+            await entferneAnhang(bild.dataset.id, bild.dataset.name);
+            await zeichneListe();
+          },
+        });
+        return;
+      }
       const knopf = klick.target.closest('[data-aktion]');
       if (!knopf) return;
       const alle = await abfrage({ typ: 'protokoll', baustelleId: baustelle.baustelleId });
@@ -526,6 +561,12 @@ export default {
           abschnitte: druckModell(typ, protokoll),
           unterschriften: typ.unterschriften,
         });
+      } else if (knopf.dataset.aktion === 'handnotiz') {
+        const blob = await oeffneHandnotiz();
+        if (!blob) return;
+        const klein = await verkleinereFoto(blob);
+        await haengeAnhangAn(protokoll._id, `handnotiz-${Date.now().toString(36)}.jpg`, klein);
+        await zeichneListe();
       } else if (knopf.dataset.aktion === 'typ-aktion') {
         const handler = AKTIONEN[knopf.dataset.aktionId];
         if (!handler) return;

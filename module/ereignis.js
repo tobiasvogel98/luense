@@ -6,8 +6,9 @@ import {
   put, abfrage, haengeAnhangAn, holeAnhang, entferneDokument, entferneAnhang,
 } from '../kern/speicher.js';
 import { verkleinereFoto } from '../kern/kamera.js';
+import { oeffneHandnotiz } from '../kern/handschrift.js';
 import { oeffneBericht } from '../kern/pdf.js';
-import { esc, formatDatumZeit } from '../kern/ui.js';
+import { esc, formatDatumZeit, zeigeBildVollbild } from '../kern/ui.js';
 
 const TAGS = ['Vorzustand', 'Fortschritt', 'Mangel', 'Regie', 'Abnahme'];
 
@@ -35,11 +36,14 @@ export default {
           </div>
           <label>Ort / KV<input name="ortKv" autocomplete="off"></label>
           <label>Notiz<textarea name="notiz" rows="3"></textarea></label>
-          <label class="foto-feld">
-            <span class="knopf">📷 Foto aufnehmen</span>
-            <input type="file" accept="image/*" capture="environment" multiple
-              data-rolle="foto-eingabe" class="visually-hidden">
-          </label>
+          <div class="knopfzeile">
+            <label class="foto-feld">
+              <span class="knopf">📷 Foto aufnehmen</span>
+              <input type="file" accept="image/*" capture="environment" multiple
+                data-rolle="foto-eingabe" class="visually-hidden">
+            </label>
+            <button type="button" class="knopf" data-rolle="handnotiz">✍ Handnotiz</button>
+          </div>
           <p class="hinweis" data-rolle="foto-info"></p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Eintrag speichern</button>
@@ -73,6 +77,14 @@ export default {
     fotoEingabe.addEventListener('change', () => {
       gewaehlteFotos.push(...fotoEingabe.files);
       fotoEingabe.value = '';
+      zeigeFotoInfo();
+    });
+
+    // Handnotiz zeichnen — landet wie ein Foto beim Eintrag.
+    formular.querySelector('[data-rolle="handnotiz"]').addEventListener('click', async () => {
+      const blob = await oeffneHandnotiz();
+      if (!blob) return;
+      gewaehlteFotos.push(new File([blob], `handnotiz-${Date.now()}.png`, { type: 'image/png' }));
       zeigeFotoInfo();
     });
 
@@ -127,26 +139,12 @@ export default {
     }
 
     function zeigeVollbild(quelle, docId, name) {
-      const overlay = document.createElement('div');
-      overlay.className = 'vollbild';
-      overlay.innerHTML = `
-        <img src="${quelle}" alt="Foto in Vollbild">
-        <div class="vollbild-leiste">
-          <button type="button" class="knopf" data-aktion="foto-loeschen">
-            Foto löschen
-          </button>
-        </div>`;
-      overlay.addEventListener('click', async (klick) => {
-        if (!klick.target.closest('[data-aktion="foto-loeschen"]')) {
-          overlay.remove();
-          return;
-        }
-        if (!confirm('Dieses Foto endgültig löschen?')) return;
-        await entferneAnhang(docId, name);
-        overlay.remove();
-        await zeichneListe();
+      zeigeBildVollbild(quelle, {
+        onLoeschen: async () => {
+          await entferneAnhang(docId, name);
+          await zeichneListe();
+        },
       });
-      document.body.append(overlay);
     }
 
     container.querySelector('[data-rolle="bericht"]')
