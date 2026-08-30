@@ -294,6 +294,22 @@ body {
   border-color: var(--farbe-akzent);
 }
 
+.badge-anzahl {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 0.45em;
+  margin-left: var(--abstand-2);
+  border-radius: 999px;
+  font-size: var(--schrift-klein);
+  background: var(--farbe-akzent);
+  color: var(--farbe-akzent-kontrast);
+}
+
+.modul-nav .knopf.aktiv .badge-anzahl {
+  background: var(--farbe-akzent-kontrast);
+  color: var(--farbe-akzent);
+}
+
 /* Pendenzen: Farbband links nach Priorität, erledigt durchgestrichen */
 
 .pendenzen h2 {

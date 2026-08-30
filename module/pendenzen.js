@@ -41,6 +41,12 @@ export default {
   name: 'Pendenzen',
   dokumentTypen: ['pendenz'],
 
+  // Anzahl-Badge für die Modul-Navigation: offene Pendenzen der Baustelle.
+  async badge(baustelle) {
+    const alle = await abfrage({ typ: 'pendenz', baustelleId: baustelle.baustelleId });
+    return alle.filter((p) => !p.erledigtAm).length || null;
+  },
+
   render(container, baustelle) {
     let nurOffene = true;
 
@@ -140,6 +146,7 @@ export default {
         if (!confirm('Diese Pendenz endgültig löschen?')) return;
         await entferneDokument(pendenz._id);
       }
+      document.dispatchEvent(new CustomEvent('luense:daten'));
       await zeichneListe();
     });
 
@@ -159,6 +166,7 @@ export default {
         formular.reset();
         formular.querySelector('input[value="mittel"]').checked = true;
         meldung.textContent = 'Pendenz gespeichert.';
+        document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       } catch (fehler) {
         meldung.textContent = fehler.message;

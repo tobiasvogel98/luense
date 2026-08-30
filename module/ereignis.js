@@ -196,11 +196,31 @@ export default {
         for (const [index, blob] of verkleinerte.entries()) {
           await haengeAnhangAn(doc._id, `foto-${index + 1}.jpg`, blob);
         }
+        // Regie heisst: Nachtrag beziffern und melden — die Pendenz dazu
+        // entsteht automatisch (getyptes Dokument über den Kern, kein
+        // Aufruf des Pendenzen-Moduls).
+        if (doc.tag === 'Regie') {
+          await put({
+            typ: 'pendenz',
+            baustelleId: baustelle.baustelleId,
+            text: 'Nachtrag beziffern/melden',
+            prioritaet: 'hoch',
+            termin: '',
+            verantwortlich: '',
+            erledigtAm: '',
+            notiz: `Aus Regie-Ereignis vom ${formatDatumZeit(doc.datum)}${
+              doc.ortKv ? ' · ' + doc.ortKv : ''}`,
+            ereignisId: doc._id,
+          });
+        }
         formular.elements.ortKv.value = '';
         formular.elements.notiz.value = '';
         gewaehlteFotos = [];
         zeigeFotoInfo();
-        meldung.textContent = 'Eintrag gespeichert.';
+        meldung.textContent = doc.tag === 'Regie'
+          ? 'Eintrag gespeichert — Pendenz «Nachtrag beziffern/melden» erstellt.'
+          : 'Eintrag gespeichert.';
+        document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       } catch (fehler) {
         meldung.textContent = fehler.message;

@@ -79,11 +79,23 @@
       return baustellen;
     }
 
-    function zeichneModulNav() {
+    let aktuelleBaustelle = null;
+
+    async function zeichneModulNav() {
+      const anzahlen = await Promise.all(MODULE.map((modul) =>
+        modul.badge && aktuelleBaustelle ? modul.badge(aktuelleBaustelle) : null));
       modulNav.innerHTML = MODULE.map((modul, index) => `
         <button type="button" class="knopf${index === aktivesModul ? ' aktiv' : ''}"
-          data-index="${index}">${modul.name}</button>`).join('');
+          data-index="${index}">${modul.name}${
+            anzahlen[index] ? `<span class="badge-anzahl">${anzahlen[index]}</span>` : ''
+          }</button>`).join('');
     }
+
+    // Module melden Datenänderungen über dieses Ereignis — die Shell
+    // aktualisiert damit die Badges, ohne dass Module sie kennen müssen.
+    document.addEventListener('luense:daten', () => {
+      if (ansicht === 'modul') zeichneModulNav();
+    });
 
     modulNav.addEventListener('click', (klick) => {
       const knopf = klick.target.closest('[data-index]');
@@ -101,6 +113,7 @@
         return;
       }
       ansicht = 'modul';
+      aktuelleBaustelle = baustelle;
       modulNav.hidden = false;
       zeichneModulNav();
       MODULE[aktivesModul].render(modulbereich, baustelle);
