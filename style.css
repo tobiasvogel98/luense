@@ -389,6 +389,20 @@ body {
   margin-bottom: 0;
 }
 
+.eintrag-loeschen {
+  margin-left: auto;
+  padding: 0 var(--abstand-3);
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+}
+
+.vollbild-leiste {
+  position: absolute;
+  bottom: calc(var(--abstand-4) + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
 .ereignis-notiz {
   margin-top: var(--abstand-2);
   white-space: pre-wrap;

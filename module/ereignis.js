@@ -2,7 +2,9 @@
 // Erfassung (Tag, Ort/KV, Notiz, Fotos) und gefilterte Liste, neuste zuerst.
 // Spricht ausschliesslich über den Kern mit der Datenbank.
 
-import { put, abfrage, haengeAnhangAn, holeAnhang } from '../kern/speicher.js';
+import {
+  put, abfrage, haengeAnhangAn, holeAnhang, entferneDokument, entferneAnhang,
+} from '../kern/speicher.js';
 import { verkleinereFoto } from '../kern/kamera.js';
 import { oeffneBericht } from '../kern/pdf.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
@@ -94,6 +96,9 @@ export default {
                   <span class="chip">${esc(e.tag)}</span>
                   <span class="hinweis">${formatDatumZeit(e.datum)}${
                     e.ortKv ? ' · ' + esc(e.ortKv) : ''}</span>
+                  <button type="button" class="knopf eintrag-loeschen"
+                    data-aktion="loeschen" data-id="${esc(e._id)}"
+                    aria-label="Eintrag löschen">Löschen</button>
                 </div>
                 ${e.notiz ? `<p class="ereignis-notiz">${esc(e.notiz)}</p>` : ''}
                 ${fotos.length ? `
@@ -121,11 +126,26 @@ export default {
       }
     }
 
-    function zeigeVollbild(quelle) {
+    function zeigeVollbild(quelle, docId, name) {
       const overlay = document.createElement('div');
       overlay.className = 'vollbild';
-      overlay.innerHTML = `<img src="${quelle}" alt="Foto in Vollbild">`;
-      overlay.addEventListener('click', () => overlay.remove());
+      overlay.innerHTML = `
+        <img src="${quelle}" alt="Foto in Vollbild">
+        <div class="vollbild-leiste">
+          <button type="button" class="knopf" data-aktion="foto-loeschen">
+            Foto löschen
+          </button>
+        </div>`;
+      overlay.addEventListener('click', async (klick) => {
+        if (!klick.target.closest('[data-aktion="foto-loeschen"]')) {
+          overlay.remove();
+          return;
+        }
+        if (!confirm('Dieses Foto endgültig löschen?')) return;
+        await entferneAnhang(docId, name);
+        overlay.remove();
+        await zeichneListe();
+      });
       document.body.append(overlay);
     }
 
@@ -141,9 +161,17 @@ export default {
       zeichneListe();
     });
 
-    listeElement.addEventListener('click', (klick) => {
+    listeElement.addEventListener('click', async (klick) => {
+      const loeschKnopf = klick.target.closest('[data-aktion="loeschen"]');
+      if (loeschKnopf) {
+        if (confirm('Diesen Eintrag endgültig löschen? Zugehörige Fotos werden mitgelöscht.')) {
+          await entferneDokument(loeschKnopf.dataset.id);
+          await zeichneListe();
+        }
+        return;
+      }
       const bild = klick.target.closest('.foto-thumb');
-      if (bild?.src) zeigeVollbild(bild.src);
+      if (bild?.src) zeigeVollbild(bild.src, bild.dataset.id, bild.dataset.name);
     });
 
     formular.addEventListener('submit', async (abschicken) => {

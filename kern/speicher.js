@@ -32,6 +32,17 @@ export async function holeAnhang(docId, name) {
   return db.getAttachment(docId, name);
 }
 
+// Endgültiges Löschen — die Ansicht muss vorher bestätigen lassen.
+export async function entferneDokument(docId) {
+  const doc = await db.get(docId);
+  return db.remove(doc);
+}
+
+export async function entferneAnhang(docId, name) {
+  const doc = await db.get(docId);
+  return db.removeAttachment(docId, name, doc._rev);
+}
+
 // Gesamtexport fürs Backup: alle Dokumente samt Anhängen (base64).
 export async function exportiereAlles() {
   const ergebnis = await db.allDocs({ include_docs: true, attachments: true });
