@@ -8,6 +8,23 @@
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
 
+// Woran der Arbeitstext Regie erkennt: das Wort selbst plus typische
+// Indikatoren (Quelle: Regieanmeldung in LünseDok — «nicht im LV,
+// unvorhergesehen, Anordnung» — und Baupraxis). Wortstämme, damit
+// Beugungen wie «unvorhergesehener» oder «Zusatzarbeiten» mitgehen.
+const REGIE_MUSTER = new RegExp([
+  'regie',              // Regie, Regiearbeit, Regiestunden, Regierapport
+  'nachtrag',           // Nachtrag, nachtragsrelevant
+  'unvorhergesehen',    // unvorhergesehene Arbeiten
+  'zusatzarbeit', 'zusatzaufwand', 'zusatzleistung',
+  'mehraufwand', 'mehrleistung', 'mehrkosten',
+  'stundenlohn',        // Arbeiten im Stundenlohn
+  'nicht im lv', 'ausserhalb (des )?lv', 'nicht ausgeschrieben', 'nicht offeriert',
+  'auf anordnung', 'anordnung (der )?bauleitung', 'anordnung (des )?bauherrn',
+  'auf wunsch',         // z. B. «auf Wunsch der Gemeinde»
+  'ausservertraglich',
+].join('|'), 'i');
+
 const GRUPPEN = [
   { schluessel: 'personen', label: 'Personen (mit Stunden)', hinzu: '+ Person', art: 'stunden', platzhalter: 'Name, z. B. Max' },
   { schluessel: 'maschinen', label: 'Maschinen / Geräte (mit Stunden)', hinzu: '+ Maschine', art: 'stunden', platzhalter: 'z. B. Bagger' },
@@ -347,10 +364,10 @@ export default {
         // bei dieser Arbeit nicht mehr ein.
         ziel.dataset.manuell = '1';
       } else if (ziel.matches('[data-feld="text"]')) {
-        // Steht «Regie» im Arbeitstext, wird das Häkchen vorgeschlagen.
+        // Deutet der Arbeitstext auf Regie hin, wird das Häkchen vorgeschlagen.
         const schalter = ziel.closest('[data-rolle="arbeit"]')
           .querySelector('[data-feld="regie"]');
-        if (/regie/i.test(ziel.value) && !schalter.dataset.manuell && !schalter.checked) {
+        if (REGIE_MUSTER.test(ziel.value) && !schalter.dataset.manuell && !schalter.checked) {
           schalter.checked = true;
         }
       }
