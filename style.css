@@ -603,6 +603,53 @@ body {
   margin-bottom: var(--abstand-2);
 }
 
+/* Tabellen-Blöcke (z. B. Traktanden): ein nummerierter Block pro Zeile */
+
+.tab-block {
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  padding: var(--abstand-3);
+  margin-bottom: var(--abstand-2);
+}
+
+.tab-block-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--abstand-1);
+}
+
+.tab-block input,
+.tab-block textarea,
+.tab-block select {
+  background: var(--farbe-flaeche);
+}
+
+.protokoll-aktionen {
+  margin-top: var(--abstand-2);
+}
+
+/* Protokoll-Druck: Beschriftung/Wert-Zeilen */
+
+.meta-zeile {
+  display: flex;
+  gap: 6pt;
+  align-items: baseline;
+  font-size: 10.5pt;
+  padding: 1pt 0;
+}
+
+.meta-zeile b {
+  color: #555;
+  font-weight: 700;
+  min-width: 110pt;
+}
+
+.meta-wert {
+  white-space: pre-wrap;
+}
+
 .formular .check-status {
   width: auto;
   flex: 1 1 8rem;

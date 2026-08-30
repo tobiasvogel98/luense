@@ -258,6 +258,38 @@ export function zeigeRapportDruck(baustelle, rapport, t) {
     </div>`);
 }
 
+// Protokoll-Druck: neutrales Druckmodell aus der Protokoll-Engine —
+// Felder als Beschriftung/Wert, Tabellen als echte Tabellen, dazu die
+// typ-eigenen Unterschriftszeilen.
+export function zeigeProtokollDruck(baustelle, optionen) {
+  druckOverlay(`
+    <header class="bericht-kopf">
+      <h1>${esc(optionen.titel)} · ${esc(baustelle.ktr)} — ${esc(baustelle.name)}</h1>
+      ${optionen.untertitel ? `<p>${esc(optionen.untertitel)}</p>` : ''}
+    </header>
+
+    ${optionen.abschnitte.map((abschnitt) => abschnitt.art === 'felder'
+      ? `<section class="bericht-eintrag">
+          <h2>${esc(abschnitt.titel)}</h2>
+          ${abschnitt.zeilen.map((z) => `
+            <div class="meta-zeile"><b>${esc(z.label)}:</b>
+              <span class="meta-wert">${esc(z.wert)}</span></div>`).join('')}
+        </section>`
+      : `<section class="bericht-eintrag">
+          <h2>${esc(abschnitt.titel)}</h2>
+          <table class="rapport-tabelle">
+            <thead><tr>${abschnitt.spalten.map((s) => `<th>${esc(s)}</th>`).join('')}</tr></thead>
+            <tbody>${abschnitt.zeilen.map((zeile) => `
+              <tr>${zeile.map((w) => `<td class="meta-wert">${esc(w)}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table>
+        </section>`).join('')}
+
+    <div class="unterschriften">
+      ${(optionen.unterschriften || ['Unterschrift', 'Unterschrift'])
+        .map((u) => `<div>${esc(u)}</div>`).join('')}
+    </div>`);
+}
+
 // Wochenübersicht: eine Zeile je Rapport, Summenzeile, Unterschrift.
 export function zeigeWochenDruck(baustelle, woche) {
   druckOverlay(`

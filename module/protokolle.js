@@ -1,22 +1,86 @@
 // module/protokolle.js — Protokoll-Engine, viertes Modul der Shell.
 // EINE Engine rendert Protokolltypen aus einer Definition: Abschnitte mit
 // Feldern (text/mehrzeilig/datum/zeit/auswahl), Tabellen (dynamische
-// Zeilen) und Checklisten (Punkt, Status, Bemerkung). Neue Typen sind
-// reine Definitionen — die Engine bleibt unverändert.
-// Dokumenttyp «protokoll» mit Feld unterTyp.
+// Blöcke) und Checklisten. Jeder Typ ist auf seinen Zweck zugeschnitten —
+// wie das echte Papier-Protokoll (Vorbild: LünseDok). Neue Typen sind
+// reine Definitionen. Dokumenttyp «protokoll» mit Feld unterTyp.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { esc } from '../kern/ui.js';
 
 const CHECK_STATI = ['i. O.', 'Mangel', 'nicht zutreffend'];
 
 // ---------- Protokolltyp-Definitionen ----------
-// Weitere Typen (Sitzung, Begehung, Abnahme, …) kommen in den nächsten
-// Abenden ausschliesslich als Einträge in dieser Liste dazu.
+
 const PROTOKOLL_TYPEN = [
+  {
+    unterTyp: 'sitzung',
+    name: 'Sitzungsprotokoll',
+    unterschriften: ['Protokollführer', 'Bauleitung / Bauherr'],
+    kartenTitel: (werte) => werte.sitzungsart || 'Sitzung',
+    abschnitte: [
+      {
+        titel: 'Kopfdaten',
+        felder: [
+          { schluessel: 'sitzungsart', label: 'Sitzungsart', art: 'auswahl',
+            optionen: ['Jour fixe', 'Bauführersitzung', 'Bausitzung'] },
+          { schluessel: 'datum', label: 'Datum', art: 'datum', halb: true },
+          { schluessel: 'ort', label: 'Ort der Sitzung', art: 'text', halb: true },
+          { schluessel: 'zeitVon', label: 'Zeit von', art: 'zeit', halb: true },
+          { schluessel: 'zeitBis', label: 'Zeit bis', art: 'zeit', halb: true },
+          { schluessel: 'protokollfuehrer', label: 'Protokollführer', art: 'text', halb: true },
+          { schluessel: 'verteiler', label: 'Verteiler', art: 'text', halb: true },
+        ],
+      },
+      {
+        titel: 'Teilnehmende',
+        felder: [
+          { schluessel: 'teilnehmende',
+            label: 'Teilnehmende (eine Person pro Zeile: Name, Firma, Funktion)',
+            art: 'mehrzeilig', zeilen: 4 },
+        ],
+      },
+      {
+        titel: 'Traktanden & Beschlüsse',
+        tabelle: {
+          schluessel: 'traktanden',
+          hinzu: '+ Traktandum',
+          spalten: [
+            { schluessel: 'thema', label: 'Thema', art: 'text' },
+            { schluessel: 'besprochenes', label: 'Besprochenes', art: 'mehrzeilig' },
+            { schluessel: 'beschluss', label: 'Beschluss', art: 'mehrzeilig' },
+            { schluessel: 'wer', label: 'Wer', art: 'text', halb: true },
+            { schluessel: 'termin', label: 'Termin', art: 'datum', halb: true },
+          ],
+        },
+      },
+      {
+        titel: 'Abschluss',
+        felder: [
+          { schluessel: 'naechsteSitzung', label: 'Nächste Sitzung', art: 'datum', halb: true },
+          { schluessel: 'bemerkungen', label: 'Bemerkungen', art: 'mehrzeilig' },
+        ],
+      },
+    ],
+    vorlagen: [
+      { name: 'Jour fixe',
+        werte: { sitzungsart: 'Jour fixe', traktanden: [
+          { thema: 'Bautenstand' }, { thema: 'Termine' }, { thema: 'Pendenzen' },
+          { thema: 'Nachträge / Regie' }, { thema: 'Verschiedenes' },
+        ] } },
+      { name: 'Bauführersitzung',
+        werte: { sitzungsart: 'Bauführersitzung', traktanden: [
+          { thema: 'Arbeitssicherheit' }, { thema: 'Personal & Inventar' },
+          { thema: 'Stand Baustellen' }, { thema: 'Termine' }, { thema: 'Verschiedenes' },
+        ] } },
+    ],
+    aktionen: [{ id: 'beschluesse', label: 'Beschlüsse → Pendenzen' }],
+  },
   {
     unterTyp: 'test',
     name: 'Testprotokoll',
+    unterschriften: ['Erfasser', 'Beteiligter'],
     abschnitte: [
       {
         titel: 'Kopfdaten',
@@ -51,31 +115,54 @@ function formatTag(tagIso) {
   return t && m && j ? `${t}.${m}.${j}` : tagIso;
 }
 
+// Nebeneinanderliegende halb-Felder paarweise gruppieren.
+function gruppiereHalb(liste) {
+  const gruppen = [];
+  let i = 0;
+  while (i < liste.length) {
+    if (liste[i].halb && liste[i + 1]?.halb) {
+      gruppen.push([liste[i], liste[i + 1]]);
+      i += 2;
+    } else {
+      gruppen.push([liste[i]]);
+      i += 1;
+    }
+  }
+  return gruppen;
+}
+
 // ---------- Engine: Definition → Formular-HTML ----------
 
-function feldHtml(feld, wert) {
+function eingabeHtml(def, wert, attribut) {
   const w = wert ?? '';
-  if (feld.art === 'mehrzeilig') {
-    return `<label>${esc(feld.label)}<textarea data-schluessel="${esc(feld.schluessel)}"
-      rows="${feld.zeilen || 3}">${esc(w)}</textarea></label>`;
+  if (def.art === 'mehrzeilig') {
+    return `<label>${esc(def.label)}<textarea ${attribut}="${esc(def.schluessel)}"
+      rows="${def.zeilen || 2}">${esc(w)}</textarea></label>`;
   }
-  if (feld.art === 'auswahl') {
-    return `<label>${esc(feld.label)}<select data-schluessel="${esc(feld.schluessel)}">
-      ${(feld.optionen || []).map((o) => `<option${o === w ? ' selected' : ''}>${esc(o)}</option>`).join('')}
+  if (def.art === 'auswahl') {
+    return `<label>${esc(def.label)}<select ${attribut}="${esc(def.schluessel)}">
+      ${(def.optionen || []).map((o) => `<option${o === w ? ' selected' : ''}>${esc(o)}</option>`).join('')}
     </select></label>`;
   }
-  const typ = feld.art === 'datum' ? 'date' : feld.art === 'zeit' ? 'time' : 'text';
-  return `<label>${esc(feld.label)}<input type="${typ}"
-    data-schluessel="${esc(feld.schluessel)}" value="${esc(w)}" autocomplete="off"></label>`;
+  const typ = def.art === 'datum' ? 'date' : def.art === 'zeit' ? 'time' : 'text';
+  return `<label>${esc(def.label)}<input type="${typ}"
+    ${attribut}="${esc(def.schluessel)}" value="${esc(w)}" autocomplete="off"></label>`;
+}
+
+function felderHtml(felder, werte, attribut) {
+  return gruppiereHalb(felder).map((gruppe) => gruppe.length > 1
+    ? `<div class="feld-reihe">${gruppe.map((f) => eingabeHtml(f, werte[f.schluessel], attribut)).join('')}</div>`
+    : eingabeHtml(gruppe[0], werte[gruppe[0].schluessel], attribut)).join('');
 }
 
 function tabellenZeileHtml(tabelle, zeile = {}) {
-  return `<div class="rapport-zeile" data-rolle="tab-zeile">
-    ${tabelle.spalten.map((s) => `<input class="zeile-name" data-spalte="${esc(s.schluessel)}"
-      type="${s.art === 'datum' ? 'date' : 'text'}" placeholder="${esc(s.label)}"
-      value="${esc(zeile[s.schluessel] ?? '')}" autocomplete="off">`).join('')}
-    <button type="button" class="knopf zeile-weg" data-aktion="tab-zeile-entfernen"
-      aria-label="Zeile entfernen">×</button>
+  return `<div class="tab-block" data-rolle="tab-zeile">
+    <div class="tab-block-kopf">
+      <strong data-rolle="tab-nr"></strong>
+      <button type="button" class="knopf zeile-weg" data-aktion="tab-zeile-entfernen"
+        aria-label="Zeile entfernen">×</button>
+    </div>
+    ${felderHtml(tabelle.spalten, zeile, 'data-spalte')}
   </div>`;
 }
 
@@ -98,7 +185,7 @@ function checkZeileHtml(zeile = {}) {
 function abschnittHtml(abschnitt, werte) {
   let inhalt = '';
   if (abschnitt.felder) {
-    inhalt = abschnitt.felder.map((f) => feldHtml(f, werte[f.schluessel])).join('');
+    inhalt = felderHtml(abschnitt.felder, werte, 'data-schluessel');
   } else if (abschnitt.tabelle) {
     const zeilen = werte[abschnitt.tabelle.schluessel]?.length
       ? werte[abschnitt.tabelle.schluessel] : [{}];
@@ -157,10 +244,76 @@ function sammleWerte(formular, typ) {
   return werte;
 }
 
-// Kurzfassung fürs Listen-Karteli: erster gefüllter Textwert.
+// ---------- Druckmodell: Definition + Werte → neutrale Druckdaten ----------
+
+function druckModell(typ, protokoll) {
+  const werte = protokoll.werte || {};
+  const anzeige = (def, wert) => (def.art === 'datum' ? formatTag(wert) : (wert || ''));
+  return typ.abschnitte.map((abschnitt) => {
+    if (abschnitt.felder) {
+      const zeilen = abschnitt.felder
+        .map((f) => ({ label: f.label.split(' (')[0], wert: anzeige(f, werte[f.schluessel]) }))
+        .filter((z) => z.wert);
+      return zeilen.length ? { art: 'felder', titel: abschnitt.titel, zeilen } : null;
+    }
+    if (abschnitt.tabelle) {
+      const zeilen = (werte[abschnitt.tabelle.schluessel] || []).map((zeile) =>
+        abschnitt.tabelle.spalten.map((s) => anzeige(s, zeile[s.schluessel])));
+      return zeilen.length ? {
+        art: 'tabelle', titel: abschnitt.titel,
+        spalten: abschnitt.tabelle.spalten.map((s) => s.label), zeilen,
+      } : null;
+    }
+    if (abschnitt.checkliste) {
+      const zeilen = (werte[abschnitt.checkliste.schluessel] || [])
+        .map((z) => [z.punkt, z.status, z.bemerkung]);
+      return zeilen.length ? {
+        art: 'tabelle', titel: abschnitt.titel,
+        spalten: ['Prüfpunkt', 'Status', 'Bemerkung'], zeilen,
+      } : null;
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+// ---------- Typ-Aktionen ----------
+
+const AKTIONEN = {
+  // Sitzung: jeder Beschluss wird zur Pendenz mit Wer/Termin — genau einmal.
+  async beschluesse(protokoll, baustelle) {
+    const traktanden = protokoll.werte?.traktanden || [];
+    const bestehende = new Set((await abfrage({
+      typ: 'pendenz', baustelleId: baustelle.baustelleId,
+    })).map((p) => p.protokollRef).filter(Boolean));
+    let neu = 0;
+    let schonDa = 0;
+    for (const [index, t] of traktanden.entries()) {
+      if (!t.beschluss) continue;
+      const ref = `${protokoll._id}#${index}`;
+      if (bestehende.has(ref)) { schonDa++; continue; }
+      await put({
+        typ: 'pendenz',
+        baustelleId: baustelle.baustelleId,
+        text: t.thema ? `${t.thema}: ${t.beschluss}` : t.beschluss,
+        prioritaet: 'mittel',
+        termin: t.termin || '',
+        verantwortlich: t.wer || '',
+        erledigtAm: '',
+        notiz: `Beschluss aus ${protokoll.werte?.sitzungsart || 'Sitzung'} vom ${
+          formatTag(protokoll.werte?.datum)}`,
+        protokollRef: ref,
+      });
+      neu++;
+    }
+    return `${neu} Pendenz${neu === 1 ? '' : 'en'} erstellt${
+      schonDa ? `, ${schonDa} bereits vorhanden` : ''}.`;
+  },
+};
+
+// Kurzfassung fürs Listen-Karteli: erster gefüllter längerer Textwert.
 function vorschau(werte) {
   for (const wert of Object.values(werte)) {
-    if (typeof wert === 'string' && wert && !/^\d{4}-\d{2}-\d{2}$/.test(wert)) {
+    if (typeof wert === 'string' && wert.length > 12 && !/^\d{4}-\d{2}-\d{2}$/.test(wert)) {
       return wert.length > 90 ? `${wert.slice(0, 90)}…` : wert;
     }
   }
@@ -172,9 +325,16 @@ export default {
   dokumentTypen: ['protokoll'],
 
   render(container, baustelle) {
-    const filter = new Set(); // gewählte unterTypen; leer = alle
-    let inBearbeitung = null; // Protokoll-Dokument im Formular
+    const filter = new Set();
+    let inBearbeitung = null;
     let aktiverTyp = null;
+
+    // Anlege-Auswahl: Typen und ihre Vorlagen als eigene Einträge.
+    const anlegeOptionen = PROTOKOLL_TYPEN.flatMap((typ) => (typ.vorlagen?.length
+      ? typ.vorlagen.map((v, i) => ({
+          wert: `${typ.unterTyp}::${i}`, text: `${typ.name} — ${v.name}`,
+        }))
+      : [{ wert: typ.unterTyp, text: typ.name }]));
 
     container.innerHTML = `
       <section class="protokolle">
@@ -183,7 +343,7 @@ export default {
         <div class="karte formular" data-rolle="neu-bereich">
           <label>Protokolltyp
             <select data-rolle="typ-wahl">
-              ${PROTOKOLL_TYPEN.map((t) => `<option value="${esc(t.unterTyp)}">${esc(t.name)}</option>`).join('')}
+              ${anlegeOptionen.map((o) => `<option value="${esc(o.wert)}">${esc(o.text)}</option>`).join('')}
             </select>
           </label>
           <div class="knopfzeile">
@@ -191,6 +351,7 @@ export default {
               Neues Protokoll anlegen
             </button>
           </div>
+          <p class="meldung" data-rolle="aktions-meldung" role="status"></p>
         </div>
 
         <div data-rolle="formular-bereich"></div>
@@ -201,9 +362,18 @@ export default {
 
     const neuBereich = container.querySelector('[data-rolle="neu-bereich"]');
     const typWahl = container.querySelector('[data-rolle="typ-wahl"]');
+    const aktionsMeldung = container.querySelector('[data-rolle="aktions-meldung"]');
     const formularBereich = container.querySelector('[data-rolle="formular-bereich"]');
     const filterElement = container.querySelector('[data-rolle="filter"]');
     const listeElement = container.querySelector('[data-rolle="liste"]');
+
+    function nummeriereTabellen() {
+      for (const tabelle of formularBereich.querySelectorAll('[data-tabelle]')) {
+        tabelle.querySelectorAll('[data-rolle="tab-nr"]').forEach((el, i) => {
+          el.textContent = `${i + 1}.`;
+        });
+      }
+    }
 
     function schliesseFormular() {
       inBearbeitung = null;
@@ -212,11 +382,12 @@ export default {
       neuBereich.hidden = false;
     }
 
-    function oeffneFormular(typ, protokoll) {
+    function oeffneFormular(typ, protokoll, vorlageWerte) {
       aktiverTyp = typ;
       inBearbeitung = protokoll || null;
       neuBereich.hidden = true;
-      const werte = protokoll?.werte || { datum: heuteTag() };
+      const werte = protokoll?.werte
+        || { datum: heuteTag(), ...(vorlageWerte || {}) };
       formularBereich.innerHTML = `
         <form class="karte formular" data-rolle="protokoll-formular">
           <h3>${esc(typ.name)}${protokoll ? ' bearbeiten' : ''}</h3>
@@ -227,6 +398,7 @@ export default {
           </div>
           <p class="meldung" role="status"></p>
         </form>`;
+      nummeriereTabellen();
       formularBereich.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -242,13 +414,19 @@ export default {
       listeElement.innerHTML = gezeigt.length
         ? gezeigt.map((p) => {
             const typ = typVon(p.unterTyp);
+            const titel = typ?.kartenTitel?.(p.werte || {}) || typ?.name || p.unterTyp;
             const kurz = vorschau(p.werte || {});
+            const aktionen = (typ?.aktionen || []).map((a) => `
+              <button type="button" class="knopf eintrag-loeschen" data-aktion="typ-aktion"
+                data-aktion-id="${esc(a.id)}" data-id="${esc(p._id)}">${esc(a.label)}</button>`).join('');
             return `
               <article class="karte protokoll-karte">
                 <div class="rapport-kopf">
-                  <strong>${esc(typ?.name || p.unterTyp)}</strong>
+                  <strong>${esc(titel)}</strong>
                   <span class="hinweis">${formatTag(p.werte?.datum) || formatTag(p.datum)}</span>
                   <span class="rapport-knoepfe">
+                    <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
+                      data-id="${esc(p._id)}">PDF</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="oeffnen"
                       data-id="${esc(p._id)}">Öffnen</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
@@ -256,6 +434,7 @@ export default {
                   </span>
                 </div>
                 ${kurz ? `<p class="hinweis">${esc(kurz)}</p>` : ''}
+                ${aktionen ? `<div class="knopfzeile protokoll-aktionen">${aktionen}</div>` : ''}
               </article>`;
           }).join('')
         : `<p class="hinweis">${
@@ -263,8 +442,12 @@ export default {
     }
 
     container.querySelector('[data-aktion="anlegen"]').addEventListener('click', () => {
-      const typ = typVon(typWahl.value);
-      if (typ) oeffneFormular(typ, null);
+      const [unterTyp, vorlagenIndex] = typWahl.value.split('::');
+      const typ = typVon(unterTyp);
+      if (!typ) return;
+      const vorlage = vorlagenIndex !== undefined ? typ.vorlagen?.[Number(vorlagenIndex)] : null;
+      // Vorlagen-Werte tief kopieren, damit die Definition unangetastet bleibt.
+      oeffneFormular(typ, null, vorlage ? JSON.parse(JSON.stringify(vorlage.werte)) : null);
     });
 
     filterElement.addEventListener('click', (klick) => {
@@ -288,8 +471,10 @@ export default {
           .find((a) => a.tabelle?.schluessel === wurzel.dataset.tabelle);
         wurzel.querySelector('[data-rolle="tab-zeilen"]')
           .insertAdjacentHTML('beforeend', tabellenZeileHtml(abschnitt.tabelle));
+        nummeriereTabellen();
       } else if (aktion === 'tab-zeile-entfernen') {
         knopf.closest('[data-rolle="tab-zeile"]').remove();
+        nummeriereTabellen();
       } else if (aktion === 'check-zeile-hinzu') {
         knopf.closest('[data-checkliste]').querySelector('[data-rolle="check-zeilen"]')
           .insertAdjacentHTML('beforeend', checkZeileHtml());
@@ -310,7 +495,6 @@ export default {
         await put({
           ...basis,
           werte,
-          // Chronologie: das Protokolldatum bestimmt die Sortierung.
           datum: /^\d{4}-\d{2}-\d{2}$/.test(werte.datum || '')
             ? `${werte.datum}T12:00:00.000Z`
             : (basis.datum || new Date().toISOString()),
@@ -329,9 +513,24 @@ export default {
       const alle = await abfrage({ typ: 'protokoll', baustelleId: baustelle.baustelleId });
       const protokoll = alle.find((p) => p._id === knopf.dataset.id);
       if (!protokoll) return;
+      const typ = typVon(protokoll.unterTyp);
       if (knopf.dataset.aktion === 'oeffnen') {
-        const typ = typVon(protokoll.unterTyp);
         if (typ) oeffneFormular(typ, protokoll);
+      } else if (knopf.dataset.aktion === 'pdf') {
+        if (!typ) return;
+        const werte = protokoll.werte || {};
+        zeigeProtokollDruck(baustelle, {
+          titel: typ.kartenTitel?.(werte) || typ.name,
+          untertitel: [formatTag(werte.datum), werte.ort, werte.protokollfuehrer]
+            .filter(Boolean).join(' · '),
+          abschnitte: druckModell(typ, protokoll),
+          unterschriften: typ.unterschriften,
+        });
+      } else if (knopf.dataset.aktion === 'typ-aktion') {
+        const handler = AKTIONEN[knopf.dataset.aktionId];
+        if (!handler) return;
+        aktionsMeldung.textContent = await handler(protokoll, baustelle);
+        document.dispatchEvent(new CustomEvent('luense:daten'));
       } else if (knopf.dataset.aktion === 'loeschen') {
         if (!confirm('Dieses Protokoll endgültig löschen?')) return;
         await entferneDokument(protokoll._id);
