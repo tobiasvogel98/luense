@@ -573,6 +573,59 @@ body {
   font-weight: 600;
 }
 
+/* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
+
+.betriebsstatus {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--abstand-2) var(--abstand-4);
+}
+
+.betriebsstatus .hinweis {
+  margin: 0;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--abstand-1);
+  min-height: 36px;
+  padding: 0 var(--abstand-3);
+  font: inherit;
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.status-chip::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--farbe-text-gedaempft); /* im Aufbau: grau */
+}
+
+.status-chip.stufe-1::before {
+  background: #eab308; /* Parallelbetrieb: gelb */
+}
+
+.status-chip.stufe-2 {
+  color: var(--farbe-text);
+  font-weight: 600;
+}
+
+.status-chip.stufe-2::before {
+  background: #16a34a; /* führend: grün */
+}
+
 /* Fusszeile: Backup-Stand und -Knöpfe */
 
 .fusszeile {

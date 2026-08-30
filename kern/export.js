@@ -7,7 +7,7 @@ import {
   exportiereAlles, importiereDokumente, put, abfrage, entferneDokument,
 } from './speicher.js';
 import { alleBaustellen } from './stamm.js';
-import { esc } from './ui.js';
+import { esc, REGIE_MUSTER } from './ui.js';
 
 const MERKER = 'luense.letzterExport'; // nur UI-Zustand (Datum), keine Daten
 const ERINNERUNG_TAGE = 7;
@@ -87,15 +87,20 @@ export function altImportVorhanden() {
 }
 
 // Entfernt den letzten Probeimport vollständig (alle Dokumente mit
-// dessen importId). Gibt die Anzahl entfernter Pendenzen zurück.
+// dessen importId, egal welchen Typs). Gibt die Anzahl zurück.
 export async function entferneAltImport() {
   const importId = localStorage.getItem(ALT_IMPORT_MERKER);
   if (!importId) return 0;
-  const betroffene = (await abfrage({ typ: 'pendenz' }))
-    .filter((p) => p.importId === importId);
-  for (const doc of betroffene) await entferneDokument(doc._id);
+  let entfernt = 0;
+  for (const typ of ['pendenz', 'rapport']) {
+    const betroffene = (await abfrage({ typ })).filter((d) => d.importId === importId);
+    for (const doc of betroffene) {
+      await entferneDokument(doc._id);
+      entfernt++;
+    }
+  }
   localStorage.removeItem(ALT_IMPORT_MERKER);
-  return betroffene.length;
+  return entfernt;
 }
 
 export async function oeffneAltPendenzenImport(daten, { nachImport = () => {} } = {}) {
@@ -190,6 +195,145 @@ export async function oeffneAltPendenzenImport(daten, { nachImport = () => {} } 
   });
 }
 
+// ---------- Import aus dem alten Tagesrapport-Tool ----------
+// Dessen Daten liegen im localStorage: Archiv `tagesrapport_archive` =
+// [{id, data}], data = { worker, date, project (Freitext-Baustelle),
+// notes, entries: [{task, persons/machines/services: [{name, hours}],
+// materials: [{name, qty, unit}]}] }. Der Import akzeptiert das Archiv,
+// eine Liste von data-Objekten oder ein einzelnes data-Objekt.
+
+function altRapportListe(daten) {
+  const roh = Array.isArray(daten) ? daten
+    : Array.isArray(daten?.tagesrapport_archive) ? daten.tagesrapport_archive
+    : (daten?.entries ? [daten] : null);
+  if (!roh) return null;
+  const liste = roh
+    .map((eintrag) => (eintrag?.data?.entries ? { id: eintrag.id, ...eintrag.data }
+      : (eintrag?.entries ? eintrag : null)))
+    .filter(Boolean)
+    .filter((r) => r.date);
+  return liste.length ? liste : null;
+}
+
+export function istAltRapportFormat(daten) {
+  return !!altRapportListe(daten);
+}
+
+function altRapportZuDokument(alt, baustelleId, importId) {
+  const stundenListe = (liste) => (liste || [])
+    .map((z) => ({ name: String(z.name ?? '').trim(), stunden: String(z.hours ?? '').trim() }))
+    .filter((z) => z.name || z.stunden);
+  const arbeiten = (alt.entries || []).map((e) => ({
+    text: String(e.task ?? '').trim(),
+    regie: REGIE_MUSTER.test(String(e.task ?? '')),
+    personen: stundenListe(e.persons),
+    maschinen: stundenListe(e.machines),
+    fremdleistungen: stundenListe(e.services),
+    material: (e.materials || [])
+      .map((m) => ({ name: String(m.name ?? '').trim(), menge: String(m.qty ?? '').trim(), einheit: String(m.unit ?? '').trim() }))
+      .filter((m) => m.name || m.menge || m.einheit),
+  })).filter((a) => a.text || a.personen.length || a.maschinen.length
+    || a.fremdleistungen.length || a.material.length);
+  const regieStunden = arbeiten.filter((a) => a.regie)
+    .flatMap((a) => [...a.personen, ...a.maschinen, ...a.fremdleistungen])
+    .reduce((s, z) => s + (parseFloat(String(z.stunden).replace(',', '.')) || 0), 0);
+  return {
+    typ: 'rapport',
+    baustelleId,
+    tag: alt.date,
+    datum: `${alt.date}T12:00:00.000Z`,
+    mitarbeiter: String(alt.worker ?? '').trim(),
+    wetter: '',
+    davonRegie: regieStunden,
+    bemerkungen: String(alt.notes ?? '').trim(),
+    arbeiten,
+    altId: alt.id || `${alt.date}|${alt.project || ''}|${alt.worker || ''}`,
+    importId,
+    quelle: 'tagesrapport-alt',
+  };
+}
+
+export async function oeffneAltRapportImport(daten, { nachImport = () => {} } = {}) {
+  const liste = altRapportListe(daten);
+  const ziele = await alleBaustellen();
+  if (!ziele.length) {
+    alert('Zuerst in Lünse die Baustellen mit KTR-Nr. anlegen — danach importieren.');
+    return;
+  }
+  // Gruppieren nach dem Freitext-Feld «Baustelle» des Alt-Tools.
+  const projekte = new Map();
+  for (const r of liste) {
+    const name = String(r.project ?? '').trim() || '(ohne Baustelle)';
+    if (!projekte.has(name)) projekte.set(name, []);
+    projekte.get(name).push(r);
+  }
+
+  const dialog = document.createElement('div');
+  dialog.className = 'vollbild dialog-hintergrund';
+  dialog.innerHTML = `
+    <form class="karte formular dialog" data-rolle="alt-rapport-import">
+      <h3>Tagesrapporte aus dem Alt-Tool importieren</h3>
+      <p class="hinweis">${liste.length} Rapport${liste.length > 1 ? 'e' : ''} gefunden.
+        Ordne jeder Alt-Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu —
+        nicht Zugeordnetes wird übersprungen.</p>
+      ${[...projekte.entries()].map(([name, rapporte], index) => `
+        <label>${esc(name)} (${rapporte.length} Rapport${rapporte.length > 1 ? 'e' : ''})
+          <select name="ziel-${index}" data-projekt="${esc(name)}">
+            <option value="">— nicht importieren —</option>
+            ${ziele.map((z) => `
+              <option value="${esc(z.baustelleId)}"
+                ${z.name.trim().toLowerCase() === name.trim().toLowerCase() ? 'selected' : ''}>
+                ${esc(z.ktr)} · ${esc(z.name)}</option>`).join('')}
+          </select>
+        </label>`).join('')}
+      <div class="knopfzeile">
+        <button type="submit" class="knopf knopf-primaer">Importieren</button>
+        <button type="button" class="knopf" data-aktion="abbrechen">Abbrechen</button>
+      </div>
+      <p class="meldung" role="status"></p>
+    </form>`;
+  document.body.append(dialog);
+
+  const formular = dialog.querySelector('[data-rolle="alt-rapport-import"]');
+  const meldung = formular.querySelector('.meldung');
+  dialog.querySelector('[data-aktion="abbrechen"]').addEventListener('click', () => dialog.remove());
+  dialog.addEventListener('click', (klick) => {
+    if (klick.target === dialog) dialog.remove();
+  });
+
+  formular.addEventListener('submit', async (abschicken) => {
+    abschicken.preventDefault();
+    const zuordnung = new Map();
+    for (const select of formular.querySelectorAll('select')) {
+      if (select.value) zuordnung.set(select.dataset.projekt, select.value);
+    }
+    if (!zuordnung.size) {
+      meldung.textContent = 'Mindestens einer Baustelle eine KTR-Nr. zuordnen.';
+      return;
+    }
+    const bekannteAltIds = new Set(
+      (await abfrage({ typ: 'rapport' })).map((r) => r.altId).filter(Boolean));
+    const importId = `alt-rapporte:${Date.now().toString(36)}`;
+    let neu = 0;
+    let doppelt = 0;
+    let ohneZiel = 0;
+    for (const [name, rapporte] of projekte.entries()) {
+      const ziel = zuordnung.get(name);
+      for (const alt of rapporte) {
+        if (!ziel) { ohneZiel++; continue; }
+        const doc = altRapportZuDokument(alt, ziel, importId);
+        if (bekannteAltIds.has(doc.altId)) { doppelt++; continue; }
+        await put(doc);
+        bekannteAltIds.add(doc.altId);
+        neu++;
+      }
+    }
+    if (neu) localStorage.setItem(ALT_IMPORT_MERKER, importId);
+    dialog.remove();
+    nachImport({ neu, doppelt, ohneZiel });
+  });
+}
+
 // Fusszeile für die Shell: Backup-Stand, Erinnerung, Backup- und Import-Knopf.
 export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
   container.innerHTML = `
@@ -261,6 +405,15 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
             nachImport();
           },
         });
+      } else if (istAltRapportFormat(inhalt)) {
+        await oeffneAltRapportImport(inhalt, {
+          nachImport: (ergebnis) => {
+            status.textContent = `Probeimport: ${ergebnis.neu} Rapporte neu, `
+              + `${ergebnis.doppelt} Duplikate, ${ergebnis.ohneZiel} ohne Zuordnung.`;
+            entfernenKnopf.hidden = !altImportVorhanden();
+            nachImport();
+          },
+        });
       } else {
         const ergebnis = await importiereBackup(datei);
         status.textContent =
@@ -277,7 +430,7 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
   entfernenKnopf.addEventListener('click', async () => {
     if (!confirm('Den letzten Probeimport vollständig entfernen?')) return;
     const anzahl = await entferneAltImport();
-    status.textContent = `Probeimport entfernt: ${anzahl} Pendenz${anzahl === 1 ? '' : 'en'} gelöscht.`;
+    status.textContent = `Probeimport entfernt: ${anzahl} ${anzahl === 1 ? 'Dokument' : 'Dokumente'} gelöscht.`;
     entfernenKnopf.hidden = true;
     nachImport();
   });

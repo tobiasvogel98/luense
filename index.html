@@ -40,6 +40,8 @@
     </div>
   </main>
 
+  <div id="betriebsstatus" class="betriebsstatus"></div>
+
   <footer id="fusszeile" class="fusszeile"></footer>
 
   <script type="module">
@@ -136,6 +138,42 @@
       if (ansicht === 'stamm') zeigeModul();
       else zeigeStamm();
     });
+
+    // Betriebsstatus je Modul: im Aufbau → Parallelbetrieb → führend.
+    // Ehrliche Anzeige, von Hand umschaltbar (Antippen wechselt weiter).
+    const STATUS_MERKER = 'luense.betriebsstatus';
+    const STATI = ['im Aufbau', 'Parallelbetrieb', 'führend'];
+    const statusElement = document.getElementById('betriebsstatus');
+
+    function ladeBetriebsstatus() {
+      try {
+        return JSON.parse(localStorage.getItem(STATUS_MERKER)) || {};
+      } catch {
+        return {};
+      }
+    }
+
+    function zeichneBetriebsstatus() {
+      const status = ladeBetriebsstatus();
+      statusElement.innerHTML = '<span class="hinweis">Betriebsstatus:</span> '
+        + MODULE.map((modul) => {
+          const stufe = status[modul.name] ?? 0;
+          return `<button type="button" class="status-chip stufe-${stufe}"
+            data-name="${modul.name}"
+            title="Antippen wechselt den Status">${modul.name}: ${STATI[stufe]}</button>`;
+        }).join('');
+    }
+
+    statusElement.addEventListener('click', (klick) => {
+      const knopf = klick.target.closest('[data-name]');
+      if (!knopf) return;
+      const status = ladeBetriebsstatus();
+      status[knopf.dataset.name] = ((status[knopf.dataset.name] ?? 0) + 1) % STATI.length;
+      localStorage.setItem(STATUS_MERKER, JSON.stringify(status));
+      zeichneBetriebsstatus();
+    });
+
+    zeichneBetriebsstatus();
 
     renderBackupZeile(document.getElementById('fusszeile'), {
       nachImport: async () => {

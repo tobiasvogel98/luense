@@ -7,24 +7,7 @@
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
-import { esc, formatDatumZeit } from '../kern/ui.js';
-
-// Woran der Arbeitstext Regie erkennt: das Wort selbst plus typische
-// Indikatoren (Quelle: Regieanmeldung in LünseDok — «nicht im LV,
-// unvorhergesehen, Anordnung» — und Baupraxis). Wortstämme, damit
-// Beugungen wie «unvorhergesehener» oder «Zusatzarbeiten» mitgehen.
-const REGIE_MUSTER = new RegExp([
-  'regie',              // Regie, Regiearbeit, Regiestunden, Regierapport
-  'nachtrag',           // Nachtrag, nachtragsrelevant
-  'unvorhergesehen',    // unvorhergesehene Arbeiten
-  'zusatzarbeit', 'zusatzaufwand', 'zusatzleistung',
-  'mehraufwand', 'mehrleistung', 'mehrkosten',
-  'stundenlohn',        // Arbeiten im Stundenlohn
-  'nicht im lv', 'ausserhalb (des )?lv', 'nicht ausgeschrieben', 'nicht offeriert',
-  'auf anordnung', 'anordnung (der )?bauleitung', 'anordnung (des )?bauherrn',
-  'auf wunsch',         // z. B. «auf Wunsch der Gemeinde»
-  'ausservertraglich',
-].join('|'), 'i');
+import { esc, formatDatumZeit, REGIE_MUSTER } from '../kern/ui.js';
 
 const GRUPPEN = [
   { schluessel: 'personen', label: 'Personen (mit Stunden)', hinzu: '+ Person', art: 'stunden', platzhalter: 'Name, z. B. Max' },
