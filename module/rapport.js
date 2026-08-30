@@ -6,7 +6,7 @@
 // Kalenderwoche mit Wochensumme. Dokumenttyp «rapport».
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
-import { esc } from '../kern/ui.js';
+import { esc, formatDatumZeit } from '../kern/ui.js';
 
 const GRUPPEN = [
   { schluessel: 'personen', label: 'Personen (mit Stunden)', hinzu: '+ Person', art: 'stunden', platzhalter: 'Name, z. B. Max' },
@@ -47,6 +47,14 @@ function zahl(wert) {
 
 function stundenText(n) {
   return `${Math.round(n * 100) / 100} h`;
+}
+
+// Lokaler Kalendertag eines ISO-Zeitstempels (fürs Verknüpfen mit Ereignissen).
+function lokalerTag(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 10);
 }
 
 // Totale eines Rapports — wie im Alt-Tool: Stunden je Gruppe; Material
@@ -220,10 +228,14 @@ export default {
       }).join(', ');
     }
 
-    function rapportKarte(r) {
+    function rapportKarte(r, regieEreignisse) {
       const t = totale(r.arbeiten);
+      const mitRegie = zahl(r.davonRegie) > 0;
+      const verknuepfte = mitRegie
+        ? regieEreignisse.filter((e) => lokalerTag(e.datum) === r.tag)
+        : [];
       return `
-        <article class="karte rapport">
+        <article class="karte rapport${mitRegie ? ' mit-regie' : ''}">
           <div class="rapport-kopf">
             <strong>${formatTag(r.tag)}</strong>
             <span class="rapport-stunden">${stundenText(t.personen)}${
@@ -247,6 +259,12 @@ export default {
               ${arbeit.fremdleistungen?.length ? `<p class="hinweis">Fremdleistungen: ${gruppenText(arbeit.fremdleistungen, true)}</p>` : ''}
             </div>`).join('')}
           ${r.bemerkungen ? `<p class="hinweis">Bemerkungen: ${esc(r.bemerkungen)}</p>` : ''}
+          ${mitRegie ? `
+            <p class="hinweis verknuepfung">↳ Regie-Ereignisse im Journal am ${formatTag(r.tag)}: ${
+              verknuepfte.length
+                ? verknuepfte.map((e) => `${formatDatumZeit(e.datum).split(', ')[1] || ''}${
+                    e.ortKv ? ' ' + esc(e.ortKv) : ''}`.trim()).join(', ')
+                : 'keine erfasst'}</p>` : ''}
         </article>`;
     }
 
@@ -257,6 +275,11 @@ export default {
           '<p class="hinweis">Noch keine Rapporte auf dieser Baustelle.</p>';
         return;
       }
+      // Verweis auf Journal-Ereignisse desselben Tages mit Tag «Regie» —
+      // dynamisch nachgeschlagen, nicht kopiert (Dokumente teilen, nie Code).
+      const regieEreignisse = (await abfrage({
+        typ: 'ereignis', baustelleId: baustelle.baustelleId,
+      })).filter((e) => e.tag === 'Regie');
       const gruppen = new Map();
       for (const r of alle) {
         const { jahr, kw } = kalenderwoche(r.tag);
@@ -270,7 +293,7 @@ export default {
         return `
           <div class="wochen-titel">KW ${gruppe.kw} · Personal ${stundenText(personal)}${
             regie ? ` · Regie ${stundenText(regie)}` : ''}</div>
-          ${gruppe.rapporte.map(rapportKarte).join('')}`;
+          ${gruppe.rapporte.map((r) => rapportKarte(r, regieEreignisse)).join('')}`;
       }).join('');
     }
 
@@ -338,7 +361,7 @@ export default {
         const basis = inBearbeitung
           ? { ...inBearbeitung }
           : { typ: 'rapport', baustelleId: baustelle.baustelleId };
-        await put({
+        const gespeichert = await put({
           ...basis,
           tag: formular.elements.tag.value,
           datum: `${formular.elements.tag.value}T12:00:00.000Z`,
@@ -348,8 +371,33 @@ export default {
           bemerkungen: formular.elements.bemerkungen.value.trim(),
           arbeiten,
         });
+        // Regie-Stunden > 0: Pendenz «Regierapport unterschreiben lassen»
+        // automatisch erzeugen — genau einmal pro Rapport.
+        let pendenzErstellt = false;
+        if (gespeichert.davonRegie > 0) {
+          const schonDa = (await abfrage({
+            typ: 'pendenz', baustelleId: baustelle.baustelleId,
+          })).some((p) => p.rapportId === gespeichert._id);
+          if (!schonDa) {
+            await put({
+              typ: 'pendenz',
+              baustelleId: baustelle.baustelleId,
+              text: 'Regierapport unterschreiben lassen',
+              prioritaet: 'hoch',
+              termin: '',
+              verantwortlich: '',
+              erledigtAm: '',
+              notiz: `Aus Tagesrapport vom ${formatTag(gespeichert.tag)} `
+                + `(Regie ${stundenText(gespeichert.davonRegie)})`,
+              rapportId: gespeichert._id,
+            });
+            pendenzErstellt = true;
+          }
+        }
         fuelleFormular(null);
-        meldung.textContent = 'Rapport gespeichert.';
+        meldung.textContent = pendenzErstellt
+          ? 'Rapport gespeichert — Pendenz «Regierapport unterschreiben lassen» erstellt.'
+          : 'Rapport gespeichert.';
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       } catch (fehler) {

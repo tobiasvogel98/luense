@@ -416,6 +416,15 @@ body {
   color: var(--farbe-akzent);
 }
 
+.rapport.mit-regie {
+  border-left: 6px solid var(--farbe-akzent);
+}
+
+.verknuepfung {
+  margin-top: var(--abstand-2);
+  font-style: italic;
+}
+
 .rapport-knoepfe {
   margin-left: auto;
   display: flex;

@@ -2,7 +2,7 @@
 // VERSION bei jeder Aenderung an App-Dateien hochzaehlen — alte Caches werden
 // beim Aktivieren geloescht, danach laedt die Seite die neuen Dateien.
 
-const VERSION = 'luense-v10';
+const VERSION = 'luense-v11';
 
 const DATEIEN = [
   './',
