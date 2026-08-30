@@ -48,9 +48,10 @@
     import { renderBackupZeile } from './kern/export.js';
     import ereignisModul from './module/ereignis.js';
     import pendenzenModul from './module/pendenzen.js';
+    import rapportModul from './module/rapport.js';
 
     // Modul-Registrierung: mehr Kopplung gibt es nicht.
-    const MODULE = [ereignisModul, pendenzenModul];
+    const MODULE = [ereignisModul, pendenzenModul, rapportModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
     const modulbereich = document.getElementById('modulbereich');
