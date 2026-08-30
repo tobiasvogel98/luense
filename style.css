@@ -273,6 +273,82 @@ body {
   border-radius: 999px;
 }
 
+/* Modul-Navigation unter der Kopfzeile */
+
+.modul-nav {
+  display: flex;
+  gap: var(--abstand-2);
+  width: 100%;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--abstand-3) var(--abstand-4) 0;
+}
+
+.modul-nav .knopf {
+  flex: 1;
+}
+
+.modul-nav .knopf.aktiv {
+  color: var(--farbe-akzent-kontrast);
+  background: var(--farbe-akzent);
+  border-color: var(--farbe-akzent);
+}
+
+/* Pendenzen: Farbband links nach Priorität, erledigt durchgestrichen */
+
+.pendenzen h2 {
+  font-size: var(--schrift-titel);
+  margin: var(--abstand-2) 0 var(--abstand-4);
+}
+
+.pendenz {
+  border-left: 6px solid var(--farbe-linie);
+  padding: var(--abstand-3) var(--abstand-4);
+}
+
+.pendenz.prio-hoch { border-left-color: #dc2626; }
+.pendenz.prio-mittel { border-left-color: #eab308; }
+.pendenz.prio-tief { border-left-color: #16a34a; }
+
+.pendenz-zeile {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--abstand-3);
+}
+
+.pendenz-haken {
+  flex-shrink: 0;
+  min-width: var(--touch-ziel);
+  font-size: 1.1rem;
+}
+
+.pendenz-mitte {
+  flex: 1;
+  min-width: 0;
+}
+
+.pendenz-text {
+  font-weight: 600;
+}
+
+.pendenz-mitte .hinweis {
+  margin-top: var(--abstand-1);
+  margin-bottom: 0;
+}
+
+.pendenz.erledigt {
+  opacity: 0.75;
+}
+
+.pendenz.erledigt .pendenz-text {
+  text-decoration: line-through;
+}
+
+.ueberfaellig {
+  color: var(--farbe-akzent);
+  font-weight: 700;
+}
+
 /* Fusszeile: Backup-Stand und -Knöpfe */
 
 .fusszeile {

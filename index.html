@@ -31,6 +31,8 @@
     </button>
   </header>
 
+  <nav id="modul-nav" class="modul-nav" aria-label="Module" hidden></nav>
+
   <main id="modulbereich" class="modulbereich">
     <div class="leerzustand">
       <p class="leerzustand-titel">Noch kein Modul geladen</p>
@@ -45,14 +47,19 @@
     import { alleBaustellen, renderStammAnsicht } from './kern/stamm.js';
     import { renderBackupZeile } from './kern/export.js';
     import ereignisModul from './module/ereignis.js';
+    import pendenzenModul from './module/pendenzen.js';
 
     // Modul-Registrierung: mehr Kopplung gibt es nicht.
-    const MODULE = [ereignisModul];
+    const MODULE = [ereignisModul, pendenzenModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
     const modulbereich = document.getElementById('modulbereich');
+    const modulNav = document.getElementById('modul-nav');
     const MERKER = 'luense.aktiveBaustelle'; // nur UI-Zustand, keine Daten
+    const MODUL_MERKER = 'luense.aktivesModul';
     let ansicht = 'modul'; // 'modul' oder 'stamm'
+    let aktivesModul = Math.max(0,
+      MODULE.findIndex((m) => m.name === localStorage.getItem(MODUL_MERKER)));
 
     async function aktualisiereAuswahl() {
       const baustellen = await alleBaustellen();
@@ -72,6 +79,20 @@
       return baustellen;
     }
 
+    function zeichneModulNav() {
+      modulNav.innerHTML = MODULE.map((modul, index) => `
+        <button type="button" class="knopf${index === aktivesModul ? ' aktiv' : ''}"
+          data-index="${index}">${modul.name}</button>`).join('');
+    }
+
+    modulNav.addEventListener('click', (klick) => {
+      const knopf = klick.target.closest('[data-index]');
+      if (!knopf) return;
+      aktivesModul = Number(knopf.dataset.index);
+      localStorage.setItem(MODUL_MERKER, MODULE[aktivesModul].name);
+      zeigeModul();
+    });
+
     async function zeigeModul() {
       const baustellen = await alleBaustellen();
       const baustelle = baustellen.find((b) => b.baustelleId === auswahl.value);
@@ -80,11 +101,14 @@
         return;
       }
       ansicht = 'modul';
-      MODULE[0].render(modulbereich, baustelle);
+      modulNav.hidden = false;
+      zeichneModulNav();
+      MODULE[aktivesModul].render(modulbereich, baustelle);
     }
 
     function zeigeStamm() {
       ansicht = 'stamm';
+      modulNav.hidden = true;
       renderStammAnsicht(modulbereich, { onAenderung: aktualisiereAuswahl });
     }
 
