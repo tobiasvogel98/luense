@@ -150,3 +150,152 @@ async function zeigeDruckansicht(baustelle, eintraege, { von, bis }) {
   status.textContent = `Bereit — ${einheit(eintraege.length, 'Eintrag', 'Einträge')}, ${
     einheit(bilder.length, 'Foto', 'Fotos')}.`;
 }
+
+// ---------- Tagesrapport-Druck (Einzelrapport und Wochenübersicht) ----------
+// Das Rapport-Modul rechnet die Totale und übergibt sie — hier wird nur
+// gerendert und gedruckt.
+
+function stundenText(n) {
+  return `${Math.round(n * 100) / 100} h`;
+}
+
+function formatTagLang(tagIso) {
+  const datum = new Date(`${tagIso}T12:00:00`);
+  if (Number.isNaN(datum.getTime())) return tagIso;
+  return datum.toLocaleDateString('de-CH', {
+    weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric',
+  });
+}
+
+function druckOverlay(inhalt) {
+  const ansicht = document.createElement('div');
+  ansicht.className = 'druckansicht';
+  ansicht.innerHTML = `
+    <div class="druck-toolbar">
+      <button type="button" class="knopf knopf-primaer" data-aktion="drucken">
+        Drucken / als PDF speichern
+      </button>
+      <button type="button" class="knopf" data-aktion="schliessen">Schliessen</button>
+    </div>
+    <div class="bericht">${inhalt}</div>`;
+  document.body.append(ansicht);
+  ansicht.querySelector('[data-aktion="schliessen"]').addEventListener('click', () => ansicht.remove());
+  ansicht.querySelector('[data-aktion="drucken"]').addEventListener('click', () => window.print());
+}
+
+function druckZeile(name, wert) {
+  return `<div class="druck-zeile"><span>${esc(name || '—')}</span>
+    <span class="punkte"></span><span class="druck-wert">${esc(wert)}</span></div>`;
+}
+
+function zeilenGruppe(label, liste, art) {
+  if (!liste?.length) return '';
+  const zeilen = liste.map((z) => {
+    const wert = art === 'menge'
+      ? [z.menge, z.einheit].filter(Boolean).join(' ')
+      : (String(z.stunden ?? '').trim()
+          ? stundenText(parseFloat(String(z.stunden).replace(',', '.')) || 0) : '');
+    return druckZeile(z.name, wert);
+  }).join('');
+  return `<p class="gruppen-label">${label}</p>${zeilen}`;
+}
+
+// Einzelrapport: Kopf (KTR/Baustelle/Datum/Wetter), Arbeiten, Stunden-
+// Tabelle, Regie-Block separat, Unterschriftszeile.
+export function zeigeRapportDruck(baustelle, rapport, t) {
+  const regieArbeiten = (rapport.arbeiten || []).filter((a) => a.regie);
+  druckOverlay(`
+    <header class="bericht-kopf">
+      <h1>Tagesrapport ${esc(baustelle.ktr)} — ${esc(baustelle.name)}</h1>
+      <p>${formatTagLang(rapport.tag)}${
+        rapport.mitarbeiter ? ' · ' + esc(rapport.mitarbeiter) : ''}${
+        rapport.wetter ? ' · ' + esc(rapport.wetter) : ''}${
+        baustelle.ort ? ' · ' + esc(baustelle.ort) : ''}</p>
+    </header>
+
+    ${(rapport.arbeiten || []).map((arbeit, i) => `
+      <section class="bericht-eintrag">
+        <h2>${i + 1}. ${esc(arbeit.text || '—')}${
+          arbeit.regie ? ' <span class="chip">Regie</span>' : ''}</h2>
+        ${zeilenGruppe('Personen', arbeit.personen, 'stunden')}
+        ${zeilenGruppe('Maschinen', arbeit.maschinen, 'stunden')}
+        ${zeilenGruppe('Material', arbeit.material, 'menge')}
+        ${zeilenGruppe('Fremdleistungen', arbeit.fremdleistungen, 'stunden')}
+      </section>`).join('')}
+
+    <table class="rapport-tabelle">
+      <tbody>
+        <tr><td>Total Personal</td><td class="zahl">${stundenText(t.personen)}</td></tr>
+        <tr><td>Total Maschinen</td><td class="zahl">${stundenText(t.maschinen)}</td></tr>
+        <tr><td>Total Material</td><td class="zahl">${esc(t.materialText)}</td></tr>
+        <tr><td>Total Fremdleistungen</td><td class="zahl">${stundenText(t.fremdleistungen)}</td></tr>
+      </tbody>
+    </table>
+
+    ${t.regie > 0 ? `
+      <section class="regie-block">
+        <h2>Regie — separat ausgewiesen</h2>
+        ${regieArbeiten.map((arbeit) => {
+          const stunden = ['personen', 'maschinen', 'fremdleistungen']
+            .flatMap((g) => arbeit[g] || [])
+            .reduce((s, z) => s + (parseFloat(String(z.stunden ?? '').replace(',', '.')) || 0), 0);
+          return druckZeile(arbeit.text || '—', stundenText(stunden));
+        }).join('')}
+        <div class="druck-zeile regie-total-zeile"><span><strong>Total Regie</strong></span>
+          <span class="punkte"></span><span class="druck-wert"><strong>${
+            stundenText(t.regie)}</strong></span></div>
+      </section>` : ''}
+
+    ${rapport.bemerkungen ? `
+      <section class="bericht-eintrag">
+        <h2>Bemerkungen</h2>
+        <p class="bericht-notiz">${esc(rapport.bemerkungen)}</p>
+      </section>` : ''}
+
+    <div class="unterschriften">
+      <div>Unterschrift Mitarbeiter</div>
+      <div>Unterschrift Bauleitung / Bauherr</div>
+    </div>`);
+}
+
+// Wochenübersicht: eine Zeile je Rapport, Summenzeile, Unterschrift.
+export function zeigeWochenDruck(baustelle, woche) {
+  druckOverlay(`
+    <header class="bericht-kopf">
+      <h1>Wochenrapport KW ${woche.kw} · ${esc(baustelle.ktr)} — ${esc(baustelle.name)}</h1>
+      <p>${esc(woche.von)} – ${esc(woche.bis)}${
+        baustelle.ort ? ' · ' + esc(baustelle.ort) : ''}</p>
+    </header>
+
+    <table class="rapport-tabelle">
+      <thead>
+        <tr><th>Datum</th><th>Arbeiten</th><th class="zahl">Personal</th>
+          <th class="zahl">Maschinen</th><th class="zahl">Fremd</th><th class="zahl">Regie</th></tr>
+      </thead>
+      <tbody>
+        ${woche.zeilen.map((z) => `
+          <tr>
+            <td>${esc(z.tagText)}</td>
+            <td>${esc(z.arbeitenText)}${z.mitarbeiter ? `<br><small>${esc(z.mitarbeiter)}</small>` : ''}</td>
+            <td class="zahl">${stundenText(z.personen)}</td>
+            <td class="zahl">${stundenText(z.maschinen)}</td>
+            <td class="zahl">${stundenText(z.fremdleistungen)}</td>
+            <td class="zahl">${z.regie ? stundenText(z.regie) : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">Total</td>
+          <td class="zahl">${stundenText(woche.summen.personen)}</td>
+          <td class="zahl">${stundenText(woche.summen.maschinen)}</td>
+          <td class="zahl">${stundenText(woche.summen.fremdleistungen)}</td>
+          <td class="zahl">${stundenText(woche.summen.regie)}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="unterschriften">
+      <div>Unterschrift Mitarbeiter</div>
+      <div>Unterschrift Bauleitung / Bauherr</div>
+    </div>`);
+}

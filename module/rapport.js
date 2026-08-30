@@ -6,6 +6,7 @@
 // Kalenderwoche mit Wochensumme. Dokumenttyp «rapport».
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
 
 // Woran der Arbeitstext Regie erkennt: das Wort selbst plus typische
@@ -104,6 +105,7 @@ export default {
 
   render(container, baustelle) {
     let inBearbeitung = null; // Rapport-Dokument, das gerade im Formular steht
+    let letzteGruppen = new Map(); // KW-Gruppen der letzten Listen-Zeichnung
 
     container.innerHTML = `
       <section class="rapporte">
@@ -267,6 +269,8 @@ export default {
             <span class="rapport-stunden">${stundenText(t.personen)}${
               zahl(r.davonRegie) ? ` · <span class="regie-anteil">Regie ${stundenText(zahl(r.davonRegie))}</span>` : ''}</span>
             <span class="rapport-knoepfe">
+              <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
+                data-id="${esc(r._id)}">PDF</button>
               <button type="button" class="knopf eintrag-loeschen" data-aktion="bearbeiten"
                 data-id="${esc(r._id)}">Bearbeiten</button>
               <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
@@ -314,12 +318,17 @@ export default {
         if (!gruppen.has(schluessel)) gruppen.set(schluessel, { kw, rapporte: [] });
         gruppen.get(schluessel).rapporte.push(r);
       }
-      listeElement.innerHTML = [...gruppen.values()].map((gruppe) => {
+      letzteGruppen = gruppen;
+      listeElement.innerHTML = [...gruppen.entries()].map(([schluessel, gruppe]) => {
         const personal = gruppe.rapporte.reduce((s, r) => s + totale(r.arbeiten).personen, 0);
         const regie = gruppe.rapporte.reduce((s, r) => s + zahl(r.davonRegie), 0);
         return `
-          <div class="wochen-titel">KW ${gruppe.kw} · Personal ${stundenText(personal)}${
-            regie ? ` · Regie ${stundenText(regie)}` : ''}</div>
+          <div class="wochen-titel">
+            <span>KW ${gruppe.kw} · Personal ${stundenText(personal)}${
+              regie ? ` · Regie ${stundenText(regie)}` : ''}</span>
+            <button type="button" class="knopf eintrag-loeschen" data-aktion="woche-pdf"
+              data-schluessel="${schluessel}">Wochen-PDF</button>
+          </div>
           ${gruppe.rapporte.map((r) => rapportKarte(r, regieEreignisse)).join('')}`;
       }).join('');
     }
@@ -377,10 +386,49 @@ export default {
     listeElement.addEventListener('click', async (klick) => {
       const knopf = klick.target.closest('[data-aktion]');
       if (!knopf) return;
+      if (knopf.dataset.aktion === 'woche-pdf') {
+        const gruppe = letzteGruppen.get(knopf.dataset.schluessel);
+        if (!gruppe) return;
+        // Wochenbereich Mo–So aus einem beliebigen Tag der Gruppe ableiten.
+        const irgendein = new Date(`${gruppe.rapporte[0].tag}T12:00:00`);
+        const montag = new Date(irgendein);
+        montag.setDate(irgendein.getDate() - ((irgendein.getDay() + 6) % 7));
+        const sonntag = new Date(montag);
+        sonntag.setDate(montag.getDate() + 6);
+        const chronologisch = gruppe.rapporte.slice().reverse();
+        const zeilen = chronologisch.map((r) => {
+          const t = totale(r.arbeiten);
+          return {
+            tagText: formatTag(r.tag),
+            mitarbeiter: r.mitarbeiter || '',
+            arbeitenText: (r.arbeiten || []).map((a) => a.text).filter(Boolean).join('; ') || '—',
+            personen: t.personen,
+            maschinen: t.maschinen,
+            fremdleistungen: t.fremdleistungen,
+            regie: zahl(r.davonRegie),
+          };
+        });
+        const summen = zeilen.reduce((s, z) => ({
+          personen: s.personen + z.personen,
+          maschinen: s.maschinen + z.maschinen,
+          fremdleistungen: s.fremdleistungen + z.fremdleistungen,
+          regie: s.regie + z.regie,
+        }), { personen: 0, maschinen: 0, fremdleistungen: 0, regie: 0 });
+        zeigeWochenDruck(baustelle, {
+          kw: gruppe.kw,
+          von: montag.toLocaleDateString('de-CH'),
+          bis: sonntag.toLocaleDateString('de-CH'),
+          zeilen,
+          summen,
+        });
+        return;
+      }
       const alle = await abfrage({ typ: 'rapport', baustelleId: baustelle.baustelleId });
       const rapport = alle.find((r) => r._id === knopf.dataset.id);
       if (!rapport) return;
-      if (knopf.dataset.aktion === 'bearbeiten') {
+      if (knopf.dataset.aktion === 'pdf') {
+        zeigeRapportDruck(baustelle, rapport, totale(rapport.arbeiten));
+      } else if (knopf.dataset.aktion === 'bearbeiten') {
         fuelleFormular(rapport);
         formular.scrollIntoView({ behavior: 'smooth' });
       } else if (knopf.dataset.aktion === 'loeschen') {

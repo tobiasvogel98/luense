@@ -390,6 +390,10 @@ body {
 }
 
 .wochen-titel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--abstand-2);
   font-size: var(--schrift-klein);
   font-weight: 700;
   color: var(--farbe-text-gedaempft);
@@ -397,6 +401,11 @@ body {
   letter-spacing: 0.03em;
   margin: var(--abstand-4) 0 var(--abstand-2);
   font-variant-numeric: tabular-nums;
+}
+
+.wochen-titel .knopf {
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .rapport-kopf {
@@ -912,6 +921,112 @@ code {
   font-size: 9pt;
   color: #555;
   margin-top: 2px;
+}
+
+/* Rapport-Druck: Zeilen mit Punktlinien, Stunden-Tabelle, Regie-Block */
+
+.bericht .gruppen-label {
+  color: #555;
+  margin: 6pt 0 2pt;
+}
+
+.druck-zeile {
+  display: flex;
+  align-items: baseline;
+  font-size: 10.5pt;
+  padding: 1pt 0 1pt 12pt;
+  font-variant-numeric: tabular-nums;
+}
+
+.druck-zeile .punkte {
+  flex: 1;
+  border-bottom: 1px dotted #b5b5b5;
+  margin: 0 6px;
+  transform: translateY(-3px);
+}
+
+.druck-zeile .druck-wert {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rapport-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10pt 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5pt;
+}
+
+.rapport-tabelle th,
+.rapport-tabelle td {
+  padding: 4pt 6pt;
+  border-bottom: 1px solid #ccc;
+  text-align: left;
+  vertical-align: top;
+}
+
+.rapport-tabelle th {
+  font-size: 9pt;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #555;
+  border-bottom: 2px solid #26333d;
+}
+
+.rapport-tabelle .zahl {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rapport-tabelle td:first-child,
+.rapport-tabelle th:first-child {
+  white-space: nowrap;
+}
+
+.rapport-tabelle tfoot td {
+  font-weight: 700;
+  border-top: 2px solid #26333d;
+  border-bottom: none;
+}
+
+.rapport-tabelle small {
+  color: #555;
+}
+
+.regie-block {
+  border: 2px solid #26333d;
+  border-radius: 4px;
+  padding: 8pt 10pt;
+  margin: 10pt 0;
+  break-inside: avoid;
+}
+
+.regie-block h2 {
+  font-size: 11pt;
+  font-weight: 700;
+  margin-bottom: 4pt;
+}
+
+.regie-total-zeile {
+  border-top: 1px solid #999;
+  margin-top: 4pt;
+  padding-top: 3pt;
+}
+
+.unterschriften {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3rem;
+  margin-top: 4rem;
+  break-inside: avoid;
+}
+
+.unterschriften div {
+  border-top: 1px solid #1c1b18;
+  padding-top: 4px;
+  font-size: 9pt;
+  color: #555;
 }
 
 /* Print-CSS: nur der Bericht kommt aufs Papier */
