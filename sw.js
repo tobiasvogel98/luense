@@ -2,7 +2,7 @@
 // VERSION bei jeder Aenderung an App-Dateien hochzaehlen — alte Caches werden
 // beim Aktivieren geloescht, danach laedt die Seite die neuen Dateien.
 
-const VERSION = 'luense-v6';
+const VERSION = 'luense-v7';
 
 const DATEIEN = [
   './',
@@ -26,7 +26,11 @@ const DATEIEN = [
 
 self.addEventListener('install', (ereignis) => {
   ereignis.waitUntil(
-    caches.open(VERSION).then((cache) => cache.addAll(DATEIEN)).then(() => self.skipWaiting()),
+    caches.open(VERSION)
+      // cache: 'reload' holt frisch vom Server, nie aus dem HTTP-Cache —
+      // sonst kann eine neue Version alte Dateien einfrieren.
+      .then((cache) => cache.addAll(DATEIEN.map((url) => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting()),
   );
 });
 

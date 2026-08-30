@@ -98,6 +98,7 @@ export default {
             <div class="pendenz-mitte">
               <p class="pendenz-text">${esc(p.text)}</p>
               ${meta ? `<p class="hinweis">${meta}</p>` : ''}
+              ${p.notiz ? `<p class="hinweis">${esc(p.notiz)}</p>` : ''}
             </div>
             <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
               data-id="${esc(p._id)}" aria-label="Pendenz löschen">Löschen</button>
