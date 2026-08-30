@@ -444,8 +444,27 @@ body {
 .arbeit-kopf {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--abstand-2);
   margin-bottom: var(--abstand-2);
+}
+
+.arbeit-kopf .eintrag-loeschen {
+  margin-left: auto;
+}
+
+.regie-schalter span {
+  min-height: 36px;
+  padding: 0 var(--abstand-3);
+}
+
+.regie-chip {
+  color: var(--farbe-akzent);
+  border-color: var(--farbe-akzent);
+  font-weight: 700;
+}
+
+.rapport-totale .regie-total span:last-child {
+  color: var(--farbe-akzent);
 }
 
 .arbeit .formular label,

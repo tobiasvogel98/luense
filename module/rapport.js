@@ -60,11 +60,17 @@ function lokalerTag(iso) {
 // Totale eines Rapports — wie im Alt-Tool: Stunden je Gruppe; Material
 // wird summiert und trägt die Einheit nur, wenn alle Zeilen dieselbe haben.
 function totale(arbeiten) {
-  const t = { personen: 0, maschinen: 0, fremdleistungen: 0, materialSumme: 0, materialEinheiten: new Set() };
+  const t = {
+    personen: 0, maschinen: 0, fremdleistungen: 0, regie: 0,
+    materialSumme: 0, materialEinheiten: new Set(),
+  };
   for (const arbeit of arbeiten || []) {
-    for (const p of arbeit.personen || []) t.personen += zahl(p.stunden);
-    for (const m of arbeit.maschinen || []) t.maschinen += zahl(m.stunden);
-    for (const f of arbeit.fremdleistungen || []) t.fremdleistungen += zahl(f.stunden);
+    let arbeitStunden = 0;
+    for (const p of arbeit.personen || []) { t.personen += zahl(p.stunden); arbeitStunden += zahl(p.stunden); }
+    for (const m of arbeit.maschinen || []) { t.maschinen += zahl(m.stunden); arbeitStunden += zahl(m.stunden); }
+    for (const f of arbeit.fremdleistungen || []) { t.fremdleistungen += zahl(f.stunden); arbeitStunden += zahl(f.stunden); }
+    // Regie-Arbeit: alle ihre Stunden zählen als Regie.
+    if (arbeit.regie) t.regie += arbeitStunden;
     for (const m of arbeit.material || []) {
       t.materialSumme += zahl(m.menge);
       if ((m.einheit || '').trim()) t.materialEinheiten.add(m.einheit.trim());
@@ -93,12 +99,8 @@ export default {
             <label>Mitarbeiter<input name="mitarbeiter" autocomplete="off"
               placeholder="z. B. Tobias"></label>
           </div>
-          <div class="feld-reihe">
-            <label>Wetter<input name="wetter" autocomplete="off"
-              placeholder="z. B. sonnig, 18 °C"></label>
-            <label>davon Regie (h)<input type="number" name="davonRegie"
-              inputmode="decimal" step="0.25" min="0" placeholder="0"></label>
-          </div>
+          <label>Wetter<input name="wetter" autocomplete="off"
+            placeholder="z. B. sonnig, 18 °C"></label>
 
           <div data-rolle="arbeiten"></div>
           <button type="button" class="knopf" data-aktion="arbeit-hinzu">
@@ -150,6 +152,10 @@ export default {
         <div class="arbeit" data-rolle="arbeit">
           <div class="arbeit-kopf">
             <strong data-rolle="arbeit-nr"></strong>
+            <label class="chip-wahl regie-schalter">
+              <input type="checkbox" data-feld="regie" ${daten.regie ? 'checked' : ''}>
+              <span>Regie</span>
+            </label>
             <button type="button" class="knopf eintrag-loeschen"
               data-aktion="arbeit-entfernen">Entfernen</button>
           </div>
@@ -175,7 +181,10 @@ export default {
 
     function sammleArbeiten() {
       return [...arbeitenElement.querySelectorAll('[data-rolle="arbeit"]')].map((block) => {
-        const arbeit = { text: block.querySelector('[data-feld="text"]').value.trim() };
+        const arbeit = {
+          text: block.querySelector('[data-feld="text"]').value.trim(),
+          regie: block.querySelector('[data-feld="regie"]').checked,
+        };
         for (const gruppe of GRUPPEN) {
           arbeit[gruppe.schluessel] = [...block.querySelectorAll(
             `[data-gruppe="${gruppe.schluessel}"] [data-rolle="zeile"]`)].map((zeile) => {
@@ -196,7 +205,8 @@ export default {
         <div><span>Total Personal</span><span>${stundenText(t.personen)}</span></div>
         <div><span>Total Maschinen</span><span>${stundenText(t.maschinen)}</span></div>
         <div><span>Total Material</span><span>${t.materialText}</span></div>
-        <div><span>Total Fremdleistungen</span><span>${stundenText(t.fremdleistungen)}</span></div>`;
+        <div><span>Total Fremdleistungen</span><span>${stundenText(t.fremdleistungen)}</span></div>
+        <div class="regie-total"><span>davon Regie</span><span>${stundenText(t.regie)}</span></div>`;
     }
 
     function fuelleFormular(rapport) {
@@ -208,7 +218,6 @@ export default {
       formular.elements.tag.value = rapport?.tag ?? heuteTag();
       formular.elements.mitarbeiter.value = rapport?.mitarbeiter ?? '';
       formular.elements.wetter.value = rapport?.wetter ?? '';
-      formular.elements.davonRegie.value = rapport?.davonRegie || '';
       formular.elements.bemerkungen.value = rapport?.bemerkungen ?? '';
       const arbeiten = rapport?.arbeiten?.length ? rapport.arbeiten : [{}];
       arbeitenElement.innerHTML = arbeiten.map((a) => arbeitHtml(a)).join('');
@@ -252,7 +261,8 @@ export default {
             ? `<p class="hinweis">${[r.mitarbeiter, r.wetter].filter(Boolean).map(esc).join(' · ')}</p>` : ''}
           ${(r.arbeiten || []).map((arbeit, i) => `
             <div class="rapport-arbeit">
-              <p class="arbeit-titel">${i + 1}. ${esc(arbeit.text || '—')}</p>
+              <p class="arbeit-titel">${i + 1}. ${esc(arbeit.text || '—')}${
+                arbeit.regie ? ' <span class="chip regie-chip">Regie</span>' : ''}</p>
               ${arbeit.personen?.length ? `<p class="hinweis">Personen: ${gruppenText(arbeit.personen, true)}</p>` : ''}
               ${arbeit.maschinen?.length ? `<p class="hinweis">Maschinen: ${gruppenText(arbeit.maschinen, true)}</p>` : ''}
               ${arbeit.material?.length ? `<p class="hinweis">Material: ${gruppenText(arbeit.material, false)}</p>` : ''}
@@ -330,7 +340,22 @@ export default {
       }
     });
 
-    formular.addEventListener('input', () => zeigeTotale());
+    formular.addEventListener('input', (eingabe) => {
+      const ziel = eingabe.target;
+      if (ziel.matches('[data-feld="regie"]')) {
+        // Von Hand gesetzt oder entfernt — die Automatik mischt sich
+        // bei dieser Arbeit nicht mehr ein.
+        ziel.dataset.manuell = '1';
+      } else if (ziel.matches('[data-feld="text"]')) {
+        // Steht «Regie» im Arbeitstext, wird das Häkchen vorgeschlagen.
+        const schalter = ziel.closest('[data-rolle="arbeit"]')
+          .querySelector('[data-feld="regie"]');
+        if (/regie/i.test(ziel.value) && !schalter.dataset.manuell && !schalter.checked) {
+          schalter.checked = true;
+        }
+      }
+      zeigeTotale();
+    });
 
     listeElement.addEventListener('click', async (klick) => {
       const knopf = klick.target.closest('[data-aktion]');
@@ -367,7 +392,7 @@ export default {
           datum: `${formular.elements.tag.value}T12:00:00.000Z`,
           mitarbeiter: formular.elements.mitarbeiter.value.trim(),
           wetter: formular.elements.wetter.value.trim(),
-          davonRegie: zahl(formular.elements.davonRegie.value),
+          davonRegie: totale(arbeiten).regie, // aus den Regie-Arbeiten gerechnet
           bemerkungen: formular.elements.bemerkungen.value.trim(),
           arbeiten,
         });
