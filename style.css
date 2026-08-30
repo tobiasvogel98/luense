@@ -286,10 +286,12 @@ body {
   max-width: 48rem;
   margin: 0 auto;
   padding: var(--abstand-3) var(--abstand-4) 0;
+  overflow-x: auto; /* bei vielen Modulen scrollt die Leiste, nicht die Seite */
+  scrollbar-width: none;
 }
 
 .modul-nav .knopf {
-  flex: 1;
+  flex: 1 0 auto;
   padding: 0 var(--abstand-2);
   font-size: var(--schrift-klein);
   white-space: nowrap;
@@ -571,6 +573,67 @@ body {
 
 .arbeit-titel {
   font-weight: 600;
+}
+
+/* Protokolle: Abschnitte und Checklisten */
+
+.protokolle h2 {
+  font-size: var(--schrift-titel);
+  margin: var(--abstand-2) 0 var(--abstand-4);
+}
+
+.abschnitt {
+  margin-bottom: var(--abstand-3);
+}
+
+.abschnitt-titel {
+  font-size: var(--schrift-klein);
+  font-weight: 700;
+  color: var(--farbe-akzent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--farbe-linie);
+  padding-bottom: var(--abstand-1);
+  margin-bottom: var(--abstand-2);
+}
+
+.check-zeile {
+  border-bottom: 1px dashed var(--farbe-linie);
+  padding-bottom: var(--abstand-2);
+  margin-bottom: var(--abstand-2);
+}
+
+.formular .check-status {
+  width: auto;
+  flex: 1 1 8rem;
+  min-width: 0;
+  min-height: var(--touch-ziel);
+  margin-top: 0;
+  font: inherit;
+  font-size: var(--schrift-klein);
+  padding: 0 var(--abstand-2);
+  color: var(--farbe-text);
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.formular .check-bemerkung {
+  margin-top: var(--abstand-1);
+  background: var(--farbe-flaeche);
+}
+
+.formular select {
+  display: block;
+  width: 100%;
+  min-height: var(--touch-ziel);
+  margin-top: var(--abstand-1);
+  padding: 0 var(--abstand-3);
+  font: inherit;
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
 }
 
 /* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
