@@ -730,6 +730,49 @@ body {
   border-color: var(--farbe-akzent);
 }
 
+/* Wiederholungsmängel: Warnung und Chip */
+
+.wiederhol-warnung,
+.wiederhol-chip {
+  color: var(--farbe-akzent);
+  font-weight: 700;
+}
+
+.wiederhol-chip {
+  border-color: var(--farbe-akzent);
+  margin-left: 0;
+}
+
+.wiederhol-warnung {
+  margin-top: var(--abstand-1);
+}
+
+/* Unterschriften-Feld */
+
+.signatur {
+  cursor: default;
+  padding: var(--abstand-4);
+}
+
+.signatur-karte {
+  width: min(32rem, 100%);
+  margin-bottom: 0;
+}
+
+.signatur-feld {
+  width: 100%;
+  height: 200px;
+  display: block;
+  margin: var(--abstand-2) 0 var(--abstand-3);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  touch-action: none;
+  /* Grundlinie nur zur Orientierung — sie landet nicht im Bild */
+  background:
+    linear-gradient(to top, transparent 44px, #b0aca4 44px, #b0aca4 45px, transparent 45px),
+    #ffffff;
+}
+
 /* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
 
 .betriebsstatus {

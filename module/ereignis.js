@@ -108,6 +108,8 @@ export default {
               <article class="karte ereignis">
                 <div class="ereignis-kopf">
                   <span class="chip">${esc(e.tag)}</span>
+                  ${e.wiederholung > 1
+                    ? `<span class="chip wiederhol-chip">⚠ ${e.wiederholung}. Mal</span>` : ''}
                   <span class="hinweis">${formatDatumZeit(e.datum)}${
                     e.ortKv ? ' · ' + esc(e.ortKv) : ''}</span>
                   <span class="rapport-knoepfe">

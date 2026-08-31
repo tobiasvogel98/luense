@@ -284,6 +284,18 @@ export function zeigeProtokollDruck(baustelle, optionen) {
           </table>
         </section>`).join('')}
 
+    ${optionen.bilder?.length ? `
+      <section class="bericht-eintrag">
+        <h2>Anlagen</h2>
+        <div class="bericht-fotos">
+          ${optionen.bilder.map((bild) => `
+            <figure>
+              <img src="${bild.url}" alt="${esc(bild.titel || 'Anlage')}">
+              <figcaption>${esc(bild.titel || '')}</figcaption>
+            </figure>`).join('')}
+        </div>
+      </section>` : ''}
+
     <div class="unterschriften">
       ${(optionen.unterschriften || ['Unterschrift', 'Unterschrift'])
         .map((u) => `<div>${esc(u)}</div>`).join('')}

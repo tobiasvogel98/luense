@@ -10,6 +10,7 @@ import {
 } from '../kern/speicher.js';
 import { verkleinereFoto } from '../kern/kamera.js';
 import { oeffneHandnotiz } from '../kern/handschrift.js';
+import { oeffneSignatur } from '../kern/signatur.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { esc, zeigeBildVollbild } from '../kern/ui.js';
 
@@ -132,6 +133,63 @@ const PROTOKOLL_TYPEN = [
           { punkt: 'Umweltschutz / Gewässerschutz', status: 'i. O.' },
           { punkt: 'Werkleitungen markiert', status: 'i. O.' },
         ] } },
+    ],
+  },
+  {
+    unterTyp: 'abnahme',
+    name: 'Abnahmeprotokoll',
+    unterschriften: ['Bauherr / Bauleitung', 'Unternehmer'],
+    kartenTitel: (werte) => `${werte.art || 'Abnahme'}${werte.objekt ? ' · ' + werte.objekt : ''}`,
+    kartenInfo: (werte) => {
+      const maengel = werte.maengel || [];
+      if (!maengel.length) return 'Keine Mängel erfasst.';
+      const offen = maengel.filter((m) => m.status !== 'behoben').length;
+      return `${maengel.length} ${maengel.length === 1 ? 'Mangel' : 'Mängel'}, davon ${offen} offen.`;
+    },
+    signatur: true,
+    abschnitte: [
+      {
+        titel: 'Kopfdaten',
+        felder: [
+          { schluessel: 'art', label: 'Art der Abnahme', art: 'auswahl',
+            optionen: ['Teilabnahme', 'Schlussabnahme', 'Nachkontrolle'] },
+          { schluessel: 'datum', label: 'Datum', art: 'datum', halb: true },
+          { schluessel: 'objekt', label: 'Objekt / Bauteil', art: 'text', halb: true },
+          { schluessel: 'anwesende', label: 'Anwesende', art: 'text' },
+        ],
+      },
+      {
+        titel: 'Abgenommene Leistungen',
+        felder: [
+          { schluessel: 'leistungen', label: 'Abgenommene Leistungen', art: 'mehrzeilig' },
+        ],
+      },
+      {
+        titel: 'Mängelliste',
+        tabelle: {
+          schluessel: 'maengel',
+          hinzu: '+ Mangel',
+          spalten: [
+            { schluessel: 'mangel', label: 'Mangel', art: 'mehrzeilig' },
+            { schluessel: 'frist', label: 'Frist zur Behebung', art: 'datum', halb: true },
+            { schluessel: 'status', label: 'Status', art: 'auswahl',
+              optionen: ['offen', 'behoben'], halb: true },
+          ],
+        },
+      },
+      {
+        titel: 'Nachkontrolle',
+        felder: [
+          { schluessel: 'nachkontrolle', label: 'Nachkontrolle / behoben am', art: 'mehrzeilig' },
+        ],
+      },
+      {
+        titel: 'Garantie',
+        felder: [
+          { schluessel: 'garantieAb', label: 'Beginn Garantiefrist', art: 'datum', halb: true },
+          { schluessel: 'sia', label: 'Rügefrist / SIA 118', art: 'text', halb: true },
+        ],
+      },
     ],
   },
   {
@@ -367,10 +425,24 @@ const AKTIONEN = {
   },
 };
 
+// Wiederholte Mängel erkennen: Wurde derselbe Prüfpunkt/Text auf dieser
+// Baustelle schon einmal als Mangel im Journal erfasst? Das Journal ist
+// das gemeinsame Gedächtnis aller Protokolle.
+async function zaehleFruehereMaengel(baustelleId, text, ohneRefPrefix) {
+  const norm = String(text || '').trim().toLowerCase();
+  if (!norm) return 0;
+  const ereignisse = await abfrage({ typ: 'ereignis', baustelleId });
+  return ereignisse.filter((e) => e.tag === 'Mangel'
+    && !(ohneRefPrefix && e.begehungRef?.startsWith(ohneRefPrefix))
+    && ((e.mangelPunkt && e.mangelPunkt === norm)
+      || (e.notiz || '').toLowerCase().includes(norm))).length;
+}
+
 // Typ-Haken nach dem Speichern (z. B. Begehung → Mangel-Ereignisse).
 const NACH_SPEICHERN = {
   // Jeder Checklisten-Punkt mit Status «Mangel» erzeugt ein Journal-
   // Ereignis (Tag Mangel) mit Rückverweis — genau einmal pro Punkt.
+  // Wiederholungen werden gezählt und gewichtet (⚠ n. Mal im Journal).
   async begehungsMaengel(doc, baustelle) {
     const maengel = (doc.werte?.punkte || []).filter((p) => p.status === 'Mangel');
     if (!maengel.length) return '';
@@ -378,9 +450,13 @@ const NACH_SPEICHERN = {
       typ: 'ereignis', baustelleId: baustelle.baustelleId,
     })).map((e) => e.begehungRef).filter(Boolean));
     let neu = 0;
+    let wiederholte = 0;
     for (const mangel of maengel) {
       const ref = `${doc._id}#${mangel.punkt}`;
       if (bestehende.has(ref)) continue;
+      const vorher = await zaehleFruehereMaengel(
+        baustelle.baustelleId, mangel.punkt, `${doc._id}#`);
+      if (vorher > 0) wiederholte++;
       await put({
         typ: 'ereignis',
         baustelleId: baustelle.baustelleId,
@@ -390,12 +466,16 @@ const NACH_SPEICHERN = {
         quelleText: `Aus ${doc.werte?.art || 'Begehung'} vom ${formatTag(doc.werte?.datum)}`,
         begehungRef: ref,
         protokollId: doc._id,
+        mangelPunkt: mangel.punkt.trim().toLowerCase(),
+        wiederholung: vorher > 0 ? vorher + 1 : 0,
       });
       neu++;
     }
-    return neu
-      ? `${neu} Mangel-Ereignis${neu === 1 ? '' : 'se'} im Journal erstellt — Fotos dort ergänzen.`
-      : 'Alle Mängel sind bereits im Journal.';
+    if (!neu) return 'Alle Mängel sind bereits im Journal.';
+    return `${neu} Mangel-Ereignis${neu === 1 ? '' : 'se'} im Journal erstellt`
+      + (wiederholte
+        ? ` — ⚠ ${wiederholte} davon ${wiederholte === 1 ? 'ist ein Wiederholungsmangel' : 'sind Wiederholungsmängel'}!`
+        : ' — Fotos dort ergänzen.');
   },
 };
 
@@ -521,10 +601,14 @@ export default {
                       data-id="${esc(p._id)}">Öffnen</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="handnotiz"
                       data-id="${esc(p._id)}">✍</button>
+                    ${typ?.signatur ? `
+                      <button type="button" class="knopf eintrag-loeschen" data-aktion="signatur"
+                        data-id="${esc(p._id)}">Unterschrift</button>` : ''}
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
                       data-id="${esc(p._id)}" aria-label="Protokoll löschen">Löschen</button>
                   </span>
                 </div>
+                ${typ?.kartenInfo ? `<p class="hinweis">${esc(typ.kartenInfo(p.werte || {}))}</p>` : ''}
                 ${kurz ? `<p class="hinweis">${esc(kurz)}</p>` : ''}
                 ${Object.keys(p._attachments || {}).length ? `
                   <div class="foto-reihe">
@@ -593,6 +677,40 @@ export default {
       }
     });
 
+    // Live-Warnung beim Erfassen: derselbe Mangel wurde auf dieser
+    // Baustelle schon einmal festgehalten — Hinweis zur Gewichtung.
+    async function warneBeiWiederholung(behaelter, text, aktivPruefen) {
+      let warnung = behaelter.querySelector('.wiederhol-warnung');
+      if (!aktivPruefen) { warnung?.remove(); return; }
+      const anzahl = await zaehleFruehereMaengel(baustelle.baustelleId, text);
+      if (!anzahl) { warnung?.remove(); return; }
+      if (!warnung) {
+        warnung = document.createElement('p');
+        warnung.className = 'hinweis wiederhol-warnung';
+        behaelter.append(warnung);
+      }
+      warnung.textContent = `⚠ Wiederholungsmangel: «${text.trim()}» wurde auf dieser `
+        + `Baustelle bereits ${anzahl}× als Mangel erfasst.`;
+    }
+
+    formularBereich.addEventListener('change', async (wechsel) => {
+      const checkStatus = wechsel.target.closest('[data-feld="status"]');
+      if (checkStatus) {
+        const zeile = checkStatus.closest('[data-rolle="check-zeile"]');
+        if (zeile) {
+          await warneBeiWiederholung(zeile,
+            zeile.querySelector('[data-feld="punkt"]').value,
+            checkStatus.value === 'Mangel');
+        }
+        return;
+      }
+      const mangelFeld = wechsel.target.closest('[data-spalte="mangel"]');
+      if (mangelFeld) {
+        await warneBeiWiederholung(mangelFeld.closest('[data-rolle="tab-zeile"]'),
+          mangelFeld.value, !!mangelFeld.value.trim());
+      }
+    });
+
     formularBereich.addEventListener('submit', async (abschicken) => {
       abschicken.preventDefault();
       const formular = abschicken.target;
@@ -643,13 +761,30 @@ export default {
       } else if (knopf.dataset.aktion === 'pdf') {
         if (!typ) return;
         const werte = protokoll.werte || {};
+        // Anhänge (Handnotizen, Unterschriften) kommen mit ins PDF.
+        const bilder = [];
+        for (const name of Object.keys(protokoll._attachments || {})) {
+          try {
+            const blob = await holeAnhang(protokoll._id, name);
+            const url = URL.createObjectURL(blob);
+            setTimeout(() => URL.revokeObjectURL(url), 120000);
+            bilder.push({ url, titel: name.startsWith('unterschrift') ? 'Unterschrift' : 'Handnotiz' });
+          } catch { /* Anhang nicht lesbar — auslassen */ }
+        }
         zeigeProtokollDruck(baustelle, {
           titel: typ.kartenTitel?.(werte) || typ.name,
           untertitel: [formatTag(werte.datum), werte.ort, werte.protokollfuehrer]
             .filter(Boolean).join(' · '),
           abschnitte: druckModell(typ, protokoll),
           unterschriften: typ.unterschriften,
+          bilder,
         });
+      } else if (knopf.dataset.aktion === 'signatur') {
+        const blob = await oeffneSignatur();
+        if (!blob) return;
+        await haengeAnhangAn(protokoll._id,
+          `unterschrift-${Date.now().toString(36)}.png`, blob);
+        await zeichneListe();
       } else if (knopf.dataset.aktion === 'handnotiz') {
         const blob = await oeffneHandnotiz();
         if (!blob) return;
