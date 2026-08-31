@@ -193,6 +193,77 @@ const PROTOKOLL_TYPEN = [
     ],
   },
   {
+    // 1:1 nach Tobias' Prüfprotokoll Kabelschutzrohre (altbestand/Kalibrierung.html)
+    unterTyp: 'kalibrierung',
+    name: 'Kalibrierprotokoll',
+    unterschriften: ['Unternehmer', 'Bauleitung', 'Bauherr / Betreiber'],
+    kartenTitel: (werte) => `Kalibrierung${
+      werte.von || werte.bis ? ` · ${[werte.von, werte.bis].filter(Boolean).join(' – ')}` : ''}`,
+    kartenInfo: (werte) => {
+      const rohre = werte.rohre || [];
+      if (!rohre.length) return 'Noch keine Rohre geprüft.';
+      const nio = rohre.filter((r) => r.kalibrierung === 'n. i. O.').length;
+      return `${rohre.length} Rohr${rohre.length === 1 ? '' : 'e'} geprüft${
+        nio ? `, ⚠ ${nio} n. i. O.` : ', alle i. O.'}`;
+    },
+    abschnitte: [
+      {
+        titel: 'Kopfdaten',
+        felder: [
+          { schluessel: 'protokollNr', label: 'Protokoll-Nr.', art: 'text', halb: true },
+          { schluessel: 'datum', label: 'Datum der Prüfung', art: 'datum', halb: true },
+          { schluessel: 'unternehmer', label: 'Unternehmer (ausführende Firma)', art: 'text', halb: true },
+          { schluessel: 'bauleitung', label: 'Bauleitung', art: 'text', halb: true },
+          { schluessel: 'witterung', label: 'Witterung', art: 'text', halb: true },
+          { schluessel: 'laenge', label: 'Länge [m]', art: 'text', halb: true },
+          { schluessel: 'von', label: 'Strecke: von Schacht / KS', art: 'text', halb: true },
+          { schluessel: 'bis', label: 'bis Schacht / KS', art: 'text', halb: true },
+        ],
+      },
+      {
+        titel: 'Prüfgrundlage',
+        felder: [
+          { schluessel: 'hinweis', label: 'Hinweis', art: 'mehrzeilig', zeilen: 3 },
+        ],
+      },
+      {
+        titel: 'Rohrprüfungen',
+        tabelle: {
+          schluessel: 'rohre',
+          hinzu: '+ Rohr',
+          spalten: [
+            { schluessel: 'rohrNr', label: 'Rohr-Nr.', art: 'text', halb: true },
+            { schluessel: 'rohrtyp', label: 'Rohrtyp / DN', art: 'text', halb: true },
+            { schluessel: 'kaliber', label: 'Kaliber-Ø [mm]', art: 'text', halb: true },
+            { schluessel: 'kalibrierung', label: 'Kalibrierung', art: 'auswahl',
+              optionen: ['', 'i. O.', 'n. i. O.'], halb: true },
+            { schluessel: 'schnureinzug', label: 'Schnureinzug', art: 'auswahl',
+              optionen: ['', 'ja', 'nein'], halb: true },
+            { schluessel: 'bemerkung', label: 'Bemerkungen', art: 'text', halb: true },
+          ],
+        },
+      },
+      {
+        titel: 'Feststellungen',
+        felder: [
+          { schluessel: 'maengel', label: 'Feststellungen / Mängel / Massnahmen', art: 'mehrzeilig' },
+          { schluessel: 'nachkontrolleBis', label: 'Nachkontrolle erforderlich bis', art: 'datum', halb: true },
+          { schluessel: 'abgenommen', label: 'Ohne Mängel abgenommen', art: 'auswahl',
+            optionen: ['', 'ja', 'nein'], halb: true },
+        ],
+      },
+    ],
+    vorlagen: [
+      { name: 'Kabelschutzrohre / Schnureinzug',
+        werte: {
+          hinweis: 'Kalibrierung mit Kaliberkugel / Kaliberdorn gemäss Branchenempfehlung '
+            + 'bzw. Werkvorschrift (zulässige Rohrverformung max. 10 %). Die Rohre müssen '
+            + 'frei von Einschnürungen, Hindernissen und Verunreinigungen sein. Nach '
+            + 'bestandener Kalibrierung ist die Zugschnur / der Zugdraht einzuziehen.',
+        } },
+    ],
+  },
+  {
     unterTyp: 'test',
     name: 'Testprotokoll',
     unterschriften: ['Erfasser', 'Beteiligter'],
@@ -773,7 +844,8 @@ export default {
         }
         zeigeProtokollDruck(baustelle, {
           titel: typ.kartenTitel?.(werte) || typ.name,
-          untertitel: [formatTag(werte.datum), werte.ort, werte.protokollfuehrer]
+          untertitel: [formatTag(werte.datum), werte.ort, werte.protokollfuehrer,
+            baustelle.bauherr ? `Bauherr: ${baustelle.bauherr}` : '']
             .filter(Boolean).join(' · '),
           abschnitte: druckModell(typ, protokoll),
           unterschriften: typ.unterschriften,
