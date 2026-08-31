@@ -384,11 +384,12 @@ body {
 
 .feld-reihe {
   display: flex;
+  flex-wrap: wrap; /* auf schmalen Schirmen brechen Felder um statt zu quetschen */
   gap: var(--abstand-3);
 }
 
 .feld-reihe label {
-  flex: 1;
+  flex: 1 1 8rem;
   min-width: 0;
 }
 
@@ -1199,6 +1200,7 @@ body {
 .feld-reihe .zeile-hinzu {
   align-self: flex-end;
   flex-shrink: 0;
+  width: auto; /* sonst drückt das globale width:100% den Knopf aus der Flex-Zeile */
 }
 
 /* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
