@@ -1,4 +1,4 @@
-// module/auswertung.js — Controlling nach FO 5.1.01 (Monatsabschluss).
+﻿// module/auswertung.js — Controlling nach FO 5.1.01 (Monatsabschluss).
 // Struktur und Rechenlogik 1:1 aus altbestand/«Kopie von FO 5.1.01.
 // controlling.xlsx» übernommen — jede Abweichung wäre ein Fehler:
 //   W5 = W1+W2+W3+W4              (nachgeführte Bausumme exkl. Regie)
@@ -15,6 +15,7 @@
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
+import { berechneAbschluss } from '../kern/fo.js';
 import { alleBaustellen } from '../kern/stamm.js';
 import { esc } from '../kern/ui.js';
 
@@ -73,25 +74,6 @@ function heuteTag() {
     .toISOString().slice(0, 10);
 }
 
-// Die FO-5.1.01-Rechnung — Eingaben rein, alle Kennzahlen raus.
-export function berechneAbschluss(w) {
-  const nettoFaktor = (1 - zahl(w.rabatt) / 100)
-    * (1 - zahl(w.allgAbzug) / 100)
-    * (1 - zahl(w.skonto) / 100);
-  const w5 = zahl(w.w1) + zahl(w.w2) + zahl(w.w3) + zahl(w.w4);
-  const w9 = w5 + zahl(w.w6) + zahl(w.w7) + zahl(w.w8);
-  const w10 = w9 * nettoFaktor;
-  const b6 = zahl(w.b1) + zahl(w.b2) + zahl(w.b3) + zahl(w.b4) + zahl(w.b5);
-  const ausmassAbgrenzung = (w.ausmassAbgrenzungen || [])
-    .reduce((s, a) => s + zahl(a.betrag), 0);
-  const a8 = zahl(w.a1) + zahl(w.a2) + ausmassAbgrenzung + zahl(w.a6) + zahl(w.a7);
-  const a9 = a8 * nettoFaktor;
-  const a13 = a9 + zahl(w.b2) + zahl(w.b3) + zahl(w.b5);
-  const s6 = zahl(w.s1) + (w.skAbgrenzungen || []).reduce((s, a) => s + zahl(a.betrag), 0);
-  const k1 = s6 !== 0 ? a13 / s6 - 1 : null;
-  const k3 = w10 - a13;
-  return { nettoFaktor, w5, w9, w10, b6, a8, a9, a13, s6, k1, k3 };
-}
 
 function geldZeile(schluessel, nr, label, wert, zusatz) {
   return `
@@ -150,6 +132,18 @@ export default {
 
         <div data-rolle="formular-bereich"></div>
         <div data-rolle="liste"></div>
+
+        <details class="karte import">
+          <summary>Abgleich-Checkliste je Monatsabschluss (6.4)</summary>
+          <ol class="checkliste-text">
+            <li>FO-5.1.01-Excel öffnen, Blatt zum gleichen Stichtag wählen.</li>
+            <li>Hier beim Abschluss «Abgleich (JSON)» herunterladen oder die Kennzahlen ablesen.</li>
+            <li>Vergleichen: W10, B6, A13, S6, K1, K3 — <b>jede Abweichung ist ein Fehler</b>, das Excel gilt.</li>
+            <li>Ergebnis im Abschluss unter «Bemerkungen» notieren (z. B. «Abgleich ok, 30.09.»).</li>
+            <li>Nach <b>zwei</b> stimmigen Monatsabschlüssen: Betriebsstatus «Controlling» auf
+              <b>führend</b> stellen; das Excel einfrieren als Archiv — nie löschen.</li>
+          </ol>
+        </details>
       </section>`;
 
     const uebersichtElement = container.querySelector('[data-rolle="uebersicht"]');
@@ -420,6 +414,8 @@ export default {
                   <span class="chip ${kenn.k1 > 0 ? 'gewinn' : kenn.k1 < 0 ? 'verlust' : ''}">
                     ${prozentText(kenn.k1)}</span>
                   <span class="rapport-knoepfe">
+                    <button type="button" class="knopf eintrag-loeschen" data-aktion="abgleich"
+                      data-id="${esc(a._id)}">Abgleich (JSON)</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
                       data-id="${esc(a._id)}">PDF</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="oeffnen"
@@ -444,6 +440,27 @@ export default {
       if (!abschluss) return;
       if (knopf.dataset.aktion === 'oeffnen') {
         oeffneFormular(abschluss);
+      } else if (knopf.dataset.aktion === 'abgleich') {
+        // JSON-Brücke fürs Alt-Cockpit: Eingaben + Kennzahlen mit den
+        // FO-Zeilenbezeichnungen, direkt vergleichbar mit dem Excel.
+        const kenn = berechneAbschluss(abschluss.werte || {});
+        const inhalt = JSON.stringify({
+          formular: 'FO 5.1.01',
+          baustelle: { ktr: baustelle.ktr, name: baustelle.name },
+          stichtag: abschluss.stichtag,
+          eingaben: abschluss.werte,
+          kennzahlen: {
+            W5: kenn.w5, W9: kenn.w9, W10: kenn.w10, B6: kenn.b6,
+            A8: kenn.a8, A9: kenn.a9, A13: kenn.a13, S6: kenn.s6,
+            K1: kenn.k1, K3: kenn.k3,
+          },
+        }, null, 2);
+        const url = URL.createObjectURL(new Blob([inhalt], { type: 'application/json' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `abgleich-${baustelle.ktr}-${abschluss.stichtag}.json`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
       } else if (knopf.dataset.aktion === 'pdf') {
         const w = abschluss.werte || {};
         const kenn = berechneAbschluss(w);
