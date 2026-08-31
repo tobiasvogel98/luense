@@ -906,6 +906,10 @@ body {
   color: var(--farbe-text-gedaempft);
 }
 
+.rapport-knoepfe .eintrag-loeschen {
+  margin-left: 0; /* der umgebende Knopf-Block sitzt schon rechts */
+}
+
 .vollbild-leiste {
   position: absolute;
   bottom: calc(var(--abstand-4) + env(safe-area-inset-bottom));

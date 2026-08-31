@@ -55,6 +55,8 @@ export default {
           <div class="chips" data-rolle="filter"></div>
           <button type="button" class="knopf" data-rolle="bericht">PDF-Bericht</button>
         </div>
+        <input type="file" accept="image/*" capture="environment" multiple
+          data-rolle="foto-nachtrag" class="visually-hidden">
         <div data-rolle="liste"></div>
       </section>`;
 
@@ -108,11 +110,17 @@ export default {
                   <span class="chip">${esc(e.tag)}</span>
                   <span class="hinweis">${formatDatumZeit(e.datum)}${
                     e.ortKv ? ' · ' + esc(e.ortKv) : ''}</span>
-                  <button type="button" class="knopf eintrag-loeschen"
-                    data-aktion="loeschen" data-id="${esc(e._id)}"
-                    aria-label="Eintrag löschen">Löschen</button>
+                  <span class="rapport-knoepfe">
+                    <button type="button" class="knopf eintrag-loeschen"
+                      data-aktion="foto-plus" data-id="${esc(e._id)}"
+                      aria-label="Foto ergänzen">+ 📷</button>
+                    <button type="button" class="knopf eintrag-loeschen"
+                      data-aktion="loeschen" data-id="${esc(e._id)}"
+                      aria-label="Eintrag löschen">Löschen</button>
+                  </span>
                 </div>
                 ${e.notiz ? `<p class="ereignis-notiz">${esc(e.notiz)}</p>` : ''}
+                ${e.quelleText ? `<p class="hinweis verknuepfung">↳ ${esc(e.quelleText)}</p>` : ''}
                 ${fotos.length ? `
                   <div class="foto-reihe">
                     ${fotos.map((name) => `
@@ -159,7 +167,32 @@ export default {
       zeichneListe();
     });
 
+    // Fotos nachträglich an einen bestehenden Eintrag hängen (z. B. an
+    // Mängel, die eine Begehung automatisch erzeugt hat).
+    const fotoNachtrag = container.querySelector('[data-rolle="foto-nachtrag"]');
+    let fotoZielId = null;
+
+    fotoNachtrag.addEventListener('change', async () => {
+      const dateien = [...fotoNachtrag.files];
+      fotoNachtrag.value = '';
+      if (!fotoZielId || !dateien.length) return;
+      for (const [index, datei] of dateien.entries()) {
+        const klein = await verkleinereFoto(datei);
+        await haengeAnhangAn(fotoZielId,
+          `foto-${Date.now().toString(36)}-${index}.jpg`, klein);
+      }
+      fotoZielId = null;
+      document.dispatchEvent(new CustomEvent('luense:daten'));
+      await zeichneListe();
+    });
+
     listeElement.addEventListener('click', async (klick) => {
+      const fotoKnopf = klick.target.closest('[data-aktion="foto-plus"]');
+      if (fotoKnopf) {
+        fotoZielId = fotoKnopf.dataset.id;
+        fotoNachtrag.click();
+        return;
+      }
       const loeschKnopf = klick.target.closest('[data-aktion="loeschen"]');
       if (loeschKnopf) {
         if (confirm('Diesen Eintrag endgültig löschen? Zugehörige Fotos werden mitgelöscht.')) {

@@ -82,6 +82,59 @@ const PROTOKOLL_TYPEN = [
     aktionen: [{ id: 'beschluesse', label: 'Beschlüsse → Pendenzen' }],
   },
   {
+    unterTyp: 'begehung',
+    name: 'Begehungsprotokoll',
+    unterschriften: ['Begeher', 'Verantwortlicher vor Ort'],
+    kartenTitel: (werte) => werte.art || 'Begehung',
+    nachSpeichern: 'begehungsMaengel',
+    abschnitte: [
+      {
+        titel: 'Kopfdaten',
+        felder: [
+          { schluessel: 'art', label: 'Art der Begehung', art: 'auswahl',
+            optionen: ['Baustellenbegehung', 'Sicherheitsbegehung', 'Qualitätskontrolle'] },
+          { schluessel: 'datum', label: 'Datum', art: 'datum', halb: true },
+          { schluessel: 'begeher', label: 'Begeher / Verantwortlich', art: 'text', halb: true },
+          { schluessel: 'anwesende', label: 'Anwesende', art: 'text' },
+        ],
+      },
+      {
+        titel: 'Checkliste',
+        checkliste: { schluessel: 'punkte', punkte: [] },
+      },
+      {
+        titel: 'Sofortmassnahmen',
+        felder: [
+          { schluessel: 'sofortmassnahmen', label: 'Sofortmassnahmen', art: 'mehrzeilig' },
+        ],
+      },
+      {
+        titel: 'Bemerkungen',
+        felder: [
+          { schluessel: 'bemerkungen', label: 'Bemerkungen', art: 'mehrzeilig' },
+        ],
+      },
+    ],
+    vorlagen: [
+      { name: 'Sicherheitsbegehung',
+        werte: { art: 'Sicherheitsbegehung', punkte: [
+          { punkt: 'Absturzsicherung', status: 'i. O.' },
+          { punkt: 'Grabenverbau / Böschungen', status: 'i. O.' },
+          { punkt: 'PSA getragen', status: 'i. O.' },
+          { punkt: 'Signalisation / Absperrung', status: 'i. O.' },
+          { punkt: 'Ordnung und Sauberkeit', status: 'i. O.' },
+        ] } },
+      { name: 'Baustellenbegehung',
+        werte: { art: 'Baustellenbegehung', punkte: [
+          { punkt: 'Ausführungsqualität', status: 'i. O.' },
+          { punkt: 'Terminstand', status: 'i. O.' },
+          { punkt: 'Material / Lagerplätze', status: 'i. O.' },
+          { punkt: 'Umweltschutz / Gewässerschutz', status: 'i. O.' },
+          { punkt: 'Werkleitungen markiert', status: 'i. O.' },
+        ] } },
+    ],
+  },
+  {
     unterTyp: 'test',
     name: 'Testprotokoll',
     unterschriften: ['Erfasser', 'Beteiligter'],
@@ -314,6 +367,38 @@ const AKTIONEN = {
   },
 };
 
+// Typ-Haken nach dem Speichern (z. B. Begehung → Mangel-Ereignisse).
+const NACH_SPEICHERN = {
+  // Jeder Checklisten-Punkt mit Status «Mangel» erzeugt ein Journal-
+  // Ereignis (Tag Mangel) mit Rückverweis — genau einmal pro Punkt.
+  async begehungsMaengel(doc, baustelle) {
+    const maengel = (doc.werte?.punkte || []).filter((p) => p.status === 'Mangel');
+    if (!maengel.length) return '';
+    const bestehende = new Set((await abfrage({
+      typ: 'ereignis', baustelleId: baustelle.baustelleId,
+    })).map((e) => e.begehungRef).filter(Boolean));
+    let neu = 0;
+    for (const mangel of maengel) {
+      const ref = `${doc._id}#${mangel.punkt}`;
+      if (bestehende.has(ref)) continue;
+      await put({
+        typ: 'ereignis',
+        baustelleId: baustelle.baustelleId,
+        tag: 'Mangel',
+        ortKv: '',
+        notiz: `${mangel.punkt}${mangel.bemerkung ? ' — ' + mangel.bemerkung : ''}`,
+        quelleText: `Aus ${doc.werte?.art || 'Begehung'} vom ${formatTag(doc.werte?.datum)}`,
+        begehungRef: ref,
+        protokollId: doc._id,
+      });
+      neu++;
+    }
+    return neu
+      ? `${neu} Mangel-Ereignis${neu === 1 ? '' : 'se'} im Journal erstellt — Fotos dort ergänzen.`
+      : 'Alle Mängel sind bereits im Journal.';
+  },
+};
+
 // Kurzfassung fürs Listen-Karteli: erster gefüllter längerer Textwert.
 function vorschau(werte) {
   for (const wert of Object.values(werte)) {
@@ -517,13 +602,17 @@ export default {
         const basis = inBearbeitung
           ? { ...inBearbeitung }
           : { typ: 'protokoll', baustelleId: baustelle.baustelleId, unterTyp: aktiverTyp.unterTyp };
-        await put({
+        const gespeichert = await put({
           ...basis,
           werte,
           datum: /^\d{4}-\d{2}-\d{2}$/.test(werte.datum || '')
             ? `${werte.datum}T12:00:00.000Z`
             : (basis.datum || new Date().toISOString()),
         });
+        if (aktiverTyp.nachSpeichern && NACH_SPEICHERN[aktiverTyp.nachSpeichern]) {
+          aktionsMeldung.textContent =
+            await NACH_SPEICHERN[aktiverTyp.nachSpeichern](gespeichert, baustelle);
+        }
         schliesseFormular();
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
