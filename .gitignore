@@ -3,3 +3,6 @@ node_modules/
 Thumbs.db
 desktop.ini
 *.log
+
+# Kopien der Alt-Tools (koennen echte Daten enthalten — nie committen)
+altbestand/
