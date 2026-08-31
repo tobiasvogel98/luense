@@ -948,6 +948,72 @@ body {
   color: var(--farbe-text);
 }
 
+/* Grabenrechner: Teile, Skizze, Ergebnisse */
+
+.graben-titel {
+  font-size: var(--schrift-basis);
+  margin: var(--abstand-5) 0 var(--abstand-1);
+}
+
+.rohr-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  align-self: center;
+}
+
+.rohr-mass {
+  flex: 0 1 5.5rem;
+  font-size: 0.75rem;
+  margin-bottom: 0;
+}
+
+.formular .rohr-mass input {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.graben-ausgabe {
+  display: flex;
+  gap: var(--abstand-3);
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin: var(--abstand-3) 0;
+}
+
+.graben-skizze {
+  width: 180px;
+  max-width: 100%;
+  background: #ffffff;
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.graben-skizze .mass {
+  font-size: 11px;
+  fill: #444;
+}
+
+.graben-ergebnis {
+  flex: 1;
+  min-width: 11rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.graben-ergebnis div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--abstand-2);
+  font-size: var(--schrift-klein);
+  padding: 2px 0;
+  border-bottom: 1px dashed var(--farbe-linie);
+}
+
+.graben-ergebnis span {
+  color: var(--farbe-text-gedaempft);
+}
+
 /* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
 
 .betriebsstatus {
