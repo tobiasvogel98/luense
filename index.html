@@ -55,10 +55,12 @@
     import auswertungModul from './module/auswertung.js';
     import ausmassModul from './module/ausmass.js';
     import nachtragModul from './module/nachtrag.js';
+    import dossierModul from './module/dossier.js';
+    import offertModul from './module/offert.js';
 
     // Modul-Registrierung: mehr Kopplung gibt es nicht.
-    const MODULE = [ereignisModul, pendenzenModul, rapportModul,
-      ausmassModul, nachtragModul, protokolleModul, auswertungModul];
+    const MODULE = [ereignisModul, pendenzenModul, rapportModul, ausmassModul,
+      nachtragModul, protokolleModul, auswertungModul, dossierModul, offertModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
     const modulbereich = document.getElementById('modulbereich');
@@ -106,12 +108,23 @@
     });
 
     // Ein Modul (z. B. die Controlling-Übersicht) bittet um den Wechsel
-    // zu einer anderen Baustelle.
-    document.addEventListener('luense:baustelleWechseln', (ereignis) => {
+    // zu einer anderen Baustelle — Auswahl vorher auffrischen, damit
+    // auch eben erst erstellte Baustellen (Offerte → Baustelle) da sind.
+    document.addEventListener('luense:baustelleWechseln', async (ereignis) => {
       const ziel = ereignis.detail?.baustelleId;
       if (!ziel) return;
+      await aktualisiereAuswahl();
       auswahl.value = ziel;
       localStorage.setItem(MERKER, ziel);
+      zeigeModul();
+    });
+
+    // Ein Modul (z. B. das Dossier) bittet um den Wechsel zu einem Modul.
+    document.addEventListener('luense:modulWechseln', (ereignis) => {
+      const index = MODULE.findIndex((m) => m.name === ereignis.detail?.name);
+      if (index < 0) return;
+      aktivesModul = index;
+      localStorage.setItem(MODUL_MERKER, MODULE[index].name);
       zeigeModul();
     });
 
