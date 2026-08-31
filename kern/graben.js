@@ -133,45 +133,68 @@ export function berechneTeil(L, teil) {
   };
 }
 
-// Querschnitt-Skizze als SVG: Schichten, Rohre, Hauptmasse.
-export function querschnittSvg(teil) {
-  const H = teil.H || 1;
-  const Bu = teil.B || 0.5;
-  const Bo = teil.profil === 'v' ? (teil.BOben || Bu) : Bu;
-  const maxB = Math.max(Bu, Bo);
-  const massstab = 150 / Math.max(maxB, H);
-  const rand = 34;
-  const breitePx = maxB * massstab + rand * 2;
-  const hoehePx = H * massstab + rand * 2;
-  const mitte = breitePx / 2;
-  const y = (h) => rand + (H - h) * massstab; // h ab Sohle → Pixel-y
-  const halbe = (h) => (breiteBei(teil, h) * massstab) / 2;
-  const band = (von, bis, farbe) => {
-    if (bis <= von) return '';
-    return `<polygon fill="${farbe}" points="
-      ${mitte - halbe(von)},${y(von)} ${mitte + halbe(von)},${y(von)}
-      ${mitte + halbe(bis)},${y(bis)} ${mitte - halbe(bis)},${y(bis)}"/>`;
-  };
-  const erg = berechneTeil(1, teil);
-  const rohre = (teil.pipes || []).map((p) => {
-    const r = (p.d / 2000) * massstab;
-    return `<circle cx="${mitte + p.x * massstab}" cy="${y(p.z)}" r="${r}"
-      fill="${ROHR_FARBEN[p.type] || '#666'}" stroke="#1c1b18" stroke-width="1"/>`;
-  }).join('');
-  return `
-    <svg viewBox="0 0 ${breitePx} ${hoehePx}" class="graben-skizze"
-      role="img" aria-label="Querschnitt ${esc2(teil.name)}">
-      ${band(erg.verdaemmTop, H, SCHICHT_FARBEN.auffuellung)}
-      ${band(teil.hBett, Math.min(erg.verdaemmTop, H), SCHICHT_FARBEN.verdaemmung)}
-      ${band(0, teil.hBett, SCHICHT_FARBEN.bettung)}
-      <polyline points="${mitte - halbe(H)},${y(H)} ${mitte - halbe(0)},${y(0)}
-        ${mitte + halbe(0)},${y(0)} ${mitte + halbe(H)},${y(H)}"
-        fill="none" stroke="#1c1b18" stroke-width="2"/>
-      ${rohre}
-      <text x="${mitte}" y="${y(0) + 14}" text-anchor="middle" class="mass">${Bu.toFixed(2)} m</text>
-      ${teil.profil === 'v' ? `<text x="${mitte}" y="${y(H) - 6}" text-anchor="middle" class="mass">${Bo.toFixed(2)} m</text>` : ''}
-      <text x="${mitte + halbe(H) + 6}" y="${(y(0) + y(H)) / 2}" class="mass">T ${H.toFixed(2)} m</text>
-    </svg>`;
+// EIN gemeinsamer Querschnitt für den ganzen Abschnitt: alle Grabenteile
+// nebeneinander an derselben Terrainlinie (Stufengraben wie im Alt-Tool).
+// V-Profile böschen an der Aussenseite; Innenwände zwischen den Teilen
+// bleiben senkrecht. Die Rechnung je Teil bleibt davon unberührt.
+export function abschnittSvg(teile) {
+  const gueltige = (teile || []).filter((t) => t.H > 0 && t.B > 0);
+  if (!gueltige.length) return '';
+  const obenBreite = (t) => (t.profil === 'v' ? (t.BOben || t.B) : t.B);
+  const maxH = Math.max(...gueltige.map((t) => t.H));
+  const totalB = gueltige.reduce((s, t) => s + obenBreite(t), 0);
+  const massstab = Math.min(340 / totalB, 190 / maxH);
+  const rand = 40;
+  const breitePx = totalB * massstab + rand * 2;
+  const hoehePx = maxH * massstab + rand * 2;
+  const yTerrain = rand;
+  let svg = '';
+  let x0 = rand;
+  gueltige.forEach((teil, index) => {
+    const bandBreite = obenBreite(teil) * massstab;
+    // Böschungsseite: einzeln = beidseitig, sonst nur aussen.
+    const seite = gueltige.length === 1 ? 'mitte'
+      : index === 0 ? 'links'
+      : index === gueltige.length - 1 ? 'rechts' : 'mitte';
+    const y = (h) => yTerrain + (teil.H - h) * massstab; // h ab Sohle des Teils
+    const kanten = (h) => {
+      const b = breiteBei(teil, h) * massstab;
+      if (seite === 'links') return [x0 + bandBreite - b, x0 + bandBreite];
+      if (seite === 'rechts') return [x0, x0 + b];
+      return [x0 + (bandBreite - b) / 2, x0 + (bandBreite + b) / 2];
+    };
+    const band = (von, bis, farbe) => {
+      if (bis <= von) return '';
+      const [l1, r1] = kanten(von);
+      const [l2, r2] = kanten(bis);
+      return `<polygon fill="${farbe}" points="${l1},${y(von)} ${r1},${y(von)} ${r2},${y(bis)} ${l2},${y(bis)}"/>`;
+    };
+    const erg = berechneTeil(1, teil);
+    const [lS, rS] = kanten(0);
+    const [lT, rT] = kanten(teil.H);
+    svg += band(erg.verdaemmTop, teil.H, SCHICHT_FARBEN.auffuellung);
+    svg += band(teil.hBett, Math.min(erg.verdaemmTop, teil.H), SCHICHT_FARBEN.verdaemmung);
+    svg += band(0, teil.hBett, SCHICHT_FARBEN.bettung);
+    svg += `<polyline points="${lT},${y(teil.H)} ${lS},${y(0)} ${rS},${y(0)} ${rT},${y(teil.H)}"
+      fill="none" stroke="#1c1b18" stroke-width="2"/>`;
+    for (const p of teil.pipes || []) {
+      const [l, r] = kanten(p.z);
+      const cx = (l + r) / 2 + p.x * massstab;
+      svg += `<circle cx="${cx}" cy="${y(p.z)}" r="${(p.d / 2000) * massstab}"
+        fill="${ROHR_FARBEN[p.type] || '#666'}" stroke="#1c1b18" stroke-width="1"/>`;
+    }
+    svg += `<text x="${x0 + bandBreite / 2}" y="${yTerrain - 6}" text-anchor="middle"
+      class="mass">${esc2(teil.name)}${teil.profil === 'v' ? ' (V)' : ''}</text>`;
+    svg += `<text x="${(lS + rS) / 2}" y="${y(0) + 13}" text-anchor="middle"
+      class="mass">${teil.B.toFixed(2)}</text>`;
+    svg += `<text x="${x0 + bandBreite + 3}" y="${y(0) - 3}" class="mass mass-klein">T ${teil.H.toFixed(2)}</text>`;
+    x0 += bandBreite;
+  });
+  // Terrainlinie über die ganze Breite
+  svg += `<line x1="${rand - 14}" y1="${yTerrain}" x2="${rand + totalB * massstab + 14}"
+    y2="${yTerrain}" stroke="#1c1b18" stroke-width="2"/>`;
+  return `<svg viewBox="0 0 ${breitePx} ${hoehePx}" class="graben-skizze"
+    role="img" aria-label="Grabenquerschnitt">${svg}</svg>`;
 }
 
 function esc2(s) {

@@ -7,7 +7,7 @@
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import {
-  GRABENARTEN, ROHR_BIBLIOTHEK, ROHR_LABELS, berechneTeil, querschnittSvg,
+  GRABENARTEN, ROHR_BIBLIOTHEK, ROHR_LABELS, berechneTeil, abschnittSvg,
 } from '../kern/graben.js';
 import { esc } from '../kern/ui.js';
 
@@ -384,10 +384,7 @@ export default {
             </select>
             <button type="button" class="knopf zeile-hinzu" data-aktion="rohr-hinzu">+ Rohr</button>
           </div>
-          <div class="graben-ausgabe">
-            <div data-rolle="skizze"></div>
-            <div data-rolle="ergebnis" class="graben-ergebnis"></div>
-          </div>
+          <div data-rolle="ergebnis" class="graben-ergebnis"></div>
           <p class="gruppen-label">NPK-Zuordnung dieses Grabenteils</p>
           <div class="feld-reihe">
             <label>Aushub${zuordnungSelect('zu-aushub', teil.zuordnung?.aushub, positionen)}</label>
@@ -400,7 +397,6 @@ export default {
     function aktualisiereTeil(block, L) {
       const teil = teilAusFormular(block);
       const erg = berechneTeil(L, teil);
-      block.querySelector('[data-rolle="skizze"]').innerHTML = querschnittSvg(teil);
       block.querySelector('[data-rolle="ergebnis"]').innerHTML = `
         <div><span>Aushub</span><b>${m3(erg.aushub)}</b></div>
         <div><span>Bettung</span><b>${m3(erg.bettung)}</b></div>
@@ -414,7 +410,11 @@ export default {
 
     function aktualisiereAlleTeile(formular) {
       const L = zahl(formular.elements.laenge.value);
-      formular.querySelectorAll('[data-rolle="teil"]').forEach((b) => aktualisiereTeil(b, L));
+      const bloecke = [...formular.querySelectorAll('[data-rolle="teil"]')];
+      bloecke.forEach((b) => aktualisiereTeil(b, L));
+      // EIN gemeinsamer Querschnitt für den ganzen Abschnitt.
+      formular.querySelector('[data-rolle="abschnitt-skizze"]').innerHTML =
+        abschnittSvg(bloecke.map(teilAusFormular));
     }
 
     async function oeffneGrabenEditor(abschnitt) {
@@ -437,6 +437,7 @@ export default {
             <label>Länge [m]<input name="laenge" type="number" step="0.1"
               inputmode="decimal" value="${daten.L}"></label>
           </div>
+          <div class="abschnitt-skizze-halter" data-rolle="abschnitt-skizze"></div>
           <div data-rolle="teile">
             ${daten.teile.map((t, i) => teilHtml(t, i, positionen)).join('')}
           </div>

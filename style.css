@@ -983,9 +983,13 @@ body {
   margin: var(--abstand-3) 0;
 }
 
+.abschnitt-skizze-halter {
+  margin-bottom: var(--abstand-3);
+  text-align: center;
+}
+
 .graben-skizze {
-  width: 180px;
-  max-width: 100%;
+  width: min(420px, 100%);
   background: #ffffff;
   border: 1px solid var(--farbe-linie);
   border-radius: var(--radius);
@@ -994,6 +998,10 @@ body {
 .graben-skizze .mass {
   font-size: 11px;
   fill: #444;
+}
+
+.graben-skizze .mass-klein {
+  font-size: 9px;
 }
 
 .graben-ergebnis {
