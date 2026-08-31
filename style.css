@@ -861,11 +861,20 @@ body {
   color: var(--farbe-akzent);
 }
 
+.tabellen-scroll {
+  overflow-x: auto; /* breite Tabellen scrollen selbst, nie die Seite */
+  margin-bottom: var(--abstand-2);
+}
+
 .uebersicht-tabelle {
   width: 100%;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
   font-size: var(--schrift-klein);
+}
+
+.uebersicht-tabelle td:first-child {
+  white-space: nowrap;
 }
 
 .uebersicht-tabelle th,

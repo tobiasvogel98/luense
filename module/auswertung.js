@@ -158,9 +158,12 @@ export default {
     const listeElement = container.querySelector('[data-rolle="liste"]');
 
     // ---------- Gesamtübersicht über alle Baustellen ----------
+    // Bausumme/Leistung/SK/Ergebnis aus dem letzten FO-Abschluss;
+    // Nachtragssummen LIVE aus dem Nachtrags-Modul (geteilte Dokumente) —
+    // ein Statuswechsel dort bewegt die Zahlen hier sofort.
     async function zeichneUebersicht() {
-      const [baustellen, abschluesse] = await Promise.all([
-        alleBaustellen(), abfrage({ typ: 'kosten' }),
+      const [baustellen, abschluesse, nachtraege] = await Promise.all([
+        alleBaustellen(), abfrage({ typ: 'kosten' }), abfrage({ typ: 'nachtrag' }),
       ]);
       const zeilen = baustellen.map((b) => {
         const eigene = abschluesse
@@ -168,26 +171,79 @@ export default {
           .sort((x, y) => (y.stichtag || '').localeCompare(x.stichtag || ''));
         const letzter = eigene[0];
         const kenn = letzter ? berechneAbschluss(letzter.werte || {}) : null;
-        return { b, letzter, kenn };
+        const eigeneNt = nachtraege.filter((n) => n.baustelleId === b.baustelleId);
+        const ntSumme = (liste) => liste.reduce((s, n) => s + zahl(n.summe), 0);
+        return {
+          b,
+          letzter,
+          kenn,
+          ntGenehmigt: ntSumme(eigeneNt.filter((n) => ['genehmigt', 'verrechnet'].includes(n.status))),
+          ntOffen: ntSumme(eigeneNt.filter((n) => !['genehmigt', 'verrechnet'].includes(n.status))),
+        };
       });
       uebersichtElement.innerHTML = `
         <h3>Alle Baustellen</h3>
-        <table class="uebersicht-tabelle">
-          <thead><tr><th>KTR · Baustelle</th><th class="zahl">Stichtag</th>
-            <th class="zahl">Ergebnis</th><th class="zahl">Restbausumme</th></tr></thead>
-          <tbody>
-            ${zeilen.map(({ b, letzter, kenn }) => `
-              <tr data-baustelle="${esc(b.baustelleId)}"
-                class="${b.baustelleId === baustelle.baustelleId ? 'aktiv' : ''}">
-                <td>${esc(b.ktr)} · ${esc(b.name)}</td>
-                <td class="zahl">${letzter ? formatTag(letzter.stichtag) : '—'}</td>
-                <td class="zahl ${kenn?.k1 > 0 ? 'gewinn' : kenn?.k1 < 0 ? 'verlust' : ''}">
-                  ${kenn ? prozentText(kenn.k1) : '—'}</td>
-                <td class="zahl">${kenn ? chf(kenn.k3) : '—'}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-        <p class="hinweis">Zeile antippen wählt die Baustelle.</p>`;
+        <div class="tabellen-scroll">
+          <table class="uebersicht-tabelle">
+            <thead><tr>
+              <th>KTR · Baustelle</th><th class="zahl">Stichtag</th>
+              <th class="zahl">Bausumme</th><th class="zahl">NT gen.</th>
+              <th class="zahl">NT offen</th><th class="zahl">Leistung</th>
+              <th class="zahl">SK</th><th class="zahl">Fertig</th>
+              <th class="zahl">Ergebnis</th>
+            </tr></thead>
+            <tbody>
+              ${zeilen.map(({ b, letzter, kenn, ntGenehmigt, ntOffen }) => {
+                const fertig = kenn && kenn.w10 > 0 ? kenn.a13 / kenn.w10 : null;
+                return `
+                  <tr data-baustelle="${esc(b.baustelleId)}"
+                    class="${b.baustelleId === baustelle.baustelleId ? 'aktiv' : ''}">
+                    <td>${esc(b.ktr)} · ${esc(b.name)}</td>
+                    <td class="zahl">${letzter ? formatTag(letzter.stichtag) : '—'}</td>
+                    <td class="zahl">${kenn ? chf(kenn.w10) : '—'}</td>
+                    <td class="zahl ${ntGenehmigt ? 'gewinn' : ''}">${ntGenehmigt ? chf(ntGenehmigt) : '—'}</td>
+                    <td class="zahl">${ntOffen ? chf(ntOffen) : '—'}</td>
+                    <td class="zahl">${kenn ? chf(kenn.a13) : '—'}</td>
+                    <td class="zahl">${kenn ? chf(kenn.s6) : '—'}</td>
+                    <td class="zahl">${fertig !== null ? prozentText(fertig) : '—'}</td>
+                    <td class="zahl ${kenn?.k1 > 0 ? 'gewinn' : kenn?.k1 < 0 ? 'verlust' : ''}">
+                      ${kenn ? prozentText(kenn.k1) : '—'}</td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <p class="hinweis">Zeile antippen wählt die Baustelle. Nachtragssummen live
+          aus dem Nachträge-Modul; übrige Werte aus dem letzten Monatsabschluss.</p>
+
+        <h3>Monatsverlauf · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h3>
+        ${(() => {
+          const eigene = abschluesse
+            .filter((a) => a.baustelleId === baustelle.baustelleId)
+            .sort((x, y) => (x.stichtag || '').localeCompare(y.stichtag || ''));
+          if (!eigene.length) return '<p class="hinweis">Noch kein Monatsabschluss.</p>';
+          return `
+            <div class="tabellen-scroll">
+              <table class="uebersicht-tabelle">
+                <thead><tr><th>Stichtag</th><th class="zahl">Ertrag (A13)</th>
+                  <th class="zahl">SK (S6)</th><th class="zahl">Ergebnis</th>
+                  <th class="zahl">Restbausumme</th></tr></thead>
+                <tbody>
+                  ${eigene.map((a) => {
+                    const kenn = berechneAbschluss(a.werte || {});
+                    return `<tr>
+                      <td>${formatTag(a.stichtag)}</td>
+                      <td class="zahl">${chf(kenn.a13)}</td>
+                      <td class="zahl">${chf(kenn.s6)}</td>
+                      <td class="zahl ${kenn.k1 > 0 ? 'gewinn' : kenn.k1 < 0 ? 'verlust' : ''}">
+                        ${prozentText(kenn.k1)}</td>
+                      <td class="zahl">${chf(kenn.k3)}</td>
+                    </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>`;
+        })()}`;
     }
 
     uebersichtElement.addEventListener('click', (klick) => {
