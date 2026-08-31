@@ -912,6 +912,42 @@ body {
   border-color: #dc2626;
 }
 
+/* Ausmass: Positionskarten, Nachtrags-Frühwarnung */
+
+.ausmass h2 {
+  font-size: var(--schrift-titel);
+  margin: var(--abstand-2) 0 var(--abstand-4);
+}
+
+.position {
+  padding: var(--abstand-3) var(--abstand-4);
+}
+
+.position.ueber-vertrag {
+  border-left: 6px solid #dc2626;
+}
+
+.position-text {
+  margin: var(--abstand-1) 0;
+}
+
+.position-zahlen {
+  display: flex;
+  align-items: baseline;
+  gap: var(--abstand-3);
+  flex-wrap: wrap;
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+  font-variant-numeric: tabular-nums;
+}
+
+.position-betrag {
+  margin-left: auto;
+  font-size: var(--schrift-basis);
+  font-weight: 700;
+  color: var(--farbe-text);
+}
+
 /* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
 
 .betriebsstatus {
