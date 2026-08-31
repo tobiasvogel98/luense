@@ -5,7 +5,7 @@
   --farbe-hintergrund: #f4f3f0;
   --farbe-flaeche: #ffffff;
   --farbe-text: #1c1b18;
-  --farbe-text-gedaempft: #6b675f;
+  --farbe-text-gedaempft: #57534b; /* Kontrast ~6:1 — lesbar auch in der Sonne */
   --farbe-linie: #d9d6cf;
   --farbe-akzent: #d97b18;          /* Signalorange — Baustelle */
   --farbe-akzent-kontrast: #ffffff;
@@ -35,7 +35,7 @@
     --farbe-hintergrund: #15171a;
     --farbe-flaeche: #1f2226;
     --farbe-text: #e8e6e1;
-    --farbe-text-gedaempft: #9a968d;
+    --farbe-text-gedaempft: #aca89f; /* Kontrast ~7:1 im dunklen Schema */
     --farbe-linie: #34383e;
     --farbe-akzent: #e8933a;
     --farbe-akzent-kontrast: #15171a;

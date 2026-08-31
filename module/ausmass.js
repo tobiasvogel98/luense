@@ -251,10 +251,15 @@ export default {
         const bekannt = new Set((await ladePositionen()).map((p) => String(p.pos)));
         let neu = 0;
         let uebersprungen = 0;
+        const uebersprungenListe = [];
         for (const eintrag of liste) {
           const pos = String(eintrag?.pos ?? eintrag?.nr ?? '').trim();
           const text = String(eintrag?.text ?? '').trim();
-          if (!pos || !text || bekannt.has(pos)) { uebersprungen++; continue; }
+          if (!pos || !text || bekannt.has(pos)) {
+            uebersprungen++;
+            uebersprungenListe.push(pos || '(ohne Nr.)');
+            continue;
+          }
           await put({
             typ: 'ausmass',
             baustelleId: baustelle.baustelleId,
@@ -269,7 +274,10 @@ export default {
           neu++;
         }
         importMeldung.textContent =
-          `${neu} Positionen importiert, ${uebersprungen} übersprungen.`;
+          `${neu} Positionen importiert, ${uebersprungen} übersprungen.${
+            uebersprungenListe.length
+              ? ` Übersprungen: ${uebersprungenListe.slice(0, 8).join(', ')}${
+                  uebersprungenListe.length > 8 ? ' …' : ''}` : ''}`;
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       } catch (fehler) {

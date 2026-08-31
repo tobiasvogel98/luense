@@ -169,10 +169,15 @@ export async function oeffneAltPendenzenImport(daten, { nachImport = () => {} } 
     let neu = 0;
     let doppelt = 0;
     let ohneZiel = 0;
+    const doppeltListe = [];
     for (const item of daten.items) {
       const ziel = zuordnung.get(item.baustelleId);
       if (!ziel) { ohneZiel++; continue; }
-      if (item.id && bekannteAltIds.has(item.id)) { doppelt++; continue; }
+      if (item.id && bekannteAltIds.has(item.id)) {
+        doppelt++;
+        doppeltListe.push(String(item.title || item.id).slice(0, 30));
+        continue;
+      }
       await put({
         typ: 'pendenz',
         baustelleId: ziel,
@@ -191,7 +196,7 @@ export async function oeffneAltPendenzenImport(daten, { nachImport = () => {} } 
     }
     if (neu) localStorage.setItem(ALT_IMPORT_MERKER, importId);
     dialog.remove();
-    nachImport({ neu, doppelt, ohneZiel });
+    nachImport({ neu, doppelt, ohneZiel, doppeltListe });
   });
 }
 
@@ -317,12 +322,17 @@ export async function oeffneAltRapportImport(daten, { nachImport = () => {} } = 
     let neu = 0;
     let doppelt = 0;
     let ohneZiel = 0;
+    const doppeltListe = [];
     for (const [name, rapporte] of projekte.entries()) {
       const ziel = zuordnung.get(name);
       for (const alt of rapporte) {
         if (!ziel) { ohneZiel++; continue; }
         const doc = altRapportZuDokument(alt, ziel, importId);
-        if (bekannteAltIds.has(doc.altId)) { doppelt++; continue; }
+        if (bekannteAltIds.has(doc.altId)) {
+          doppelt++;
+          doppeltListe.push(`${alt.date} ${name}`.slice(0, 30));
+          continue;
+        }
         await put(doc);
         bekannteAltIds.add(doc.altId);
         neu++;
@@ -330,8 +340,14 @@ export async function oeffneAltRapportImport(daten, { nachImport = () => {} } = 
     }
     if (neu) localStorage.setItem(ALT_IMPORT_MERKER, importId);
     dialog.remove();
-    nachImport({ neu, doppelt, ohneZiel });
+    nachImport({ neu, doppelt, ohneZiel, doppeltListe });
   });
+}
+
+// Bis zu acht übersprungene Einträge namentlich ausweisen.
+export function doppeltText(liste) {
+  if (!liste?.length) return '';
+  return ` Übersprungen: ${liste.slice(0, 8).join(', ')}${liste.length > 8 ? ' …' : ''}`;
 }
 
 // Fusszeile für die Shell: Backup-Stand, Erinnerung, Backup- und Import-Knopf.
@@ -400,7 +416,8 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
         await oeffneAltPendenzenImport(inhalt, {
           nachImport: (ergebnis) => {
             status.textContent = `Probeimport: ${ergebnis.neu} Pendenzen neu, `
-              + `${ergebnis.doppelt} Duplikate, ${ergebnis.ohneZiel} ohne Zuordnung.`;
+              + `${ergebnis.doppelt} Duplikate, ${ergebnis.ohneZiel} ohne Zuordnung.`
+              + doppeltText(ergebnis.doppeltListe);
             entfernenKnopf.hidden = !altImportVorhanden();
             nachImport();
           },
@@ -409,7 +426,8 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
         await oeffneAltRapportImport(inhalt, {
           nachImport: (ergebnis) => {
             status.textContent = `Probeimport: ${ergebnis.neu} Rapporte neu, `
-              + `${ergebnis.doppelt} Duplikate, ${ergebnis.ohneZiel} ohne Zuordnung.`;
+              + `${ergebnis.doppelt} Duplikate, ${ergebnis.ohneZiel} ohne Zuordnung.`
+              + doppeltText(ergebnis.doppeltListe);
             entfernenKnopf.hidden = !altImportVorhanden();
             nachImport();
           },

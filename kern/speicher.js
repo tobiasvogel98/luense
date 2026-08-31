@@ -44,9 +44,11 @@ export async function entferneAnhang(docId, name) {
 }
 
 // Gesamtexport fürs Backup: alle Dokumente samt Anhängen (base64).
+// Interne Index-Dokumente (_design/…) bleiben draussen.
 export async function exportiereAlles() {
   const ergebnis = await db.allDocs({ include_docs: true, attachments: true });
-  return ergebnis.rows.map((zeile) => zeile.doc);
+  return ergebnis.rows.map((zeile) => zeile.doc)
+    .filter((doc) => !doc._id.startsWith('_design/'));
 }
 
 // Import mit Duplikat-Schutz: ergänzt statt überschreibt — vorhandene
@@ -68,17 +70,53 @@ export async function importiereDokumente(dokumente) {
   return { neu, uebersprungen };
 }
 
+// Persistenter Index über [typ, baustelleId, datum] — abfrage() liest
+// damit nur die Dokumente der gefragten Baustelle statt alle eines Typs
+// zu laden und erst danach zu filtern (skaliert mit vielen Baustellen
+// und tausenden Fotos). Der Index wird von PouchDB einmal gebaut und
+// danach inkrementell nachgeführt.
+const INDEX_ID = '_design/luense';
+let indexBereit = null;
+
+function sicherstelleIndex() {
+  if (!indexBereit) {
+    indexBereit = db.get(INDEX_ID).catch(() => db.put({
+      _id: INDEX_ID,
+      views: {
+        nachTypUndBaustelle: {
+          map: "function (doc) { if (doc.typ) emit([doc.typ, doc.baustelleId || '', doc.datum || '']); }",
+        },
+      },
+    })).catch(() => {});
+  }
+  return indexBereit;
+}
+
 // Alle Dokumente eines Typs, optional auf eine Baustelle gefiltert.
 // Sortiert nach datum, neuste zuerst.
 export async function abfrage({ typ, baustelleId } = {}) {
   if (!typ) throw new Error('abfrage() braucht einen typ.');
-  const ergebnis = await db.allDocs({
-    include_docs: true,
-    startkey: `${typ}:`,
-    endkey: `${typ}:￰`, // Endzeichen ist U+FFF0: oberes Ende des Id-Bereichs
-  });
-  let docs = ergebnis.rows.map((zeile) => zeile.doc);
-  if (baustelleId) docs = docs.filter((d) => d.baustelleId === baustelleId);
-  docs.sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
-  return docs;
+  try {
+    await sicherstelleIndex();
+    const ergebnis = await db.query('luense/nachTypUndBaustelle', {
+      include_docs: true,
+      ...(baustelleId
+        ? { startkey: [typ, baustelleId], endkey: [typ, baustelleId, {}] }
+        : { startkey: [typ], endkey: [typ, {}] }),
+    });
+    const docs = ergebnis.rows.map((zeile) => zeile.doc);
+    docs.sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
+    return docs;
+  } catch {
+    // Rückfallebene: alter Volltyp-Scan über die Id-Präfixe.
+    const ergebnis = await db.allDocs({
+      include_docs: true,
+      startkey: `${typ}:`,
+      endkey: `${typ}:￰`, // Endzeichen ist U+FFF0: oberes Ende des Id-Bereichs
+    });
+    let docs = ergebnis.rows.map((zeile) => zeile.doc);
+    if (baustelleId) docs = docs.filter((d) => d.baustelleId === baustelleId);
+    docs.sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
+    return docs;
+  }
 }

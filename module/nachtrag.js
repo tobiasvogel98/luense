@@ -25,6 +25,23 @@ function formatTag(tagIso) {
   return t && m && j ? `${t}.${m}.${j}` : tagIso;
 }
 
+function heuteTag() {
+  const jetzt = new Date();
+  return new Date(jetzt.getTime() - jetzt.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 10);
+}
+
+// Jeder Statuswechsel wird mit Datum protokolliert — wichtig für
+// SIA-118-Fristen (rechtzeitige Anzeige belegen).
+function mitHistorie(nachtrag, neuerStatus) {
+  return {
+    ...nachtrag,
+    status: neuerStatus,
+    statusHistorie: [...(nachtrag.statusHistorie || []),
+      { status: neuerStatus, datum: heuteTag() }],
+  };
+}
+
 export default {
   name: 'Nachträge',
   dokumentTypen: ['nachtrag'],
@@ -193,14 +210,20 @@ export default {
                   </span>
                 </div>
                 ${statusPipelineHtml(n.status)}
+                ${n.statusHistorie?.length ? `
+                  <p class="hinweis">${n.statusHistorie
+                    .map((h) => `${esc(h.status)} ${formatTag(h.datum)}`).join(' → ')}</p>` : ''}
                 ${n.sachverhalt ? `<p class="hinweis">${esc(n.sachverhalt.slice(0, 120))}</p>` : ''}
                 ${n.basis ? `<p class="hinweis">Basis: ${esc(n.basis)}</p>` : ''}
                 ${beweisText ? `<p class="hinweis verknuepfung">↳ Beweise: ${beweisText}</p>` : ''}
-                ${naechster ? `
-                  <div class="knopfzeile">
+                <div class="knopfzeile">
+                  ${naechster ? `
                     <button type="button" class="knopf" data-aktion="weiter"
-                      data-id="${esc(n._id)}">Status → ${naechster}</button>
-                  </div>` : ''}
+                      data-id="${esc(n._id)}">Status → ${naechster}</button>` : ''}
+                  ${NACHTRAG_STATUS.indexOf(n.status) > 0 ? `
+                    <button type="button" class="knopf" data-aktion="zurueck"
+                      data-id="${esc(n._id)}">← zurück</button>` : ''}
+                </div>
               </article>`;
           }).join('')
         : '<p class="hinweis">Noch keine Nachträge auf dieser Baustelle.</p>';
@@ -225,6 +248,12 @@ export default {
         const basis = inBearbeitung
           ? { ...inBearbeitung }
           : { typ: 'nachtrag', baustelleId: baustelle.baustelleId };
+        const neuerStatus = formular.elements.status.value;
+        const historie = !inBearbeitung
+          ? [{ status: neuerStatus, datum: heuteTag() }]
+          : inBearbeitung.status !== neuerStatus
+            ? [...(inBearbeitung.statusHistorie || []), { status: neuerStatus, datum: heuteTag() }]
+            : (inBearbeitung.statusHistorie || []);
         await put({
           ...basis,
           nummer: formular.elements.nummer.value.trim(),
@@ -232,7 +261,8 @@ export default {
           sachverhalt: formular.elements.sachverhalt.value.trim(),
           basis: formular.elements.basis.value.trim(),
           summe: formular.elements.summe.value.trim(),
-          status: formular.elements.status.value,
+          status: neuerStatus,
+          statusHistorie: historie,
           beweise,
         });
         schliesseFormular();
@@ -317,7 +347,14 @@ export default {
       } else if (knopf.dataset.aktion === 'weiter') {
         const naechster = NACHTRAG_STATUS[NACHTRAG_STATUS.indexOf(nachtrag.status) + 1];
         if (!naechster) return;
-        await put({ ...nachtrag, status: naechster });
+        await put(mitHistorie(nachtrag, naechster));
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneListe();
+      } else if (knopf.dataset.aktion === 'zurueck') {
+        // Für Fehlklicks: ein Schritt zurück, ebenfalls protokolliert.
+        const vorheriger = NACHTRAG_STATUS[NACHTRAG_STATUS.indexOf(nachtrag.status) - 1];
+        if (!vorheriger) return;
+        await put(mitHistorie(nachtrag, vorheriger));
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       } else if (knopf.dataset.aktion === 'loeschen') {

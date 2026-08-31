@@ -19,6 +19,7 @@ export default {
   render(container, baustelle) {
     const filter = new Set(); // gewählte Tag-Chips; leer = alle zeigen
     let gewaehlteFotos = []; // Dateien, die beim Speichern angehängt werden
+    let inBearbeitung = null; // Ereignis, das gerade im Formular steht
     const objektUrls = []; // erzeugte Foto-URLs, beim Neuzeichnen freigeben
 
     container.innerHTML = `
@@ -47,6 +48,9 @@ export default {
           <p class="hinweis" data-rolle="foto-info"></p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Eintrag speichern</button>
+            <button type="button" class="knopf" data-aktion="bearbeiten-abbrechen" hidden>
+              Abbrechen
+            </button>
           </div>
           <p class="meldung" role="status"></p>
         </form>
@@ -113,6 +117,8 @@ export default {
                   <span class="hinweis">${formatDatumZeit(e.datum)}${
                     e.ortKv ? ' · ' + esc(e.ortKv) : ''}</span>
                   <span class="rapport-knoepfe">
+                    <button type="button" class="knopf eintrag-loeschen"
+                      data-aktion="eintrag-bearbeiten" data-id="${esc(e._id)}">Bearbeiten</button>
                     <button type="button" class="knopf eintrag-loeschen"
                       data-aktion="foto-plus" data-id="${esc(e._id)}"
                       aria-label="Foto ergänzen">+ 📷</button>
@@ -188,7 +194,32 @@ export default {
       await zeichneListe();
     });
 
+    // Bestehenden Eintrag ins Formular laden (Fotos bleiben erhalten).
+    function fuelleFormular(ereignis) {
+      inBearbeitung = ereignis;
+      const abbrechen = formular.querySelector('[data-aktion="bearbeiten-abbrechen"]');
+      abbrechen.hidden = !ereignis;
+      const tagWahl = formular.querySelector(`input[value="${ereignis?.tag || 'Fortschritt'}"]`);
+      if (tagWahl) tagWahl.checked = true;
+      formular.elements.ortKv.value = ereignis?.ortKv ?? '';
+      formular.elements.notiz.value = ereignis?.notiz ?? '';
+      meldung.textContent = ereignis
+        ? `Eintrag vom ${formatDatumZeit(ereignis.datum)} bearbeiten — Fotos bleiben erhalten.`
+        : '';
+      if (ereignis) formular.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    formular.querySelector('[data-aktion="bearbeiten-abbrechen"]')
+      .addEventListener('click', () => fuelleFormular(null));
+
     listeElement.addEventListener('click', async (klick) => {
+      const bearbeitenKnopf = klick.target.closest('[data-aktion="eintrag-bearbeiten"]');
+      if (bearbeitenKnopf) {
+        const alle = await abfrage({ typ: 'ereignis', baustelleId: baustelle.baustelleId });
+        const ereignis = alle.find((e) => e._id === bearbeitenKnopf.dataset.id);
+        if (ereignis) fuelleFormular(ereignis);
+        return;
+      }
       const fotoKnopf = klick.target.closest('[data-aktion="foto-plus"]');
       if (fotoKnopf) {
         fotoZielId = fotoKnopf.dataset.id;
@@ -199,6 +230,7 @@ export default {
       if (loeschKnopf) {
         if (confirm('Diesen Eintrag endgültig löschen? Zugehörige Fotos werden mitgelöscht.')) {
           await entferneDokument(loeschKnopf.dataset.id);
+          if (inBearbeitung?._id === loeschKnopf.dataset.id) fuelleFormular(null);
           await zeichneListe();
         }
         return;
@@ -212,26 +244,34 @@ export default {
       const felder = Object.fromEntries(new FormData(formular));
       const speichernKnopf = formular.querySelector('[type="submit"]');
       speichernKnopf.disabled = true;
-      meldung.textContent = gewaehlteFotos.length ? 'Fotos werden verarbeitet …' : '';
       try {
-        // Erst verkleinern, dann Dokument und Anhänge schreiben.
-        const verkleinerte = [];
-        for (const datei of gewaehlteFotos) {
-          verkleinerte.push(await verkleinereFoto(datei));
-        }
-        const doc = await put({
-          typ: 'ereignis',
-          baustelleId: baustelle.baustelleId,
-          tag: felder.tag,
-          ortKv: (felder.ortKv || '').trim(),
-          notiz: (felder.notiz || '').trim(),
-        });
-        for (const [index, blob] of verkleinerte.entries()) {
-          await haengeAnhangAn(doc._id, `foto-${index + 1}.jpg`, blob);
+        const warBearbeitung = !!inBearbeitung;
+        const doc = await put(warBearbeitung
+          ? {
+              ...inBearbeitung,
+              tag: felder.tag,
+              ortKv: (felder.ortKv || '').trim(),
+              notiz: (felder.notiz || '').trim(),
+            }
+          : {
+              typ: 'ereignis',
+              baustelleId: baustelle.baustelleId,
+              tag: felder.tag,
+              ortKv: (felder.ortKv || '').trim(),
+              notiz: (felder.notiz || '').trim(),
+            });
+        // Fotos einzeln verarbeiten, mit sichtbarem Fortschritt.
+        const anzahl = gewaehlteFotos.length;
+        for (const [index, datei] of gewaehlteFotos.entries()) {
+          meldung.textContent = `Foto ${index + 1} von ${anzahl} wird verarbeitet …`;
+          const blob = await verkleinereFoto(datei);
+          await haengeAnhangAn(doc._id,
+            `foto-${Date.now().toString(36)}-${index + 1}.jpg`, blob);
         }
         // Regie heisst: Nachtrag erkannt — Nachtrag und Pendenz entstehen
-        // automatisch (getypte Dokumente über den Kern, kein Modul-Aufruf).
-        if (doc.tag === 'Regie') {
+        // automatisch, aber nur bei NEUEN Einträgen (Bearbeiten würde
+        // sonst Duplikate erzeugen).
+        if (!warBearbeitung && doc.tag === 'Regie') {
           const nachtraege = await abfrage({
             typ: 'nachtrag', baustelleId: baustelle.baustelleId,
           });
@@ -246,6 +286,7 @@ export default {
             basis: '',
             summe: '',
             status: 'erkannt',
+            statusHistorie: [{ status: 'erkannt', datum: new Date().toISOString().slice(0, 10) }],
             beweise: { ereignisIds: [doc._id], rapportIds: [], ausmassIds: [] },
           });
           await put({
@@ -266,9 +307,14 @@ export default {
         formular.elements.notiz.value = '';
         gewaehlteFotos = [];
         zeigeFotoInfo();
-        meldung.textContent = doc.tag === 'Regie'
-          ? 'Eintrag gespeichert — Nachtrag (erkannt) und Pendenz erstellt.'
-          : 'Eintrag gespeichert.';
+        const alteBearbeitung = warBearbeitung;
+        inBearbeitung = null;
+        formular.querySelector('[data-aktion="bearbeiten-abbrechen"]').hidden = true;
+        meldung.textContent = alteBearbeitung
+          ? 'Eintrag aktualisiert.'
+          : doc.tag === 'Regie'
+            ? 'Eintrag gespeichert — Nachtrag (erkannt) und Pendenz erstellt.'
+            : 'Eintrag gespeichert.';
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       } catch (fehler) {
