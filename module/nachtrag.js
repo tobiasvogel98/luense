@@ -4,7 +4,8 @@
 // Verknüpfungen auf Journal-Ereignisse, Rapporte und Ausmass-Positionen
 // (Dokumente teilen, nie Code). Kacheln: Summe offen / genehmigt.
 
-import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { put, abfrage, entferneDokument, holeAnhang } from '../kern/speicher.js';
+import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
 
 export const NACHTRAG_STATUS = ['erkannt', 'gemeldet', 'offeriert', 'genehmigt', 'verrechnet'];
@@ -183,6 +184,8 @@ export default {
                   <strong>${esc(n.nummer)} · ${esc(n.titel)}</strong>
                   <span class="rapport-stunden">${chf(zahl(n.summe))}</span>
                   <span class="rapport-knoepfe">
+                    <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
+                      data-id="${esc(n._id)}">PDF</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="oeffnen"
                       data-id="${esc(n._id)}">Bearbeiten</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
@@ -248,6 +251,69 @@ export default {
       if (!nachtrag) return;
       if (knopf.dataset.aktion === 'oeffnen') {
         oeffneFormular(nachtrag);
+      } else if (knopf.dataset.aktion === 'pdf') {
+        // Versandfertiges Nachtrags-PDF: Begründung + automatische
+        // Beweisliste (Fotos mit Zeitstempel, Rapporte, Ausmass).
+        const beweise = nachtrag.beweise || {};
+        const [ereignisse, rapporte, positionen] = await Promise.all([
+          abfrage({ typ: 'ereignis', baustelleId: baustelle.baustelleId }),
+          abfrage({ typ: 'rapport', baustelleId: baustelle.baustelleId }),
+          abfrage({ typ: 'ausmass', baustelleId: baustelle.baustelleId }),
+        ]);
+        const bEreignisse = ereignisse.filter((e) => beweise.ereignisIds?.includes(e._id));
+        const bRapporte = rapporte.filter((r) => beweise.rapportIds?.includes(r._id));
+        const bPositionen = positionen.filter((p) => beweise.ausmassIds?.includes(p._id));
+        const bilder = [];
+        for (const e of bEreignisse) {
+          for (const name of Object.keys(e._attachments || {})) {
+            try {
+              const blob = await holeAnhang(e._id, name);
+              const url = URL.createObjectURL(blob);
+              setTimeout(() => URL.revokeObjectURL(url), 120000);
+              bilder.push({
+                url,
+                titel: `${formatDatumZeit(e.datum)}${e.ortKv ? ' · ' + e.ortKv : ''}`,
+              });
+            } catch { /* Anhang nicht lesbar */ }
+          }
+        }
+        zeigeProtokollDruck(baustelle, {
+          titel: `Nachtrag ${nachtrag.nummer} — ${nachtrag.titel}`,
+          untertitel: [
+            baustelle.bauherr ? `Bauherr: ${baustelle.bauherr}` : '',
+            `Status: ${nachtrag.status}`,
+          ].filter(Boolean).join(' · '),
+          abschnitte: [
+            { art: 'felder', titel: 'Begründung', zeilen: [
+              { label: 'Sachverhalt', wert: nachtrag.sachverhalt || '—' },
+              { label: 'Basis', wert: nachtrag.basis || '—' },
+              { label: 'Forderung', wert: chf(zahl(nachtrag.summe)) },
+            ] },
+            bEreignisse.length ? { art: 'felder', titel: 'Beweise: Journal-Ereignisse',
+              zeilen: bEreignisse.map((e) => ({
+                label: `${e.tag} · ${formatDatumZeit(e.datum)}`,
+                wert: `${e.ortKv ? e.ortKv + ' · ' : ''}${e.notiz || '—'}${
+                  Object.keys(e._attachments || {}).length
+                    ? ` (${Object.keys(e._attachments).length} Foto${
+                        Object.keys(e._attachments).length > 1 ? 's' : ''})` : ''}`,
+              })) } : null,
+            bRapporte.length ? { art: 'tabelle', titel: 'Beweise: Tagesrapporte',
+              spalten: ['Datum', 'Mitarbeiter', 'Regie', 'Arbeiten'],
+              zeilen: bRapporte.map((r) => [
+                formatTag(r.tag), r.mitarbeiter || '—',
+                zahl(r.davonRegie) ? `${r.davonRegie} h` : '—',
+                (r.arbeiten || []).map((a) => a.text).filter(Boolean).join('; ').slice(0, 60),
+              ]) } : null,
+            bPositionen.length ? { art: 'tabelle', titel: 'Beweise: Ausmass-Positionen',
+              spalten: ['NPK', 'Text', 'Vertrag', 'Ausgemessen', 'EP'],
+              zeilen: bPositionen.map((p) => [
+                p.pos, p.text.slice(0, 40), p.vertragsmenge || '—', p.menge || '—', p.ep || '—',
+              ]) } : null,
+          ].filter(Boolean),
+          bilder,
+          bilderTitel: 'Beweis-Fotos (mit Zeitstempel)',
+          unterschriften: ['Unternehmer / Bauführer', 'Bauherr / Bauleitung (Genehmigung)'],
+        });
       } else if (knopf.dataset.aktion === 'weiter') {
         const naechster = NACHTRAG_STATUS[NACHTRAG_STATUS.indexOf(nachtrag.status) + 1];
         if (!naechster) return;

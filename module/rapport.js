@@ -239,12 +239,15 @@ export default {
       }).join(', ');
     }
 
-    function rapportKarte(r, regieEreignisse) {
+    function rapportKarte(r, regieEreignisse, nachtraege) {
       const t = totale(r.arbeiten);
       const mitRegie = zahl(r.davonRegie) > 0;
       const verknuepfte = mitRegie
         ? regieEreignisse.filter((e) => lokalerTag(e.datum) === r.tag)
         : [];
+      const zugeordnet = nachtraege
+        .filter((n) => n.beweise?.rapportIds?.includes(r._id))
+        .map((n) => n.nummer);
       return `
         <article class="karte rapport${mitRegie ? ' mit-regie' : ''}">
           <div class="rapport-kopf">
@@ -252,6 +255,9 @@ export default {
             <span class="rapport-stunden">${stundenText(t.personen)}${
               zahl(r.davonRegie) ? ` · <span class="regie-anteil">Regie ${stundenText(zahl(r.davonRegie))}</span>` : ''}</span>
             <span class="rapport-knoepfe">
+              ${mitRegie ? `
+                <button type="button" class="knopf eintrag-loeschen" data-aktion="nachtrag-zu"
+                  data-id="${esc(r._id)}">Nachtrag…</button>` : ''}
               <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
                 data-id="${esc(r._id)}">PDF</button>
               <button type="button" class="knopf eintrag-loeschen" data-aktion="bearbeiten"
@@ -279,6 +285,8 @@ export default {
                 ? verknuepfte.map((e) => `${formatDatumZeit(e.datum).split(', ')[1] || ''}${
                     e.ortKv ? ' ' + esc(e.ortKv) : ''}`.trim()).join(', ')
                 : 'keine erfasst'}</p>` : ''}
+          ${zugeordnet.length ? `
+            <p class="hinweis verknuepfung">↳ Zugeordnet: Nachtrag ${zugeordnet.map(esc).join(', ')}</p>` : ''}
         </article>`;
     }
 
@@ -294,6 +302,7 @@ export default {
       const regieEreignisse = (await abfrage({
         typ: 'ereignis', baustelleId: baustelle.baustelleId,
       })).filter((e) => e.tag === 'Regie');
+      const nachtraege = await abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId });
       const gruppen = new Map();
       for (const r of alle) {
         const { jahr, kw } = kalenderwoche(r.tag);
@@ -312,8 +321,58 @@ export default {
             <button type="button" class="knopf eintrag-loeschen" data-aktion="woche-pdf"
               data-schluessel="${schluessel}">Wochen-PDF</button>
           </div>
-          ${gruppe.rapporte.map((r) => rapportKarte(r, regieEreignisse)).join('')}`;
+          ${gruppe.rapporte.map((r) => rapportKarte(r, regieEreignisse, nachtraege)).join('')}`;
       }).join('');
+    }
+
+    // Regie-Rapport einem oder mehreren Nachträgen zuordnen — schreibt
+    // die rapportId in deren Beweisliste (Dokumente teilen, nie Code).
+    async function oeffneNachtragZuordnung(rapport) {
+      const nachtraege = await abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId });
+      if (!nachtraege.length) {
+        alert('Noch keine Nachträge auf dieser Baustelle — zuerst im Nachträge-Tab anlegen.');
+        return;
+      }
+      const dialog = document.createElement('div');
+      dialog.className = 'vollbild dialog-hintergrund';
+      dialog.innerHTML = `
+        <form class="karte formular dialog" data-rolle="zuordnung">
+          <h3>Rapport vom ${formatTag(rapport.tag)} zuordnen</h3>
+          <div class="beweis-liste">
+            ${nachtraege.map((n) => `
+              <label class="beweis-zeile">
+                <input type="checkbox" value="${esc(n._id)}"
+                  ${n.beweise?.rapportIds?.includes(rapport._id) ? 'checked' : ''}>
+                <span>${esc(n.nummer)} · ${esc(n.titel)} (${esc(n.status)})</span>
+              </label>`).join('')}
+          </div>
+          <div class="knopfzeile">
+            <button type="submit" class="knopf knopf-primaer">Zuordnen</button>
+            <button type="button" class="knopf" data-aktion="abbrechen">Abbrechen</button>
+          </div>
+        </form>`;
+      document.body.append(dialog);
+      dialog.querySelector('[data-aktion="abbrechen"]').addEventListener('click', () => dialog.remove());
+      dialog.addEventListener('click', (klick) => {
+        if (klick.target === dialog) dialog.remove();
+      });
+      dialog.querySelector('form').addEventListener('submit', async (abschicken) => {
+        abschicken.preventDefault();
+        const gewaehlt = new Set([...dialog.querySelectorAll('input:checked')].map((b) => b.value));
+        for (const n of nachtraege) {
+          const ids = new Set(n.beweise?.rapportIds || []);
+          const soll = gewaehlt.has(n._id);
+          if (soll === ids.has(rapport._id)) continue;
+          soll ? ids.add(rapport._id) : ids.delete(rapport._id);
+          await put({
+            ...n,
+            beweise: { ereignisIds: [], ausmassIds: [], ...n.beweise, rapportIds: [...ids] },
+          });
+        }
+        dialog.remove();
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneListe();
+      });
     }
 
     // ---------- Ereignisse ----------
@@ -409,7 +468,9 @@ export default {
       const alle = await abfrage({ typ: 'rapport', baustelleId: baustelle.baustelleId });
       const rapport = alle.find((r) => r._id === knopf.dataset.id);
       if (!rapport) return;
-      if (knopf.dataset.aktion === 'pdf') {
+      if (knopf.dataset.aktion === 'nachtrag-zu') {
+        oeffneNachtragZuordnung(rapport);
+      } else if (knopf.dataset.aktion === 'pdf') {
         zeigeRapportDruck(baustelle, rapport, totale(rapport.arbeiten));
       } else if (knopf.dataset.aktion === 'bearbeiten') {
         fuelleFormular(rapport);

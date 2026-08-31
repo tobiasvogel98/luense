@@ -286,7 +286,7 @@ export function zeigeProtokollDruck(baustelle, optionen) {
 
     ${optionen.bilder?.length ? `
       <section class="bericht-eintrag">
-        <h2>Anlagen</h2>
+        <h2>${esc(optionen.bilderTitel || 'Anlagen')}</h2>
         <div class="bericht-fotos">
           ${optionen.bilder.map((bild) => `
             <figure>
