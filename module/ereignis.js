@@ -229,14 +229,29 @@ export default {
         for (const [index, blob] of verkleinerte.entries()) {
           await haengeAnhangAn(doc._id, `foto-${index + 1}.jpg`, blob);
         }
-        // Regie heisst: Nachtrag beziffern und melden — die Pendenz dazu
-        // entsteht automatisch (getyptes Dokument über den Kern, kein
-        // Aufruf des Pendenzen-Moduls).
+        // Regie heisst: Nachtrag erkannt — Nachtrag und Pendenz entstehen
+        // automatisch (getypte Dokumente über den Kern, kein Modul-Aufruf).
         if (doc.tag === 'Regie') {
+          const nachtraege = await abfrage({
+            typ: 'nachtrag', baustelleId: baustelle.baustelleId,
+          });
+          const nummer = `N-${String(nachtraege.length + 1).padStart(2, '0')}`;
+          const nachtrag = await put({
+            typ: 'nachtrag',
+            baustelleId: baustelle.baustelleId,
+            nummer,
+            titel: `Regie vom ${formatDatumZeit(doc.datum).split(',')[0]}${
+              doc.ortKv ? ' · ' + doc.ortKv : ''}`,
+            sachverhalt: doc.notiz || '',
+            basis: '',
+            summe: '',
+            status: 'erkannt',
+            beweise: { ereignisIds: [doc._id], rapportIds: [], ausmassIds: [] },
+          });
           await put({
             typ: 'pendenz',
             baustelleId: baustelle.baustelleId,
-            text: 'Nachtrag beziffern/melden',
+            text: `Nachtrag ${nummer} beziffern/melden`,
             prioritaet: 'hoch',
             termin: '',
             verantwortlich: '',
@@ -244,6 +259,7 @@ export default {
             notiz: `Aus Regie-Ereignis vom ${formatDatumZeit(doc.datum)}${
               doc.ortKv ? ' · ' + doc.ortKv : ''}`,
             ereignisId: doc._id,
+            nachtragId: nachtrag._id,
           });
         }
         formular.elements.ortKv.value = '';
@@ -251,7 +267,7 @@ export default {
         gewaehlteFotos = [];
         zeigeFotoInfo();
         meldung.textContent = doc.tag === 'Regie'
-          ? 'Eintrag gespeichert — Pendenz «Nachtrag beziffern/melden» erstellt.'
+          ? 'Eintrag gespeichert — Nachtrag (erkannt) und Pendenz erstellt.'
           : 'Eintrag gespeichert.';
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();

@@ -1023,6 +1023,103 @@ body {
   color: var(--farbe-text-gedaempft);
 }
 
+/* Nachträge: Kacheln, Status-Pipeline, Beweislisten */
+
+.nachtraege h2 {
+  font-size: var(--schrift-titel);
+  margin: var(--abstand-2) 0 var(--abstand-4);
+}
+
+.kachel-reihe {
+  display: flex;
+  gap: var(--abstand-3);
+  margin-bottom: var(--abstand-3);
+}
+
+.kachel {
+  flex: 1;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--abstand-1);
+}
+
+.kachel-titel {
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--farbe-text-gedaempft);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.kachel-wert {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.kachel-gruen .kachel-wert {
+  color: #16a34a;
+}
+
+.status-pipeline {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-1);
+  flex-wrap: wrap;
+  margin: var(--abstand-2) 0;
+  font-size: 0.75rem;
+}
+
+.pipeline-schritt {
+  padding: 2px var(--abstand-2);
+  border: 1px solid var(--farbe-linie);
+  border-radius: 999px;
+  color: var(--farbe-text-gedaempft);
+}
+
+.pipeline-schritt.erledigt {
+  border-color: #16a34a;
+  color: #16a34a;
+}
+
+.pipeline-schritt.aktuell {
+  background: var(--farbe-akzent);
+  border-color: var(--farbe-akzent);
+  color: var(--farbe-akzent-kontrast);
+  font-weight: 700;
+}
+
+.pipeline-pfeil {
+  color: var(--farbe-text-gedaempft);
+}
+
+.beweis-liste {
+  max-height: 12rem;
+  overflow-y: auto;
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  padding: var(--abstand-1) var(--abstand-2);
+  margin-bottom: var(--abstand-2);
+}
+
+.beweis-zeile {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  padding: var(--abstand-1) 0;
+  font-size: var(--schrift-klein);
+  font-weight: 400;
+  color: var(--farbe-text);
+  margin-bottom: 0;
+}
+
+.beweis-zeile input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
 /* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
 
 .betriebsstatus {
