@@ -773,6 +773,145 @@ body {
     #ffffff;
 }
 
+/* Controlling (FO 5.1.01): Formularzeilen, Kennzahlen, Übersicht */
+
+.controlling h2 {
+  font-size: var(--schrift-titel);
+  margin: var(--abstand-2) 0 var(--abstand-2);
+}
+
+.controlling h3 {
+  font-size: var(--schrift-basis);
+  margin-bottom: var(--abstand-2);
+}
+
+.fo-zeile {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--abstand-2);
+  margin-bottom: var(--abstand-2);
+}
+
+.fo-nr {
+  flex: 0 0 2.2rem;
+  font-size: var(--schrift-klein);
+  font-weight: 700;
+  color: var(--farbe-text-gedaempft);
+  padding-bottom: 12px;
+}
+
+.fo-zeile .fo-label {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.fo-label small {
+  font-weight: 400;
+  color: var(--farbe-text-gedaempft);
+}
+
+.fo-abgrenzung {
+  flex: 1;
+  display: flex;
+  gap: var(--abstand-1);
+}
+
+.formular .fo-abgrenzung input {
+  margin-top: 0;
+  width: auto;
+}
+
+.fo-abgrenzung input:first-child {
+  flex: 2 1 8rem;
+  min-width: 0;
+}
+
+.fo-abgrenzung input:last-child {
+  flex: 1 1 6rem;
+  min-width: 0;
+  text-align: right;
+}
+
+.fo-berechnet {
+  align-items: center;
+  border-top: 1px solid var(--farbe-linie);
+  padding-top: var(--abstand-1);
+}
+
+.fo-berechnet .fo-nr {
+  padding-bottom: 0;
+}
+
+.fo-berechnet .fo-label {
+  flex: 1;
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+  font-weight: 600;
+}
+
+.fo-wert {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fo-hervor .fo-wert,
+.fo-hervor .fo-label {
+  color: var(--farbe-akzent);
+}
+
+.uebersicht-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--schrift-klein);
+}
+
+.uebersicht-tabelle th,
+.uebersicht-tabelle td {
+  padding: var(--abstand-2);
+  border-bottom: 1px solid var(--farbe-linie);
+  text-align: left;
+}
+
+.uebersicht-tabelle th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--farbe-text-gedaempft);
+}
+
+.uebersicht-tabelle .zahl {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.uebersicht-tabelle tbody tr {
+  cursor: pointer;
+}
+
+.uebersicht-tabelle tr.aktiv td {
+  font-weight: 700;
+}
+
+.gewinn {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.verlust {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.chip.gewinn {
+  border-color: #16a34a;
+}
+
+.chip.verlust {
+  border-color: #dc2626;
+}
+
 /* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
 
 .betriebsstatus {

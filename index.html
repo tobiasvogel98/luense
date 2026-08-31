@@ -52,9 +52,10 @@
     import pendenzenModul from './module/pendenzen.js';
     import rapportModul from './module/rapport.js';
     import protokolleModul from './module/protokolle.js';
+    import auswertungModul from './module/auswertung.js';
 
     // Modul-Registrierung: mehr Kopplung gibt es nicht.
-    const MODULE = [ereignisModul, pendenzenModul, rapportModul, protokolleModul];
+    const MODULE = [ereignisModul, pendenzenModul, rapportModul, protokolleModul, auswertungModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
     const modulbereich = document.getElementById('modulbereich');
@@ -99,6 +100,16 @@
     // aktualisiert damit die Badges, ohne dass Module sie kennen müssen.
     document.addEventListener('luense:daten', () => {
       if (ansicht === 'modul') zeichneModulNav();
+    });
+
+    // Ein Modul (z. B. die Controlling-Übersicht) bittet um den Wechsel
+    // zu einer anderen Baustelle.
+    document.addEventListener('luense:baustelleWechseln', (ereignis) => {
+      const ziel = ereignis.detail?.baustelleId;
+      if (!ziel) return;
+      auswahl.value = ziel;
+      localStorage.setItem(MERKER, ziel);
+      zeigeModul();
     });
 
     modulNav.addEventListener('click', (klick) => {
