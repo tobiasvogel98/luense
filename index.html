@@ -62,11 +62,13 @@
     import ausmassModul from './module/ausmass.js';
     import nachtragModul from './module/nachtrag.js';
     import dossierModul from './module/dossier.js';
+    import rechnungModul from './module/rechnung.js';
     import offertModul from './module/offert.js';
 
     // Modul-Registrierung: mehr Kopplung gibt es nicht.
     const MODULE = [dossierModul, ereignisModul, pendenzenModul, rapportModul,
-      ausmassModul, nachtragModul, protokolleModul, auswertungModul, offertModul];
+      ausmassModul, nachtragModul, rechnungModul, protokolleModul,
+      auswertungModul, offertModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
     const modulbereich = document.getElementById('modulbereich');

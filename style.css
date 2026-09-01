@@ -402,6 +402,11 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   }
 }
 
+/* Rechnungen (Abend 8.4): Summenzeile der Tabelle */
+.summen-zeile td {
+  border-top: 2px solid var(--farbe-linie);
+}
+
 .badge-anzahl {
   display: inline-block;
   min-width: 1.6em;

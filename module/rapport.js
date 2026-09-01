@@ -6,6 +6,7 @@
 // Kalenderwoche mit Wochensumme. Dokumenttyp «rapport».
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { erstelleRechnung } from '../kern/rechnung.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit, REGIE_MUSTER } from '../kern/ui.js';
@@ -258,7 +259,7 @@ export default {
       }).join(', ');
     }
 
-    function rapportKarte(r, regieEreignisse, nachtraege) {
+    function rapportKarte(r, regieEreignisse, nachtraege, rechnungen) {
       const t = totale(r.arbeiten);
       const mitRegie = zahl(r.davonRegie) > 0;
       const verknuepfte = mitRegie
@@ -306,16 +307,17 @@ export default {
                 : 'keine erfasst'}</p>` : ''}
           ${zugeordnet.length ? `
             <p class="hinweis verknuepfung">↳ Zugeordnet: Nachtrag ${zugeordnet.map(esc).join(', ')}</p>` : ''}
-          ${mitRegie ? regieStatusHtml(r) : ''}
+          ${mitRegie ? regieStatusHtml(r, rechnungen) : ''}
         </article>`;
     }
 
     // Status-Pipeline des Regierapports mit datiertem Verlauf und
     // weiter/zurück — analog zur Nachtrags-Pipeline.
-    function regieStatusHtml(r) {
+    function regieStatusHtml(r, rechnungen = []) {
       const status = r.regieStatus || 'offen';
       const index = REGIE_STATUS.indexOf(status);
       const naechster = REGIE_STATUS[index + 1];
+      const verlinkte = rechnungen.filter((re) => re.basis?.id === r._id);
       return `
         <div class="status-pipeline">
           ${REGIE_STATUS.map((s, i) => `<span class="pipeline-schritt${
@@ -326,6 +328,9 @@ export default {
           <p class="hinweis">${r.regieStatusHistorie
             .map((h) => `${esc(h.status)} ${h.datum.split('-').reverse().join('.')}`)
             .join(' → ')}</p>` : ''}
+        ${verlinkte.length ? `
+          <p class="hinweis verknuepfung">↳ Rechnung ${verlinkte
+            .map((re) => `${esc(re.nummer)} (${esc(re.status)})`).join(', ')}</p>` : ''}
         <div class="knopfzeile">
           ${naechster ? `
             <button type="button" class="knopf" data-aktion="regie-weiter"
@@ -333,6 +338,9 @@ export default {
           ${index > 0 ? `
             <button type="button" class="knopf" data-aktion="regie-zurueck"
               data-id="${esc(r._id)}">← zurück</button>` : ''}
+          ${status === 'unterschrieben' && !verlinkte.length ? `
+            <button type="button" class="knopf knopf-primaer" data-aktion="rechnung-erstellen"
+              data-id="${esc(r._id)}">→ Rechnung erstellen</button>` : ''}
         </div>`;
     }
 
@@ -359,6 +367,8 @@ export default {
         typ: 'ereignis', baustelleId: baustelle.baustelleId,
       })).filter((e) => e.tag === 'Regie');
       const nachtraege = await abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId });
+      const rechnungen = (await abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }))
+        .filter((re) => re.basis?.art === 'regierapport');
       const gruppen = new Map();
       for (const r of alle) {
         const { jahr, kw } = kalenderwoche(r.tag);
@@ -377,7 +387,7 @@ export default {
             <button type="button" class="knopf eintrag-loeschen" data-aktion="woche-pdf"
               data-schluessel="${schluessel}">Wochen-PDF</button>
           </div>
-          ${gruppe.rapporte.map((r) => rapportKarte(r, regieEreignisse, nachtraege)).join('')}`;
+          ${gruppe.rapporte.map((r) => rapportKarte(r, regieEreignisse, nachtraege, rechnungen)).join('')}`;
       }).join('');
     }
 
@@ -426,6 +436,62 @@ export default {
           });
         }
         dialog.remove();
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneListe();
+      });
+    }
+
+    // Kleinbaustellen-Automatik (Abend 8.4): aus einem unterschriebenen
+    // Regierapport direkt eine Rechnung erzeugen. Betrag = Stunden ×
+    // Regieansatz, beides editierbar; der zuletzt benutzte Ansatz wird
+    // gemerkt (nur UI-Zustand).
+    function oeffneRegieRechnung(rapport) {
+      const stunden = zahl(rapport.davonRegie);
+      const ansatz = zahl(localStorage.getItem('luense.regieansatz')) || 110;
+      const dialog = document.createElement('div');
+      dialog.className = 'vollbild dialog-hintergrund';
+      dialog.innerHTML = `
+        <form class="karte formular dialog" data-rolle="regie-rechnung">
+          <h3>Rechnung aus Regierapport vom ${formatTag(rapport.tag)}</h3>
+          <div class="feld-reihe">
+            <label>Stunden<input name="stunden" type="number" inputmode="decimal"
+              step="0.25" min="0" value="${esc(stunden)}"></label>
+            <label>Regieansatz [CHF/h]<input name="ansatz" type="number"
+              inputmode="decimal" step="any" min="0" value="${esc(ansatz)}"></label>
+          </div>
+          <label>Betrag [CHF]<input name="betrag" type="number" inputmode="decimal"
+            step="any" min="0" value="${esc(Math.round(stunden * ansatz * 100) / 100)}"></label>
+          <label>Titel<input name="titel" autocomplete="off"
+            value="Regiearbeiten vom ${esc(formatTag(rapport.tag))}"></label>
+          <div class="knopfzeile">
+            <button type="submit" class="knopf knopf-primaer">Rechnung erstellen</button>
+            <button type="button" class="knopf" data-aktion="abbrechen">Abbrechen</button>
+          </div>
+        </form>`;
+      document.body.append(dialog);
+      const dForm = dialog.querySelector('form');
+      dForm.addEventListener('input', (eingabe) => {
+        // Stunden/Ansatz rechnen den Betrag neu — direkte Betragseingabe bleibt.
+        if (['stunden', 'ansatz'].includes(eingabe.target.name)) {
+          dForm.elements.betrag.value = Math.round(
+            zahl(dForm.elements.stunden.value) * zahl(dForm.elements.ansatz.value) * 100) / 100;
+        }
+      });
+      dialog.querySelector('[data-aktion="abbrechen"]').addEventListener('click', () => dialog.remove());
+      dialog.addEventListener('click', (klick) => {
+        if (klick.target === dialog) dialog.remove();
+      });
+      dForm.addEventListener('submit', async (abschicken) => {
+        abschicken.preventDefault();
+        localStorage.setItem('luense.regieansatz', dForm.elements.ansatz.value);
+        const rechnung = await erstelleRechnung({
+          baustelleId: baustelle.baustelleId,
+          titel: dForm.elements.titel.value,
+          betrag: dForm.elements.betrag.value,
+          basis: { art: 'regierapport', id: rapport._id, label: `vom ${formatTag(rapport.tag)}` },
+        });
+        dialog.remove();
+        meldung.textContent = `Rechnung ${rechnung.nummer} erstellt — im Modul Rechnungen stellen.`;
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       });
@@ -526,6 +592,8 @@ export default {
       if (!rapport) return;
       if (knopf.dataset.aktion === 'nachtrag-zu') {
         oeffneNachtragZuordnung(rapport);
+      } else if (knopf.dataset.aktion === 'rechnung-erstellen') {
+        oeffneRegieRechnung(rapport);
       } else if (knopf.dataset.aktion === 'regie-weiter') {
         const naechster = REGIE_STATUS[REGIE_STATUS.indexOf(rapport.regieStatus || 'offen') + 1];
         if (!naechster) return;

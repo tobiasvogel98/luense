@@ -5,6 +5,7 @@
 // (Dokumente teilen, nie Code). Kacheln: Summe offen / genehmigt.
 
 import { put, abfrage, entferneDokument, holeAnhang } from '../kern/speicher.js';
+import { erstelleRechnung } from '../kern/rechnung.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
@@ -199,9 +200,12 @@ export default {
     async function zeichneListe() {
       const nachtraege = await ladeNachtraege();
       zeichneKacheln(nachtraege);
+      const rechnungen = (await abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }))
+        .filter((re) => re.basis?.art === 'nachtrag');
       listeElement.innerHTML = nachtraege.length
         ? nachtraege.map((n) => {
             const beweise = n.beweise || {};
+            const verlinkte = rechnungen.filter((re) => re.basis?.id === n._id);
             const beweisText = [
               beweise.ereignisIds?.length ? `${beweise.ereignisIds.length} Ereignis${beweise.ereignisIds.length > 1 ? 'se' : ''}` : '',
               beweise.rapportIds?.length ? `${beweise.rapportIds.length} Rapport${beweise.rapportIds.length > 1 ? 'e' : ''}` : '',
@@ -229,6 +233,9 @@ export default {
                 ${n.sachverhalt ? `<p class="hinweis">${esc(n.sachverhalt.slice(0, 120))}</p>` : ''}
                 ${n.basis ? `<p class="hinweis">Basis: ${esc(n.basis)}</p>` : ''}
                 ${beweisText ? `<p class="hinweis verknuepfung">↳ Beweise: ${beweisText}</p>` : ''}
+                ${verlinkte.length ? `
+                  <p class="hinweis verknuepfung">↳ Rechnung ${verlinkte
+                    .map((re) => `${esc(re.nummer)} (${esc(re.status)})`).join(', ')}</p>` : ''}
                 <div class="knopfzeile">
                   ${naechster ? `
                     <button type="button" class="knopf" data-aktion="weiter"
@@ -236,6 +243,9 @@ export default {
                   ${NACHTRAG_STATUS.indexOf(n.status) > 0 ? `
                     <button type="button" class="knopf" data-aktion="zurueck"
                       data-id="${esc(n._id)}">← zurück</button>` : ''}
+                  ${n.status === 'genehmigt' && !verlinkte.length ? `
+                    <button type="button" class="knopf knopf-primaer" data-aktion="rechnung"
+                      data-id="${esc(n._id)}">→ Rechnung erstellen</button>` : ''}
                 </div>
               </article>`;
           }).join('')
@@ -307,6 +317,42 @@ export default {
       if (!nachtrag) return;
       if (knopf.dataset.aktion === 'oeffnen') {
         oeffneFormular(nachtrag);
+      } else if (knopf.dataset.aktion === 'rechnung') {
+        // Kleinbaustellen-Automatik (Abend 8.4): genehmigter Nachtrag →
+        // Rechnung mit der Nachtragssumme, Betrag editierbar.
+        const dialog = document.createElement('div');
+        dialog.className = 'vollbild dialog-hintergrund';
+        dialog.innerHTML = `
+          <form class="karte formular dialog" data-rolle="nachtrag-rechnung">
+            <h3>Rechnung aus Nachtrag ${esc(nachtrag.nummer)}</h3>
+            <label>Betrag [CHF]<input name="betrag" type="number" inputmode="decimal"
+              step="any" min="0" value="${esc(zahl(nachtrag.summe))}"></label>
+            <label>Titel<input name="titel" autocomplete="off"
+              value="${esc(`Nachtrag ${nachtrag.nummer} — ${nachtrag.titel}`)}"></label>
+            <div class="knopfzeile">
+              <button type="submit" class="knopf knopf-primaer">Rechnung erstellen</button>
+              <button type="button" class="knopf" data-aktion="dialog-abbrechen">Abbrechen</button>
+            </div>
+          </form>`;
+        document.body.append(dialog);
+        dialog.querySelector('[data-aktion="dialog-abbrechen"]')
+          .addEventListener('click', () => dialog.remove());
+        dialog.addEventListener('click', (k) => { if (k.target === dialog) dialog.remove(); });
+        dialog.querySelector('form').addEventListener('submit', async (abschicken) => {
+          abschicken.preventDefault();
+          const dForm = abschicken.target;
+          const rechnung = await erstelleRechnung({
+            baustelleId: baustelle.baustelleId,
+            titel: dForm.elements.titel.value,
+            betrag: dForm.elements.betrag.value,
+            basis: { art: 'nachtrag', id: nachtrag._id, label: nachtrag.nummer },
+          });
+          dialog.remove();
+          document.dispatchEvent(new CustomEvent('luense:daten'));
+          await zeichneListe();
+          listeElement.insertAdjacentHTML('afterbegin',
+            `<p class="meldung">Rechnung ${esc(rechnung.nummer)} erstellt — im Modul Rechnungen stellen.</p>`);
+        });
       } else if (knopf.dataset.aktion === 'pdf') {
         // Versandfertiges Nachtrags-PDF: Begründung + automatische
         // Beweisliste (Fotos mit Zeitstempel, Rapporte, Ausmass).

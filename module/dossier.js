@@ -53,8 +53,9 @@ export default {
         abfrage({ typ: 'meilenstein', baustelleId: baustelle.baustelleId }),
         abfrage({ typ: 'kontakt', baustelleId: baustelle.baustelleId }),
       ]);
+      const rechnungen = await abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId });
       return { abschluesse, nachtraege, pendenzen, protokolle, rapporte, ereignisse,
-        meilensteine, kontakte };
+        meilensteine, kontakte, rechnungen };
     }
 
     function sprungKnopf(modulName) {
@@ -77,6 +78,8 @@ export default {
           .map((m) => ({ ...m, datum: p.werte?.datum })));
       const regieOhneNachtrag = d.rapporte.filter((r) => zahl(r.davonRegie) > 0
         && !d.nachtraege.some((n) => n.beweise?.rapportIds?.includes(r._id)));
+      const gestellteRechnungen = d.rechnungen.filter((r) => r.status === 'gestellt');
+      const gestellteSumme = gestellteRechnungen.reduce((s, r) => s + zahl(r.betrag), 0);
       const letzteEreignisse = d.ereignisse.slice(0, 5);
 
       // Zeit vs. Leistung: Start = ältestes Ereignis/Rapport, Ende = Bauende.
@@ -122,6 +125,9 @@ export default {
               <span class="kachel-wert">${chf(ntOffenSumme)}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Pendenzen offen</span>
               <span class="kachel-wert">${pendenzenOffen.length}</span></div>
+            <div class="karte kachel"><span class="kachel-titel">Gestellt, nicht bezahlt
+              (${gestellteRechnungen.length})</span>
+              <span class="kachel-wert">${chf(gestellteSumme)}</span></div>
           </div>
 
           ${zeitAnteil !== null || leistungAnteil !== null ? `
