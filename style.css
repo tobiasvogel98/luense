@@ -289,8 +289,15 @@ body {
   gap: var(--abstand-4);
   padding: var(--abstand-4) var(--abstand-3);
   padding-top: calc(var(--abstand-4) + env(safe-area-inset-top));
+  padding-bottom: calc(var(--abstand-4) + env(safe-area-inset-bottom));
   background: var(--farbe-flaeche);
   overflow-y: auto;
+}
+
+#nav-gruppen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--abstand-4);
 }
 
 .nav-gruppe {
@@ -371,17 +378,13 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   body {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas:
       'kopf kopf'
-      'nav  main'
-      'status status'
-      'fuss fuss';
+      'nav  main';
   }
 
   .kopfzeile { grid-area: kopf; }
-  .betriebsstatus { grid-area: status; }
-  .fusszeile { grid-area: fuss; }
 
   .modul-nav {
     grid-area: nav;
@@ -400,6 +403,141 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   body {
     display: block; /* Grid der Seitenleiste darf den Druck nicht verschieben */
   }
+}
+
+/* Offerten: Leistungsverzeichnis-Layout (Vorlage Tobias / Sorba-Prinzip) */
+
+.lv-tabelle {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 38rem;
+  font-size: var(--schrift-klein);
+}
+
+.lv-tabelle th {
+  text-align: left;
+  border-bottom: 2px solid var(--farbe-text);
+  padding: 4px 6px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lv-tabelle td {
+  padding: 3px 6px;
+  vertical-align: top;
+}
+
+.lv-nr {
+  width: 6.5rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-eh {
+  width: 3rem;
+  text-align: center;
+}
+
+.lv-zahl {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-tabelle th.lv-zahl {
+  text-align: right;
+}
+
+.lv-kapitel td {
+  font-weight: 700;
+  padding-top: 12px;
+  border-bottom: 1px solid var(--farbe-text);
+}
+
+.lv-unternummer td {
+  font-weight: 600;
+  padding-top: 8px;
+}
+
+.lv-position td {
+  border-top: 1px solid var(--farbe-linie);
+}
+
+.lv-zwischentotal td {
+  border-top: 1px solid var(--farbe-text);
+  font-weight: 600;
+  padding: 5px 6px;
+}
+
+.lv-endtotal td {
+  border-top: 2px solid var(--farbe-text);
+  font-weight: 700;
+  padding: 6px;
+}
+
+/* Menge mit Ausmass dahinter: als Knopf, Antippen öffnet das Fenster */
+.lv-menge-knopf {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--farbe-akzent);
+  background: none;
+  border: none;
+  border-bottom: 1px dotted var(--farbe-akzent);
+  padding: 0;
+  cursor: pointer;
+}
+
+.lv-details summary {
+  cursor: pointer;
+  color: var(--farbe-akzent);
+  font-size: var(--schrift-klein);
+  padding: var(--abstand-2) 0;
+}
+
+/* Ausmass-Fenster: Zeilen Bezeichnung + 4 Faktoren + Wert */
+.ausmass-dialog {
+  max-width: 44rem;
+}
+
+.ausmass-editor-kopf,
+.ausmass-editor-zeile {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1.6fr) repeat(4, minmax(3.2rem, 1fr)) 4.5rem auto;
+  gap: var(--abstand-1);
+  align-items: center;
+}
+
+.ausmass-editor-kopf {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--farbe-text-gedaempft);
+}
+
+.ausmass-editor-zeile {
+  margin-bottom: var(--abstand-1);
+}
+
+.ausmass-editor-zeile input {
+  min-width: 0;
+  padding: var(--abstand-1) var(--abstand-2);
+  font-size: var(--schrift-klein);
+}
+
+.ausmass-wert {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+}
+
+.lv-block-kapitel {
+  border-left: 3px solid var(--farbe-akzent);
+}
+
+.lv-block-unternummer {
+  border-left: 3px dashed var(--farbe-akzent);
 }
 
 /* Rechnungen (Abend 8.4): Summenzeile der Tabelle */
@@ -1306,88 +1444,39 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   width: auto; /* sonst drückt das globale width:100% den Knopf aus der Flex-Zeile */
 }
 
-/* Betriebsstatus je Modul (im Aufbau / Parallelbetrieb / führend) */
+/* Backup/Import: unten in der Seitenleiste (und im Stamm ohne Baustellen) */
 
-.betriebsstatus {
+.nav-fuss {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--abstand-2);
-  flex-wrap: wrap;
-  width: 100%;
-  max-width: var(--breite-max);
-  margin: 0 auto;
-  padding: var(--abstand-2) var(--abstand-4);
-}
-
-.betriebsstatus .hinweis {
-  margin: 0;
-}
-
-.status-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--abstand-1);
-  min-height: 36px;
-  padding: 0 var(--abstand-3);
-  font: inherit;
-  font-size: var(--schrift-klein);
-  color: var(--farbe-text-gedaempft);
-  background: var(--farbe-flaeche);
-  border: 1px solid var(--farbe-linie);
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.status-chip::before {
-  content: '';
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--farbe-text-gedaempft); /* im Aufbau: grau */
-}
-
-.status-chip.stufe-1::before {
-  background: #eab308; /* Parallelbetrieb: gelb */
-}
-
-.status-chip.stufe-2 {
-  color: var(--farbe-text);
-  font-weight: 600;
-}
-
-.status-chip.stufe-2::before {
-  background: #16a34a; /* führend: grün */
-}
-
-/* Fusszeile: Backup-Stand und -Knöpfe */
-
-.fusszeile {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--abstand-2);
-  flex-wrap: wrap;
-  width: 100%;
-  max-width: var(--breite-max);
-  margin: 0 auto;
-  padding: var(--abstand-3) var(--abstand-4);
-  padding-bottom: calc(var(--abstand-3) + env(safe-area-inset-bottom));
+  padding-top: var(--abstand-3);
   border-top: 1px solid var(--farbe-linie);
   font-size: var(--schrift-klein);
   color: var(--farbe-text-gedaempft);
 }
 
-.fusszeile.faellig [data-rolle='backup-status'] {
+#modul-nav .nav-fuss {
+  margin-top: auto; /* ans untere Ende der Leiste */
+}
+
+.stamm-backup {
+  margin-top: var(--abstand-4);
+  border-top: none;
+}
+
+.nav-fuss.faellig [data-rolle='backup-status'] {
   color: var(--farbe-akzent);
   font-weight: 600;
 }
 
 .fusszeile-knoepfe {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--abstand-2);
 }
 
-.fusszeile .knopf {
+.nav-fuss .knopf {
   display: inline-flex;
   align-items: center;
   font-size: var(--schrift-klein);

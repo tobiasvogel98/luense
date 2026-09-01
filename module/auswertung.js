@@ -141,8 +141,8 @@ export default {
             <li>Hier beim Abschluss «Abgleich (JSON)» herunterladen oder die Kennzahlen ablesen.</li>
             <li>Vergleichen: W10, B6, A13, S6, K1, K3 — <b>jede Abweichung ist ein Fehler</b>, das Excel gilt.</li>
             <li>Ergebnis im Abschluss unter «Bemerkungen» notieren (z. B. «Abgleich ok, 30.09.»).</li>
-            <li>Nach <b>zwei</b> stimmigen Monatsabschlüssen: Betriebsstatus «Controlling» auf
-              <b>führend</b> stellen; das Excel einfrieren als Archiv — nie löschen.</li>
+            <li>Nach <b>zwei</b> stimmigen Monatsabschlüssen gilt das Controlling als
+              <b>führend</b>; das Excel einfrieren als Archiv — nie löschen.</li>
           </ol>
         </details>
       </section>`;

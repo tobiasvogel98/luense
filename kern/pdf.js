@@ -258,6 +258,31 @@ export function zeigeRapportDruck(baustelle, rapport, t) {
     </div>`);
 }
 
+// Offert-Druck im Leistungsverzeichnis-Layout (Vorlage von Tobias):
+// Pos.-Nr. und Text links, EH/Menge/Preis/Betrag rechts, Kapitel- und
+// Unternummern-Zeilen, Zwischentotal je Kapitel. Die Tabelle liefert
+// das Offert-Modul fertig an (gleiche Darstellung wie am Bildschirm,
+// ohne Ausmass — die Kalkulationsgrundlage bleibt intern).
+export function zeigeOffertDruck(offerte, lv) {
+  druckOverlay(`
+    <header class="bericht-kopf">
+      <h1>Offerte ${esc(offerte.nummer)} · ${esc(offerte.objekt)}</h1>
+      <p>${esc(offerte.kunde)} · Preise in CHF exkl. MwSt.</p>
+    </header>
+
+    ${lv.tabelleHtml}
+
+    <section class="bericht-eintrag">
+      <h2>Zusammenzug</h2>
+      ${lv.zusammenzug.map((z) => druckZeile(z.label, z.wert)).join('')}
+    </section>
+
+    <div class="unterschriften">
+      <div>Lünse — Tobias Vogel</div>
+      <div>Auftraggeber</div>
+    </div>`);
+}
+
 // Protokoll-Druck: neutrales Druckmodell aus der Protokoll-Engine —
 // Felder als Beschriftung/Wert, Tabellen als echte Tabellen, dazu die
 // typ-eigenen Unterschriftszeilen.

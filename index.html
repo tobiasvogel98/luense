@@ -37,7 +37,12 @@
   </header>
 
   <div id="nav-schleier" class="nav-schleier" hidden></div>
-  <nav id="modul-nav" class="modul-nav" aria-label="Module" hidden></nav>
+  <nav id="modul-nav" class="modul-nav" aria-label="Module" hidden>
+    <div id="nav-gruppen"></div>
+    <!-- Backup/Import bewusst in der Leiste statt im Inhalt: kein
+         versehentliches Antippen beim Arbeiten. -->
+    <div id="nav-fuss" class="nav-fuss"></div>
+  </nav>
 
   <main id="modulbereich" class="modulbereich">
     <div class="leerzustand">
@@ -46,9 +51,6 @@
     </div>
   </main>
 
-  <div id="betriebsstatus" class="betriebsstatus"></div>
-
-  <footer id="fusszeile" class="fusszeile"></footer>
 
   <script type="module">
     // Shell: Kopfzeilen-Auswahl füttern, Module registrieren, Stamm anbieten.
@@ -117,7 +119,7 @@
           data-index="${index}">${modul.name}${
             anzahlen[index] ? `<span class="badge-anzahl">${anzahlen[index]}</span>` : ''
           }</button>`;
-      modulNav.innerHTML = NAV_GRUPPEN.map(([titel, namen]) => {
+      document.getElementById('nav-gruppen').innerHTML = NAV_GRUPPEN.map(([titel, namen]) => {
         const eintraege = MODULE
           .map((modul, index) => ({ modul, index }))
           .filter(({ modul }) => namen.includes(modul.name)
@@ -197,7 +199,14 @@
     function zeigeStamm() {
       ansicht = 'stamm';
       modulNav.hidden = true;
+      schalteNav(false);
       renderStammAnsicht(modulbereich, { onAenderung: aktualisiereAuswahl });
+      // Ohne Baustellen ist die Seitenleiste zu — der Import (z. B. Backup
+      // auf einem neuen Gerät einspielen) muss hier trotzdem erreichbar sein.
+      const backupEcke = document.createElement('div');
+      backupEcke.className = 'karte nav-fuss stamm-backup';
+      modulbereich.querySelector('.stamm').append(backupEcke);
+      renderBackupZeile(backupEcke, { nachImport: nachDatenImport });
     }
 
     auswahl.addEventListener('change', () => {
@@ -211,47 +220,13 @@
       else zeigeStamm();
     });
 
-    // Betriebsstatus je Modul: im Aufbau → Parallelbetrieb → führend.
-    // Ehrliche Anzeige, von Hand umschaltbar (Antippen wechselt weiter).
-    const STATUS_MERKER = 'luense.betriebsstatus';
-    const STATI = ['im Aufbau', 'Parallelbetrieb', 'führend'];
-    const statusElement = document.getElementById('betriebsstatus');
-
-    function ladeBetriebsstatus() {
-      try {
-        return JSON.parse(localStorage.getItem(STATUS_MERKER)) || {};
-      } catch {
-        return {};
-      }
+    async function nachDatenImport() {
+      await aktualisiereAuswahl();
+      zeigeModul();
     }
 
-    function zeichneBetriebsstatus() {
-      const status = ladeBetriebsstatus();
-      statusElement.innerHTML = '<span class="hinweis">Betriebsstatus:</span> '
-        + MODULE.map((modul) => {
-          const stufe = status[modul.name] ?? 0;
-          return `<button type="button" class="status-chip stufe-${stufe}"
-            data-name="${modul.name}"
-            title="Antippen wechselt den Status">${modul.name}: ${STATI[stufe]}</button>`;
-        }).join('');
-    }
-
-    statusElement.addEventListener('click', (klick) => {
-      const knopf = klick.target.closest('[data-name]');
-      if (!knopf) return;
-      const status = ladeBetriebsstatus();
-      status[knopf.dataset.name] = ((status[knopf.dataset.name] ?? 0) + 1) % STATI.length;
-      localStorage.setItem(STATUS_MERKER, JSON.stringify(status));
-      zeichneBetriebsstatus();
-    });
-
-    zeichneBetriebsstatus();
-
-    renderBackupZeile(document.getElementById('fusszeile'), {
-      nachImport: async () => {
-        await aktualisiereAuswahl();
-        zeigeModul();
-      },
+    renderBackupZeile(document.getElementById('nav-fuss'), {
+      nachImport: nachDatenImport,
     });
 
     await aktualisiereAuswahl();
