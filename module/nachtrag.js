@@ -77,7 +77,17 @@ export default {
     const listeElement = container.querySelector('[data-rolle="liste"]');
 
     async function ladeNachtraege() {
-      return abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId });
+      const alle = await abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId });
+      // Altbestand ohne Verlauf bekommt beim ersten Öffnen einen Startpunkt
+      // mit heutigem Datum — ab dann ist jeder Wechsel datiert (SIA 118).
+      for (const n of alle) {
+        if (!n.statusHistorie?.length) {
+          n.statusHistorie = [{ status: n.status, datum: heuteTag() }];
+          const gespeichert = await put(n);
+          n._rev = gespeichert._rev;
+        }
+      }
+      return alle;
     }
 
     function zeichneKacheln(nachtraege) {
@@ -319,6 +329,11 @@ export default {
               { label: 'Basis', wert: nachtrag.basis || '—' },
               { label: 'Forderung', wert: chf(zahl(nachtrag.summe)) },
             ] },
+            nachtrag.statusHistorie?.length ? { art: 'felder',
+              titel: 'Statusverlauf (Fristennachweis SIA 118)',
+              zeilen: nachtrag.statusHistorie.map((h) => ({
+                label: h.status, wert: formatTag(h.datum),
+              })) } : null,
             bEreignisse.length ? { art: 'felder', titel: 'Beweise: Journal-Ereignisse',
               zeilen: bEreignisse.map((e) => ({
                 label: `${e.tag} · ${formatDatumZeit(e.datum)}`,

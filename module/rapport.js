@@ -22,6 +22,19 @@ function heuteTag() {
     .toISOString().slice(0, 10);
 }
 
+// Regierapporte durchlaufen offen → unterschrieben → verrechnet.
+// Jeder Wechsel wird mit Datum protokolliert (Grundlage der Abrechnung).
+const REGIE_STATUS = ['offen', 'unterschrieben', 'verrechnet'];
+
+function mitRegieHistorie(rapport, neuerStatus) {
+  return {
+    ...rapport,
+    regieStatus: neuerStatus,
+    regieStatusHistorie: [...(rapport.regieStatusHistorie || []),
+      { status: neuerStatus, datum: heuteTag() }],
+  };
+}
+
 function formatTag(tagIso) {
   const datum = new Date(`${tagIso}T12:00:00`);
   if (Number.isNaN(datum.getTime())) return tagIso;
@@ -287,11 +300,48 @@ export default {
                 : 'keine erfasst'}</p>` : ''}
           ${zugeordnet.length ? `
             <p class="hinweis verknuepfung">↳ Zugeordnet: Nachtrag ${zugeordnet.map(esc).join(', ')}</p>` : ''}
+          ${mitRegie ? regieStatusHtml(r) : ''}
         </article>`;
+    }
+
+    // Status-Pipeline des Regierapports mit datiertem Verlauf und
+    // weiter/zurück — analog zur Nachtrags-Pipeline.
+    function regieStatusHtml(r) {
+      const status = r.regieStatus || 'offen';
+      const index = REGIE_STATUS.indexOf(status);
+      const naechster = REGIE_STATUS[index + 1];
+      return `
+        <div class="status-pipeline">
+          ${REGIE_STATUS.map((s, i) => `<span class="pipeline-schritt${
+            i < index ? ' erledigt' : ''}${i === index ? ' aktuell' : ''}">${s}</span>`)
+            .join('<span class="pipeline-pfeil">→</span>')}
+        </div>
+        ${r.regieStatusHistorie?.length ? `
+          <p class="hinweis">${r.regieStatusHistorie
+            .map((h) => `${esc(h.status)} ${h.datum.split('-').reverse().join('.')}`)
+            .join(' → ')}</p>` : ''}
+        <div class="knopfzeile">
+          ${naechster ? `
+            <button type="button" class="knopf" data-aktion="regie-weiter"
+              data-id="${esc(r._id)}">Status → ${naechster}</button>` : ''}
+          ${index > 0 ? `
+            <button type="button" class="knopf" data-aktion="regie-zurueck"
+              data-id="${esc(r._id)}">← zurück</button>` : ''}
+        </div>`;
     }
 
     async function zeichneListe() {
       const alle = await abfrage({ typ: 'rapport', baustelleId: baustelle.baustelleId });
+      // Bestehende Regierapporte ohne Verlauf bekommen beim ersten Öffnen
+      // einen Startpunkt mit heutigem Datum (Rückwirkung Abend 8.2).
+      for (const r of alle) {
+        if (zahl(r.davonRegie) > 0 && !r.regieStatusHistorie?.length) {
+          r.regieStatus = r.regieStatus || 'offen';
+          r.regieStatusHistorie = [{ status: r.regieStatus, datum: heuteTag() }];
+          const gespeichert = await put(r);
+          r._rev = gespeichert._rev;
+        }
+      }
       if (!alle.length) {
         listeElement.innerHTML =
           '<p class="hinweis">Noch keine Rapporte auf dieser Baustelle.</p>';
@@ -470,6 +520,19 @@ export default {
       if (!rapport) return;
       if (knopf.dataset.aktion === 'nachtrag-zu') {
         oeffneNachtragZuordnung(rapport);
+      } else if (knopf.dataset.aktion === 'regie-weiter') {
+        const naechster = REGIE_STATUS[REGIE_STATUS.indexOf(rapport.regieStatus || 'offen') + 1];
+        if (!naechster) return;
+        await put(mitRegieHistorie(rapport, naechster));
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneListe();
+      } else if (knopf.dataset.aktion === 'regie-zurueck') {
+        // Für Fehlklicks: ein Schritt zurück, ebenfalls mit Datumsstempel.
+        const vorheriger = REGIE_STATUS[REGIE_STATUS.indexOf(rapport.regieStatus || 'offen') - 1];
+        if (!vorheriger) return;
+        await put(mitRegieHistorie(rapport, vorheriger));
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneListe();
       } else if (knopf.dataset.aktion === 'pdf') {
         zeigeRapportDruck(baustelle, rapport, totale(rapport.arbeiten));
       } else if (knopf.dataset.aktion === 'bearbeiten') {
