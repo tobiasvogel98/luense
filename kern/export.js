@@ -21,6 +21,26 @@ function ladeHerunter(datei) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+// ---------- Excel-Export (Abend 8.3) ----------
+// CSV, das Excel (Schweiz) per Doppelklick korrekt öffnet: Semikolon als
+// Trenner, UTF-8 mit BOM (Umlaute), CRLF. Zahlen mit Punkt als Dezimal-
+// trenner, ohne Tausendertrennung; Texte mit Semikolon/Anführungszeichen/
+// Zeilenumbruch werden nach CSV-Regeln maskiert.
+
+function csvFeld(wert) {
+  if (typeof wert === 'number') {
+    return Number.isFinite(wert) ? String(Math.round(wert * 1000) / 1000) : '';
+  }
+  const text = String(wert ?? '');
+  return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export function exportiereCsv(dateiname, spalten, zeilen) {
+  const inhalt = '\uFEFF' + [spalten, ...zeilen]
+    .map((zeile) => zeile.map(csvFeld).join(';')).join('\r\n');
+  ladeHerunter(new File([inhalt], dateiname, { type: 'text/csv' }));
+}
+
 // Erstellt die Backup-Datei und übergibt sie dem Teilen-Dialog (Handy)
 // oder dem Download (Laptop). Gibt die Anzahl Dokumente zurück,
 // oder null, wenn der Nutzer das Teilen abgebrochen hat.

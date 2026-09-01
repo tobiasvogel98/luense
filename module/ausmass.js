@@ -6,6 +6,7 @@
 // je Position. JSON-Import als Probelauf mit Duplikat-Schutz.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { exportiereCsv } from '../kern/export.js';
 import {
   GRABENARTEN, ROHR_BIBLIOTHEK, ROHR_LABELS, berechneTeil, abschnittSvg,
 } from '../kern/graben.js';
@@ -85,7 +86,8 @@ export default {
         <div class="karte" data-rolle="summen" hidden></div>
 
         <div class="listen-kopf">
-          <span></span>
+          <button type="button" class="knopf" data-aktion="export"
+            title="Öffnet direkt in Excel">Excel-Export</button>
           <label class="knopf">
             Positionen importieren (JSON)
             <input type="file" accept=".json,application/json"
@@ -123,6 +125,22 @@ export default {
       return alle.sort((a, b) =>
         String(a.pos).localeCompare(String(b.pos), 'de-CH', { numeric: true }));
     }
+
+    container.querySelector('[data-aktion="export"]')
+      .addEventListener('click', async () => {
+        const positionen = await ladePositionen();
+        exportiereCsv(
+          `luense-ausmass-${baustelle.ktr}.csv`,
+          ['NPK-Pos.', 'Text', 'Einheit', 'Vertragsmenge', 'Ausgemessen',
+            'EP CHF', 'Betrag CHF', 'Über Vertrag', 'Quelle'],
+          positionen.map((p) => {
+            const w = positionsWerte(p);
+            return [p.pos, p.text, p.einheit || '', w.vertragsmenge, w.menge,
+              w.ep, w.betrag, w.ueberVertrag ? 'ja' : '',
+              p.mengeQuelle === 'grabenrechner' ? 'Grabenrechner' : ''];
+          }),
+        );
+      });
 
     function fuelleFormular(position) {
       inBearbeitung = position;

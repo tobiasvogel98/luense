@@ -6,6 +6,7 @@
 // Kalenderwoche mit Wochensumme. Dokumenttyp «rapport».
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { exportiereCsv } from '../kern/export.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit, REGIE_MUSTER } from '../kern/ui.js';
 
@@ -132,6 +133,11 @@ export default {
           <p class="meldung" role="status"></p>
         </form>
 
+        <div class="knopfzeile">
+          <button type="button" class="knopf" data-aktion="regie-export"
+            title="Alle Regierapporte dieser Baustelle — öffnet direkt in Excel">
+            Excel-Export Regierapporte</button>
+        </div>
         <div data-rolle="liste"></div>
       </section>`;
 
@@ -601,6 +607,26 @@ export default {
         meldung.textContent = fehler.message;
       }
     });
+
+    container.querySelector('[data-aktion="regie-export"]')
+      .addEventListener('click', async () => {
+        const alle = await abfrage({ typ: 'rapport', baustelleId: baustelle.baustelleId });
+        const regie = alle.filter((r) => zahl(r.davonRegie) > 0).slice().reverse();
+        exportiereCsv(
+          `luense-regierapporte-${baustelle.ktr}.csv`,
+          ['Datum', 'Mitarbeiter', 'Arbeiten', 'Personal h', 'Maschinen h',
+            'Fremdleistungen h', 'davon Regie h', 'Status', 'Statusverlauf'],
+          regie.map((r) => {
+            const t = totale(r.arbeiten);
+            return [r.tag.split('-').reverse().join('.'), r.mitarbeiter || '',
+              (r.arbeiten || []).map((a) => a.text).filter(Boolean).join('; '),
+              t.personen, t.maschinen, t.fremdleistungen, zahl(r.davonRegie),
+              r.regieStatus || 'offen',
+              (r.regieStatusHistorie || [])
+                .map((h) => `${h.status} ${h.datum.split('-').reverse().join('.')}`).join(' → ')];
+          }),
+        );
+      });
 
     fuelleFormular(null);
     zeichneListe();

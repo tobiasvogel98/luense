@@ -5,6 +5,7 @@
 // Spricht ausschliesslich über den Kern mit der Datenbank.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { exportiereCsv } from '../kern/export.js';
 import { esc } from '../kern/ui.js';
 
 const PRIORITAETEN = ['hoch', 'mittel', 'tief'];
@@ -77,6 +78,8 @@ export default {
         <div class="chips" data-rolle="filter">
           <button type="button" class="chip chip-knopf aktiv" data-filter="offen">Offen</button>
           <button type="button" class="chip chip-knopf" data-filter="alle">Alle</button>
+          <button type="button" class="chip chip-knopf" data-aktion="export"
+            title="Öffnet direkt in Excel">Excel-Export</button>
         </div>
         <div data-rolle="liste"></div>
       </section>`;
@@ -122,7 +125,19 @@ export default {
             alle.length ? 'Keine offenen Pendenzen — alles erledigt.' : 'Noch keine Pendenzen auf dieser Baustelle.'}</p>`;
     }
 
-    filterElement.addEventListener('click', (klick) => {
+    filterElement.addEventListener('click', async (klick) => {
+      if (klick.target.closest('[data-aktion="export"]')) {
+        const alle = sortiere(
+          await abfrage({ typ: 'pendenz', baustelleId: baustelle.baustelleId }));
+        exportiereCsv(
+          `luense-pendenzen-${baustelle.ktr}.csv`,
+          ['Pendenz', 'Priorität', 'Termin', 'Verantwortlich', 'Erledigt am', 'Überfällig', 'Notiz'],
+          alle.map((p) => [p.text, p.prioritaet, formatTag(p.termin),
+            p.verantwortlich || '', formatTag(p.erledigtAm),
+            istUeberfaellig(p) ? 'ja' : '', p.notiz || '']),
+        );
+        return;
+      }
       const knopf = klick.target.closest('[data-filter]');
       if (!knopf) return;
       nurOffene = knopf.dataset.filter === 'offen';

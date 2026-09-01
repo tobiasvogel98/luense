@@ -5,6 +5,7 @@
 // (Dokumente teilen, nie Code). Kacheln: Summe offen / genehmigt.
 
 import { put, abfrage, entferneDokument, holeAnhang } from '../kern/speicher.js';
+import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
 
@@ -65,6 +66,8 @@ export default {
           <button type="button" class="knopf knopf-primaer" data-aktion="neu">
             Neuer Nachtrag
           </button>
+          <button type="button" class="knopf" data-aktion="export"
+            title="Öffnet direkt in Excel">Excel-Export</button>
         </div>
 
         <div data-rolle="formular-bereich"></div>
@@ -241,6 +244,19 @@ export default {
 
     container.querySelector('[data-aktion="neu"]')
       .addEventListener('click', () => oeffneFormular(null));
+
+    container.querySelector('[data-aktion="export"]')
+      .addEventListener('click', async () => {
+        const nachtraege = await ladeNachtraege();
+        exportiereCsv(
+          `luense-nachtraege-${baustelle.ktr}.csv`,
+          ['Nummer', 'Titel', 'Status', 'Summe CHF', 'Basis (SIA 118)',
+            'Sachverhalt', 'Statusverlauf'],
+          nachtraege.map((n) => [n.nummer, n.titel, n.status, zahl(n.summe),
+            n.basis || '', n.sachverhalt || '',
+            (n.statusHistorie || []).map((h) => `${h.status} ${formatTag(h.datum)}`).join(' → ')]),
+        );
+      });
 
     formularBereich.addEventListener('click', (klick) => {
       if (klick.target.closest('[data-aktion="abbrechen"]')) schliesseFormular();

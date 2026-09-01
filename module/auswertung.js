@@ -14,6 +14,7 @@
 // Dokumenttyp «kosten», ein Dokument je Stichtag und Baustelle.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { berechneAbschluss } from '../kern/fo.js';
 import { alleBaustellen } from '../kern/stamm.js';
@@ -146,6 +147,7 @@ export default {
         </details>
       </section>`;
 
+    let letzteUebersicht = []; // Zeilen der Gesamttabelle (für den Excel-Export)
     const uebersichtElement = container.querySelector('[data-rolle="uebersicht"]');
     const neuZeile = container.querySelector('[data-rolle="neu-zeile"]');
     const formularBereich = container.querySelector('[data-rolle="formular-bereich"]');
@@ -175,8 +177,11 @@ export default {
           ntOffen: ntSumme(eigeneNt.filter((n) => !['genehmigt', 'verrechnet'].includes(n.status))),
         };
       });
+      letzteUebersicht = zeilen; // für den Excel-Export
       uebersichtElement.innerHTML = `
-        <h3>Alle Baustellen</h3>
+        <h3>Alle Baustellen
+          <button type="button" class="knopf eintrag-loeschen" data-aktion="export"
+            title="Öffnet direkt in Excel">Excel-Export</button></h3>
         <div class="tabellen-scroll">
           <table class="uebersicht-tabelle">
             <thead><tr>
@@ -241,6 +246,20 @@ export default {
     }
 
     uebersichtElement.addEventListener('click', (klick) => {
+      if (klick.target.closest('[data-aktion="export"]')) {
+        exportiereCsv(
+          'luense-controlling-gesamt.csv',
+          ['KTR', 'Baustelle', 'Stichtag', 'Bausumme W10 CHF', 'NT genehmigt CHF',
+            'NT offen CHF', 'Leistung A13 CHF', 'SK S6 CHF', 'Fertigstellungsgrad', 'Ergebnis K1'],
+          letzteUebersicht.map(({ b, letzter, kenn, ntGenehmigt, ntOffen }) => [
+            b.ktr, b.name, letzter ? formatTag(letzter.stichtag) : '',
+            kenn ? kenn.w10 : '', ntGenehmigt || '', ntOffen || '',
+            kenn ? kenn.a13 : '', kenn ? kenn.s6 : '',
+            kenn && kenn.w10 > 0 ? Math.round((kenn.a13 / kenn.w10) * 1000) / 10 + ' %' : '',
+            kenn ? Math.round(kenn.k1 * 1000) / 10 + ' %' : '']),
+        );
+        return;
+      }
       const zeile = klick.target.closest('[data-baustelle]');
       if (!zeile || zeile.dataset.baustelle === baustelle.baustelleId) return;
       document.dispatchEvent(new CustomEvent('luense:baustelleWechseln', {
