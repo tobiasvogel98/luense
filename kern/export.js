@@ -370,7 +370,13 @@ export function doppeltText(liste) {
   return ` Übersprungen: ${liste.slice(0, 8).join(', ')}${liste.length > 8 ? ' …' : ''}`;
 }
 
-// Fusszeile für die Shell: Backup-Stand, Erinnerung, Backup- und Import-Knopf.
+// Nach einem Import zeichnet die Shell die Ansicht (und damit diese Zeile)
+// neu — die Erfolgsmeldung wird hier zwischengelagert und einmalig wieder
+// angezeigt, statt im Neuzeichnen unterzugehen.
+let letzteImportMeldung = '';
+
+// Backup-Zeile für die Seitenleiste (und die Stamm-Ansicht ohne Baustellen):
+// Backup-Stand, Erinnerung, Backup- und Import-Knopf.
 export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
   container.innerHTML = `
     <span data-rolle="backup-status"></span>
@@ -454,8 +460,9 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
         });
       } else {
         const ergebnis = await importiereBackup(datei);
-        status.textContent =
+        letzteImportMeldung =
           `Import: ${ergebnis.neu} neu, ${ergebnis.uebersprungen} schon vorhanden.`;
+        status.textContent = letzteImportMeldung;
         nachImport();
       }
     } catch (fehler) {
@@ -474,4 +481,9 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
   });
 
   zeigeStand();
+  if (letzteImportMeldung) {
+    status.textContent = letzteImportMeldung;
+    letzteImportMeldung = '';
+    setTimeout(zeigeStand, 6000);
+  }
 }
