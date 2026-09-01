@@ -15,6 +15,11 @@
 <body>
 
   <header class="kopfzeile">
+    <button type="button" id="nav-knopf" class="kopf-knopf nav-knopf"
+      aria-expanded="false" aria-controls="modul-nav">
+      <span aria-hidden="true">☰</span>
+      <span class="visually-hidden">Module öffnen</span>
+    </button>
     <div class="marke">
       <span class="marke-logo" aria-hidden="true">⌖</span>
       <span class="marke-name">Lünse</span>
@@ -31,6 +36,7 @@
     </button>
   </header>
 
+  <div id="nav-schleier" class="nav-schleier" hidden></div>
   <nav id="modul-nav" class="modul-nav" aria-label="Module" hidden></nav>
 
   <main id="modulbereich" class="modulbereich">
@@ -91,15 +97,50 @@
 
     let aktuelleBaustelle = null;
 
+    // Seitenleiste im Cockpit-Stil: Module in vier Gruppen. Module, die in
+    // keiner Gruppe stehen (z. B. neue), landen automatisch unter Verwaltung.
+    const NAV_GRUPPEN = [
+      ['Übersicht', ['Dossier', 'Controlling']],
+      ['Erfassung', ['Journal', 'Rapporte', 'Ausmass']],
+      ['Verwaltung', ['Pendenzen', 'Nachträge', 'Rechnungen', 'Offerten']],
+      ['Wissen', ['Protokolle']],
+    ];
+
     async function zeichneModulNav() {
       const anzahlen = await Promise.all(MODULE.map((modul) =>
         modul.badge && aktuelleBaustelle ? modul.badge(aktuelleBaustelle) : null));
-      modulNav.innerHTML = MODULE.map((modul, index) => `
-        <button type="button" class="knopf${index === aktivesModul ? ' aktiv' : ''}"
+      const gruppiert = new Set(NAV_GRUPPEN.flatMap(([, namen]) => namen));
+      const eintrag = (modul, index) => `
+        <button type="button" class="knopf nav-eintrag${index === aktivesModul ? ' aktiv' : ''}"
           data-index="${index}">${modul.name}${
             anzahlen[index] ? `<span class="badge-anzahl">${anzahlen[index]}</span>` : ''
-          }</button>`).join('');
+          }</button>`;
+      modulNav.innerHTML = NAV_GRUPPEN.map(([titel, namen]) => {
+        const eintraege = MODULE
+          .map((modul, index) => ({ modul, index }))
+          .filter(({ modul }) => namen.includes(modul.name)
+            || (titel === 'Verwaltung' && !gruppiert.has(modul.name)))
+          .map(({ modul, index }) => eintrag(modul, index));
+        return eintraege.length ? `
+          <div class="nav-gruppe">
+            <p class="nav-gruppe-titel">${titel}</p>
+            ${eintraege.join('')}
+          </div>` : '';
+      }).join('');
     }
+
+    // Auf dem Handy liegt die Leiste als Overlay links — Hamburger öffnet,
+    // Tap daneben oder Modulwahl schliesst. Auf dem Laptop steht sie fix.
+    const navKnopf = document.getElementById('nav-knopf');
+    const navSchleier = document.getElementById('nav-schleier');
+    function schalteNav(offen) {
+      document.body.classList.toggle('nav-offen', offen);
+      navSchleier.hidden = !offen;
+      navKnopf.setAttribute('aria-expanded', String(offen));
+    }
+    navKnopf.addEventListener('click', () =>
+      schalteNav(!document.body.classList.contains('nav-offen')));
+    navSchleier.addEventListener('click', () => schalteNav(false));
 
     // Module melden Datenänderungen über dieses Ereignis — die Shell
     // aktualisiert damit die Badges, ohne dass Module sie kennen müssen.
@@ -133,6 +174,7 @@
       if (!knopf) return;
       aktivesModul = Number(knopf.dataset.index);
       localStorage.setItem(MODUL_MERKER, MODULE[aktivesModul].name);
+      schalteNav(false);
       zeigeModul();
     });
 

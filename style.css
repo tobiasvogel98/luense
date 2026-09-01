@@ -280,28 +280,126 @@ body {
 
 /* Modul-Navigation unter der Kopfzeile */
 
+/* Modul-Navigation (Abend 8.1): Seitenleiste im Cockpit-Stil.
+   Unter 900 px ein Overlay von links (Hamburger), ab 900 px fix links. */
+
 .modul-nav {
   display: flex;
-  gap: var(--abstand-2);
-  width: 100%;
-  max-width: var(--breite-max);
-  margin: 0 auto;
-  padding: var(--abstand-3) var(--abstand-4) 0;
-  overflow-x: auto; /* bei vielen Modulen scrollt die Leiste, nicht die Seite */
-  scrollbar-width: none;
+  flex-direction: column;
+  gap: var(--abstand-4);
+  padding: var(--abstand-4) var(--abstand-3);
+  padding-top: calc(var(--abstand-4) + env(safe-area-inset-top));
+  background: var(--farbe-flaeche);
+  overflow-y: auto;
 }
 
-.modul-nav .knopf {
-  flex: 1 0 auto;
-  padding: 0 var(--abstand-2);
+.nav-gruppe {
+  display: flex;
+  flex-direction: column;
+  gap: var(--abstand-2);
+}
+
+.nav-gruppe-titel {
+  font-size: var(--schrift-klein);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--farbe-text-gedaempft);
+  padding-left: var(--abstand-2);
+}
+
+.modul-nav .nav-eintrag {
+  justify-content: flex-start;
+  text-align: left;
+  width: 100%;
+  padding: 0 var(--abstand-3);
   font-size: var(--schrift-klein);
   white-space: nowrap;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
-.modul-nav .knopf.aktiv {
+.modul-nav .nav-eintrag.aktiv {
   color: var(--farbe-akzent-kontrast);
   background: var(--farbe-akzent);
   border-color: var(--farbe-akzent);
+}
+
+.modul-nav .badge-anzahl {
+  margin-left: auto;
+}
+
+/* Ohne sichtbare Navigation (Stamm-Ansicht) hat der Hamburger nichts zu öffnen */
+body:has(.modul-nav[hidden]) .nav-knopf {
+  visibility: hidden;
+}
+
+/* Handy: Overlay von links, per Hamburger */
+@media (max-width: 899.98px) {
+  .modul-nav {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(78vw, 20rem);
+    border-right: 1px solid var(--farbe-linie);
+    box-shadow: var(--schatten);
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+  }
+
+  body.nav-offen .modul-nav {
+    transform: translateX(0);
+  }
+
+  .nav-schleier {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Laptop: feste Leiste links neben dem Inhalt */
+@media (min-width: 900px) {
+  .nav-knopf,
+  .nav-schleier {
+    display: none !important;
+  }
+
+  body {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'kopf kopf'
+      'nav  main'
+      'status status'
+      'fuss fuss';
+  }
+
+  .kopfzeile { grid-area: kopf; }
+  .betriebsstatus { grid-area: status; }
+  .fusszeile { grid-area: fuss; }
+
+  .modul-nav {
+    grid-area: nav;
+    width: 14rem;
+    align-self: stretch;
+    border-right: 1px solid var(--farbe-linie);
+    position: sticky;
+    top: 0;
+    max-height: 100dvh;
+  }
+
+  .modulbereich { grid-area: main; }
+}
+
+@media print {
+  body {
+    display: block; /* Grid der Seitenleiste darf den Druck nicht verschieben */
+  }
 }
 
 .badge-anzahl {
