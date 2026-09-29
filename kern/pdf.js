@@ -252,6 +252,15 @@ export function zeigeRapportDruck(baustelle, rapport, t) {
         <p class="bericht-notiz">${esc(rapport.bemerkungen)}</p>
       </section>` : ''}
 
+    ${(rapport.absenzen?.length || rapport.reisezeiten?.length) ? `
+      <section class="bericht-eintrag">
+        <h2>Absenzen & Reisezeit (LMV)</h2>
+        ${(rapport.absenzen || []).map((a) =>
+          druckZeile(`${a.name} — ${a.art}`, `${a.stunden} h`)).join('')}
+        ${(rapport.reisezeiten || []).map((z) =>
+          druckZeile(`${z.name} — Reisezeit`, `${z.minuten} min`)).join('')}
+      </section>` : ''}
+
     <div class="unterschriften">
       <div>Unterschrift Mitarbeiter</div>
       <div>Unterschrift Bauleitung / Bauherr</div>

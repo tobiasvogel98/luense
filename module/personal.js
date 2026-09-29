@@ -184,12 +184,187 @@ export default {
         if (inBearbeitung?._id === mitarbeiter._id) fuelleFormular(null);
         await zeichneListe();
       } else if (aktion === 'konto') {
-        container.querySelector('[data-rolle="konto"]').innerHTML =
-          '<p class="hinweis">Das Stundenkonto folgt in Abend 10.2.</p>';
+        zeigeKonto(mitarbeiter);
       }
     });
 
+    // ---------- Stundenkonto (Abend 10.2) ----------
+    // Ist-Stunden aus den Personen-Zeilen ALLER Tagesrapporte (über alle
+    // Baustellen), Absenzen zählen als Sollerfüllung, Reisezeit läuft
+    // separat (LMV), Samstage werden markiert (25 % / meldepflichtig).
+    // Soll = Arbeitstage Mo–Fr × Tagessoll. Jahressaldo kumuliert ab dem
+    // ersten Monat mit Einträgen — mit LMV-Bandbreiten-Warnung je Modell.
+    const kontoElement = container.querySelector('[data-rolle="konto"]');
+
+    function gleicherName(a, b) {
+      return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    }
+
+    function arbeitstageMoFr(jahr, monat) {
+      let tage = 0;
+      const d = new Date(jahr, monat - 1, 1);
+      while (d.getMonth() === monat - 1) {
+        if (d.getDay() >= 1 && d.getDay() <= 5) tage++;
+        d.setDate(d.getDate() + 1);
+      }
+      return tage;
+    }
+
+    function istSamstag(tagIso) {
+      return new Date(`${tagIso}T12:00:00`).getDay() === 6;
+    }
+
+    // Alle Einträge eines Mitarbeiters aus allen Rapporten, je Tag.
+    async function ladeEintraege(mitarbeiter) {
+      const [rapporte, baustellen] = await Promise.all([
+        abfrage({ typ: 'rapport' }),
+        abfrage({ typ: 'baustelle' }),
+      ]);
+      const ktrVon = new Map(baustellen.map((b) => [b.baustelleId, b.ktr]));
+      const eintraege = [];
+      for (const r of rapporte) {
+        if (!r.tag) continue;
+        const stunden = (r.arbeiten || [])
+          .flatMap((arbeit) => arbeit.personen || [])
+          .filter((person) => gleicherName(person.name, mitarbeiter.name))
+          .reduce((s, person) => s + zahl(person.stunden), 0);
+        const absenzen = (r.absenzen || []).filter((a) => gleicherName(a.name, mitarbeiter.name));
+        const reiseMin = (r.reisezeiten || [])
+          .filter((z) => gleicherName(z.name, mitarbeiter.name))
+          .reduce((s, z) => s + zahl(z.minuten), 0);
+        if (stunden || absenzen.length || reiseMin) {
+          eintraege.push({
+            tag: r.tag,
+            ktr: ktrVon.get(r.baustelleId) || r.baustelleId,
+            stunden,
+            absenzen,
+            absenzStunden: absenzen.reduce((s, a) => s + zahl(a.stunden), 0),
+            reiseMin,
+            samstag: istSamstag(r.tag),
+          });
+        }
+      }
+      return eintraege.sort((a, b) => a.tag.localeCompare(b.tag));
+    }
+
+    async function zeigeKonto(mitarbeiter, monatIso) {
+      const eintraege = await ladeEintraege(mitarbeiter);
+      const heute = new Date();
+      const monat = monatIso
+        || `${heute.getFullYear()}-${String(heute.getMonth() + 1).padStart(2, '0')}`;
+      const [jahr, monatNr] = monat.split('-').map(Number);
+      const soll = zahl(mitarbeiter.sollProTag) || SOLL_PRO_TAG;
+      const [, modellLabel, von, bis] = modellVon(mitarbeiter);
+
+      const imMonat = eintraege.filter((e) => e.tag.startsWith(monat));
+      const summe = (liste, feld) => liste.reduce((s, e) => s + e[feld], 0);
+      const monatIst = summe(imMonat, 'stunden');
+      const monatAbsenz = summe(imMonat, 'absenzStunden');
+      const monatSoll = arbeitstageMoFr(jahr, monatNr) * soll;
+      const monatSamstag = summe(imMonat.filter((e) => e.samstag), 'stunden');
+      const monatReise = summe(imMonat, 'reiseMin');
+
+      // Jahressaldo ab dem ersten Monat mit Einträgen dieses Jahres.
+      const imJahr = eintraege.filter((e) => e.tag.startsWith(String(jahr))
+        && e.tag.slice(0, 7) <= monat);
+      const startMonat = imJahr.length ? Number(imJahr[0].tag.slice(5, 7)) : monatNr;
+      let jahrSoll = 0;
+      for (let m = startMonat; m <= monatNr; m++) jahrSoll += arbeitstageMoFr(jahr, m) * soll;
+      const jahrIst = summe(imJahr, 'stunden') + summe(imJahr, 'absenzStunden');
+      const saldo = jahrIst - jahrSoll;
+      const ausserhalb = saldo < von || saldo > bis;
+
+      const stundenText = (n) => `${Math.round(n * 100) / 100} h`;
+      kontoElement.innerHTML = `
+        <div class="karte">
+          <h3>Stundenkonto · ${esc(mitarbeiter.name)}</h3>
+          <p class="hinweis">${modellLabel} (Bandbreite ${von}…+${bis} h) ·
+            Soll ${soll} h je Arbeitstag Mo–Fr · Kumulation ab
+            ${String(startMonat).padStart(2, '0')}.${jahr} (erster Monat mit Einträgen).</p>
+          <label>Monat<input type="month" data-rolle="konto-monat" value="${monat}"></label>
+          <div class="kachel-reihe">
+            <div class="karte kachel"><span class="kachel-titel">Soll ${String(monatNr).padStart(2, '0')}.${jahr}</span>
+              <span class="kachel-wert">${stundenText(monatSoll)}</span></div>
+            <div class="karte kachel"><span class="kachel-titel">Ist + Absenz</span>
+              <span class="kachel-wert">${stundenText(monatIst + monatAbsenz)}</span></div>
+            <div class="karte kachel${ausserhalb ? '' : ' kachel-gruen'}">
+              <span class="kachel-titel">Saldo kumuliert</span>
+              <span class="kachel-wert${ausserhalb ? ' verlust' : ''}">${saldo >= 0 ? '+' : ''}${stundenText(saldo)}</span></div>
+          </div>
+          ${ausserhalb ? `<p class="hinweis ueberfaellig">⚠ Saldo ausserhalb der
+            LMV-Bandbreite (${von}…+${bis} h) — Stunden ausgleichen oder auszahlen.</p>` : ''}
+          <p class="hinweis">${monatSamstag ? `Samstagsstunden im Monat:
+            <b>${stundenText(monatSamstag)}</b> (25 % Zuschlag, meldepflichtig) · ` : ''}
+            Reisezeit im Monat: ${monatReise} min (separat vom Konto, LMV-Staffel).</p>
+          ${imMonat.length ? `
+            <div class="tabellen-scroll">
+              <table class="uebersicht-tabelle">
+                <thead><tr><th>Datum</th><th>KTR</th><th class="zahl">Arbeit</th>
+                  <th>Absenz</th><th class="zahl">Reise</th></tr></thead>
+                <tbody>
+                  ${imMonat.map((e) => `
+                    <tr>
+                      <td class="kein-umbruch">${e.tag.split('-').reverse().join('.')}${
+                        e.samstag ? ' <span class="skonto-chance">Sa</span>' : ''}</td>
+                      <td class="kein-umbruch">${esc(e.ktr)}</td>
+                      <td class="zahl">${e.stunden ? stundenText(e.stunden) : '—'}</td>
+                      <td>${e.absenzen.length ? e.absenzen
+                        .map((a) => `${esc(a.art)} ${zahl(a.stunden)} h`).join(', ') : '—'}</td>
+                      <td class="zahl">${e.reiseMin ? `${e.reiseMin} min` : '—'}</td>
+                    </tr>`).join('')}
+                  <tr class="summen-zeile">
+                    <td colspan="2"><b>Total Monat</b></td>
+                    <td class="zahl"><b>${stundenText(monatIst)}</b></td>
+                    <td><b>${stundenText(monatAbsenz)}</b></td>
+                    <td class="zahl"><b>${monatReise} min</b></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>`
+          : '<p class="hinweis">Keine Einträge in diesem Monat.</p>'}
+          <div class="knopfzeile">
+            <button type="button" class="knopf" data-aktion="konto-export"
+              data-id="${esc(mitarbeiter._id)}" data-monat="${monat}"
+              title="Öffnet direkt in Excel">Excel-Export (Treuhänder)</button>
+            <button type="button" class="knopf" data-aktion="konto-zu">Schliessen</button>
+          </div>
+        </div>`;
+      kontoElement.querySelector('[data-rolle="konto-monat"]')
+        .addEventListener('change', (wechsel) => zeigeKonto(mitarbeiter, wechsel.target.value));
+      kontoElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    kontoElement.addEventListener('click', async (klick) => {
+      const knopf = klick.target.closest('[data-aktion]');
+      if (!knopf) return;
+      if (knopf.dataset.aktion === 'konto-zu') {
+        kontoElement.innerHTML = '';
+      }
+    });
+
+    // Kontrolle: Namen aus den Rapporten, die keinem Mitarbeiter zugeordnet
+    // sind — Tippfehler fallen so sofort auf.
+    async function zeigeUnzugeordnete() {
+      const [rapporte, mitarbeiter] = await Promise.all([
+        abfrage({ typ: 'rapport' }), ladeMitarbeiter(),
+      ]);
+      const bekannt = new Set(mitarbeiter.map((m) => m.name.trim().toLowerCase()));
+      const fremde = new Set();
+      for (const r of rapporte) {
+        for (const person of (r.arbeiten || []).flatMap((a) => a.personen || [])) {
+          const name = String(person.name || '').trim();
+          if (name && !bekannt.has(name.toLowerCase())) fremde.add(name);
+        }
+      }
+      if (fremde.size) {
+        listeElement.insertAdjacentHTML('beforeend', `
+          <p class="hinweis">⚠ Namen in Rapporten ohne Mitarbeiter-Stamm:
+            ${[...fremde].slice(0, 10).map(esc).join(', ')}${fremde.size > 10 ? ' …' : ''}
+            — gleich schreiben wie hier, sonst fehlen die Stunden im Konto.</p>`);
+      }
+    }
+
     fuelleFormular(null);
-    zeichneListe();
+    zeichneListe().then(zeigeUnzugeordnete);
   },
 };

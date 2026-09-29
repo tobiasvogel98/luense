@@ -11,6 +11,9 @@ import { exportiereCsv } from '../kern/export.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit, REGIE_MUSTER } from '../kern/ui.js';
 
+// Absenzarten nach LMV — zählen im Stundenkonto als Sollerfüllung.
+const ABSENZ_ARTEN = ['Ferien', 'Krankheit', 'Unfall', 'Schlechtwetter', 'Schule', 'Militär/ZS'];
+
 const GRUPPEN = [
   { schluessel: 'personen', label: 'Personen (mit Stunden)', hinzu: '+ Person', art: 'stunden', platzhalter: 'Name, z. B. Max' },
   { schluessel: 'maschinen', label: 'Maschinen / Geräte (mit Stunden)', hinzu: '+ Maschine', art: 'stunden', platzhalter: 'z. B. Bagger' },
@@ -124,6 +127,20 @@ export default {
             + Arbeit hinzufügen
           </button>
 
+          <details class="absenz-bereich" data-rolle="absenz-bereich">
+            <summary>Absenzen & Reisezeit (LMV)</summary>
+            <div class="gruppe">
+              <p class="gruppen-label">Absenzen (zählen als Sollerfüllung)</p>
+              <div data-rolle="absenz-zeilen"></div>
+              <button type="button" class="knopf zeile-hinzu" data-aktion="absenz-hinzu">+ Absenz</button>
+            </div>
+            <div class="gruppe">
+              <p class="gruppen-label">Reisezeit (separat vom Stundenkonto, LMV Art. Reisezeit)</p>
+              <div data-rolle="reise-zeilen"></div>
+              <button type="button" class="knopf zeile-hinzu" data-aktion="reise-hinzu">+ Reisezeit</button>
+            </div>
+          </details>
+
           <label>Bemerkungen<textarea name="bemerkungen" rows="2"></textarea></label>
 
           <div class="rapport-totale" data-rolle="totale"></div>
@@ -231,6 +248,47 @@ export default {
         <div class="regie-total"><span>davon Regie</span><span>${stundenText(t.regie)}</span></div>`;
     }
 
+    // Absenz- und Reisezeit-Zeilen (Abend 10.2) — Name wie im Personal-Stamm.
+    function absenzZeileHtml(z = {}) {
+      return `<div class="rapport-zeile" data-rolle="absenz-zeile">
+        <input data-feld="name" class="zeile-name" placeholder="Name"
+          autocomplete="off" value="${esc(z.name ?? '')}">
+        <select data-feld="art" class="zeile-einheit">
+          ${ABSENZ_ARTEN.map((a) => `<option${z.art === a ? ' selected' : ''}>${a}</option>`).join('')}
+        </select>
+        <input data-feld="stunden" class="zeile-zahl" type="number" inputmode="decimal"
+          step="0.25" min="0" placeholder="Std." value="${esc(z.stunden ?? '')}">
+        <button type="button" class="knopf zeile-weg" data-aktion="absenz-weg"
+          aria-label="Zeile entfernen">×</button>
+      </div>`;
+    }
+
+    function reiseZeileHtml(z = {}) {
+      return `<div class="rapport-zeile" data-rolle="reise-zeile">
+        <input data-feld="name" class="zeile-name" placeholder="Name"
+          autocomplete="off" value="${esc(z.name ?? '')}">
+        <input data-feld="minuten" class="zeile-zahl" type="number" inputmode="numeric"
+          step="5" min="0" placeholder="Min." value="${esc(z.minuten ?? '')}">
+        <button type="button" class="knopf zeile-weg" data-aktion="reise-weg"
+          aria-label="Zeile entfernen">×</button>
+      </div>`;
+    }
+
+    function sammleAbsenzen() {
+      return [...formular.querySelectorAll('[data-rolle="absenz-zeile"]')].map((zeile) => ({
+        name: zeile.querySelector('[data-feld="name"]').value.trim(),
+        art: zeile.querySelector('[data-feld="art"]').value,
+        stunden: zeile.querySelector('[data-feld="stunden"]').value.trim(),
+      })).filter((z) => z.name || z.stunden);
+    }
+
+    function sammleReisezeiten() {
+      return [...formular.querySelectorAll('[data-rolle="reise-zeile"]')].map((zeile) => ({
+        name: zeile.querySelector('[data-feld="name"]').value.trim(),
+        minuten: zeile.querySelector('[data-feld="minuten"]').value.trim(),
+      })).filter((z) => z.name || z.minuten);
+    }
+
     function fuelleFormular(rapport) {
       inBearbeitung = rapport;
       formularTitel.textContent = rapport
@@ -243,6 +301,12 @@ export default {
       formular.elements.bemerkungen.value = rapport?.bemerkungen ?? '';
       const arbeiten = rapport?.arbeiten?.length ? rapport.arbeiten : [{}];
       arbeitenElement.innerHTML = arbeiten.map((a) => arbeitHtml(a)).join('');
+      const absenzBereich = formular.querySelector('[data-rolle="absenz-bereich"]');
+      formular.querySelector('[data-rolle="absenz-zeilen"]').innerHTML =
+        (rapport?.absenzen || []).map(absenzZeileHtml).join('');
+      formular.querySelector('[data-rolle="reise-zeilen"]').innerHTML =
+        (rapport?.reisezeiten || []).map(reiseZeileHtml).join('');
+      absenzBereich.open = !!(rapport?.absenzen?.length || rapport?.reisezeiten?.length);
       nummeriereArbeiten();
       zeigeTotale();
       meldung.textContent = '';
@@ -299,6 +363,10 @@ export default {
               ${arbeit.fremdleistungen?.length ? `<p class="hinweis">Fremdleistungen: ${gruppenText(arbeit.fremdleistungen, true)}</p>` : ''}
             </div>`).join('')}
           ${r.bemerkungen ? `<p class="hinweis">Bemerkungen: ${esc(r.bemerkungen)}</p>` : ''}
+          ${r.absenzen?.length ? `<p class="hinweis">Absenzen: ${r.absenzen
+            .map((a) => `${esc(a.name)} · ${esc(a.art)} ${zahl(a.stunden)} h`).join(', ')}</p>` : ''}
+          ${r.reisezeiten?.length ? `<p class="hinweis">Reisezeit: ${r.reisezeiten
+            .map((z) => `${esc(z.name)} ${zahl(z.minuten)} min`).join(', ')}</p>` : ''}
           ${mitRegie ? `
             <p class="hinweis verknuepfung">↳ Regie-Ereignisse im Journal am ${formatTag(r.tag)}: ${
               verknuepfte.length
@@ -525,6 +593,16 @@ export default {
           zeilen.insertAdjacentHTML('beforeend', zeileHtml(gruppe));
         }
         zeigeTotale();
+      } else if (aktion === 'absenz-hinzu') {
+        formular.querySelector('[data-rolle="absenz-zeilen"]')
+          .insertAdjacentHTML('beforeend', absenzZeileHtml());
+      } else if (aktion === 'absenz-weg') {
+        knopf.closest('[data-rolle="absenz-zeile"]').remove();
+      } else if (aktion === 'reise-hinzu') {
+        formular.querySelector('[data-rolle="reise-zeilen"]')
+          .insertAdjacentHTML('beforeend', reiseZeileHtml());
+      } else if (aktion === 'reise-weg') {
+        knopf.closest('[data-rolle="reise-zeile"]').remove();
       } else if (aktion === 'abbrechen') {
         fuelleFormular(null);
       }
@@ -641,6 +719,8 @@ export default {
           davonRegie: totale(arbeiten).regie, // aus den Regie-Arbeiten gerechnet
           bemerkungen: formular.elements.bemerkungen.value.trim(),
           arbeiten,
+          absenzen: sammleAbsenzen(),
+          reisezeiten: sammleReisezeiten(),
         });
         // Regie-Stunden > 0: Pendenz «Regierapport unterschreiben lassen»
         // automatisch erzeugen — genau einmal pro Rapport.
