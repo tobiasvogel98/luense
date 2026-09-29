@@ -65,12 +65,13 @@
     import nachtragModul from './module/nachtrag.js';
     import dossierModul from './module/dossier.js';
     import rechnungModul from './module/rechnung.js';
+    import kreditorModul from './module/kreditor.js';
     import offertModul from './module/offert.js';
 
     // Modul-Registrierung: mehr Kopplung gibt es nicht.
     const MODULE = [dossierModul, ereignisModul, pendenzenModul, rapportModul,
-      ausmassModul, nachtragModul, rechnungModul, protokolleModul,
-      auswertungModul, offertModul];
+      ausmassModul, nachtragModul, rechnungModul, kreditorModul,
+      protokolleModul, auswertungModul, offertModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
     const modulbereich = document.getElementById('modulbereich');
@@ -106,7 +107,7 @@
     const NAV_GRUPPEN = [
       ['Übersicht', ['Dossier', 'Controlling']],
       ['Erfassung', ['Journal', 'Rapporte', 'Ausmass']],
-      ['Verwaltung', ['Pendenzen', 'Nachträge', 'Rechnungen', 'Offerten']],
+      ['Verwaltung', ['Pendenzen', 'Nachträge', 'Rechnungen', 'Kreditoren', 'Offerten']],
       ['Wissen', ['Protokolle']],
     ];
 

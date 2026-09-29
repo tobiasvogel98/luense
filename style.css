@@ -545,6 +545,19 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   border-top: 2px solid var(--farbe-linie);
 }
 
+/* Kreditoren (Abend 9.1): Skonto-Chance hervorheben */
+.skonto-chance {
+  color: var(--farbe-akzent);
+  font-weight: 600;
+}
+
+/* Tabellen im Cockpit-Stil: Köpfe und kurze Wertspalten nicht umbrechen —
+   bei wenig Platz scrollt .tabellen-scroll seitlich statt zu quetschen. */
+.uebersicht-tabelle th,
+.uebersicht-tabelle td.kein-umbruch {
+  white-space: nowrap;
+}
+
 .badge-anzahl {
   display: inline-block;
   min-width: 1.6em;
