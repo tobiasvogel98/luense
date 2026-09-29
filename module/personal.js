@@ -9,6 +9,7 @@
 // Abend 10.3 den Treuhänder-Export.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { exportiereCsv } from '../kern/export.js';
 import { esc } from '../kern/ui.js';
 
 const PERSONAL_ID = 'personal';
@@ -339,6 +340,33 @@ export default {
       if (!knopf) return;
       if (knopf.dataset.aktion === 'konto-zu') {
         kontoElement.innerHTML = '';
+      } else if (knopf.dataset.aktion === 'konto-export') {
+        // Treuhänder-Export (Abend 10.3): ein Monatsblatt je Mitarbeiter —
+        // das Lohnbüro rechnet die Löhne, Lünse liefert saubere Grundlagen.
+        const alle = await ladeMitarbeiter();
+        const mitarbeiter = alle.find((m) => m._id === knopf.dataset.id);
+        const monat = knopf.dataset.monat;
+        if (!mitarbeiter || !monat) return;
+        const eintraege = (await ladeEintraege(mitarbeiter))
+          .filter((e) => e.tag.startsWith(monat));
+        const soll = zahl(mitarbeiter.sollProTag) || SOLL_PRO_TAG;
+        const [jahr, monatNr] = monat.split('-').map(Number);
+        const zeilen = eintraege.map((e) => [
+          e.tag.split('-').reverse().join('.'), e.ktr,
+          e.stunden || '', e.samstag && e.stunden ? 'ja' : '',
+          e.absenzen.map((a) => a.art).join(', '),
+          e.absenzStunden || '', e.reiseMin || '']);
+        zeilen.push(['Total Monat', '',
+          eintraege.reduce((s, e) => s + e.stunden, 0), '',
+          `Soll ${arbeitstageMoFr(jahr, monatNr) * soll} h`,
+          eintraege.reduce((s, e) => s + e.absenzStunden, 0),
+          eintraege.reduce((s, e) => s + e.reiseMin, 0)]);
+        exportiereCsv(
+          `luense-stunden-${mitarbeiter.name.replace(/\s+/g, '_')}-${monat}.csv`,
+          ['Datum', 'Baustelle (KTR)', 'Arbeitsstunden', 'Samstag (25 %)',
+            'Absenzart', 'Absenzstunden', 'Reisezeit min'],
+          zeilen,
+        );
       }
     });
 
