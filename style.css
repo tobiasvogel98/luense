@@ -545,6 +545,21 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   border-top: 2px solid var(--farbe-linie);
 }
 
+/* Controlling (Abend 9.3): Vorschlagswerte aus Rechnungen/Kreditoren */
+.vorschlaege {
+  margin: var(--abstand-3) 0;
+  padding: var(--abstand-2);
+  border: 1px dashed var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.vorschlags-wert {
+  margin-left: auto;
+  padding-right: var(--abstand-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* Kreditoren (Abend 9.1): Skonto-Chance hervorheben */
 .skonto-chance {
   color: var(--farbe-akzent);

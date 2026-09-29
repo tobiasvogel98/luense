@@ -301,6 +301,13 @@ export default {
               step="any" value="${esc(w.allgAbzug ?? '')}" placeholder="0"></label>
           </div>
 
+          <div class="vorschlaege">
+            <button type="button" class="knopf" data-aktion="vorschlaege">
+              💡 Vorschläge aus Rechnungen & Kreditoren zum Stichtag
+            </button>
+            <div data-rolle="vorschlags-liste"></div>
+          </div>
+
           <h4 class="abschnitt-titel">Bausumme Werkvertrag (brutto)</h4>
           ${W_ZEILEN.map(([s, nr, l]) => geldZeile(s, nr, l, w[s])).join('')}
           ${berechnetZeile('W5', 'nachgeführte Bausumme exkl. Regie', '')}
@@ -393,8 +400,73 @@ export default {
 
     formularBereich.addEventListener('input', aktualisiereKennzahlen);
 
+    // Abend 9.3: Vorschlagswerte aus den geteilten Dokumenten — Debitoren-
+    // Rechnungen füllen die B-Zeilen, Kreditoren die Selbstkosten-Grundlage,
+    // der Werkvertrag W1. IMMER nur Vorschlag mit Übernehmen-Knopf, nie
+    // Automatik: die Hoheit über den Abschluss bleibt beim Bauführer.
+    async function zeigeVorschlaege() {
+      const formular = formularBereich.querySelector('[data-rolle="fo-formular"]');
+      const liste = formular.querySelector('[data-rolle="vorschlags-liste"]');
+      const stichtag = formular.elements.stichtag.value || heuteTag();
+      const [rechnungen, kreditoren] = await Promise.all([
+        abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }),
+        abfrage({ typ: 'kreditor', baustelleId: baustelle.baustelleId }),
+      ]);
+      const bisStichtag = (liste2) => liste2.filter((d) => (d.tag || '') <= stichtag);
+      const summe = (liste2) => liste2.reduce((s, d) => s + zahl(d.betrag), 0);
+      // Debitoren: gestellt oder bezahlt zählt als fakturiert.
+      const fakturiert = bisStichtag(rechnungen.filter((r) => ['gestellt', 'bezahlt'].includes(r.status)));
+      const b1V = summe(fakturiert.filter((r) => r.basis?.art !== 'regierapport'));
+      const b2V = summe(fakturiert.filter((r) => r.basis?.art === 'regierapport'));
+      // Kreditoren: visiert oder bezahlt = anerkannte Fremdkosten.
+      const anerkannt = bisStichtag(kreditoren.filter((k) => ['visiert', 'bezahlt'].includes(k.status)));
+      const kreditorenTotal = summe(anerkannt);
+      const jeKostenart = [...new Set(anerkannt.map((k) => k.kostenart))]
+        .map((art) => ({ art, betrag: summe(anerkannt.filter((k) => k.kostenart === art)) }));
+      // W1: Betrag aus dem Werkvertragstext der Baustelle (z. B. aus der Offerte).
+      const w1V = zahl((String(baustelle.werkvertrag || '').match(/[\d'’]+(?:\.\d+)?/) || [''])[0]);
+      const zeile = (label, wert, feld, hinweis = '') => `
+        <div class="fo-zeile">
+          <span class="fo-nr">→</span>
+          <span class="fo-label">${label}${hinweis ? `<small> ${hinweis}</small>` : ''}</span>
+          <span class="vorschlags-wert">${chf(wert)}</span>
+          ${feld ? `<button type="button" class="knopf eintrag-loeschen"
+            data-uebernehmen="${feld}" data-wert="${Math.round(wert * 100) / 100}">übernehmen</button>` : ''}
+        </div>`;
+      liste.innerHTML = `
+        <p class="hinweis">Vorschläge per ${stichtag.split('-').reverse().join('.')} —
+          prüfen und einzeln übernehmen. Kreditoren sind Fremdkosten
+          (ohne Löhne und Inventar-Verrechnung) — S1 danach ergänzen.</p>
+        ${w1V ? zeile('W1 — Werkvertrag der Baustelle', w1V, 'w1') : ''}
+        ${zeile('B1 — fakturiert (Ausmass/Nachtrag/manuell)', b1V, 'b1',
+          `${fakturiert.filter((r) => r.basis?.art !== 'regierapport').length} Rechnungen gestellt/bezahlt`)}
+        ${zeile('B2 — Regiefakturen', b2V, 'b2',
+          `${fakturiert.filter((r) => r.basis?.art === 'regierapport').length} Rechnungen`)}
+        ${zeile('S1 — Kreditoren visiert/bezahlt', kreditorenTotal, 's1',
+          `${anerkannt.length} Lieferantenrechnungen`)}
+        ${jeKostenart.map((k) => zeile(`&nbsp;&nbsp;davon ${esc(k.art)}`, k.betrag, '')).join('')}`;
+    }
+
     formularBereich.addEventListener('click', (klick) => {
-      if (klick.target.closest('[data-aktion="abbrechen"]')) schliesseFormular();
+      if (klick.target.closest('[data-aktion="abbrechen"]')) {
+        schliesseFormular();
+        return;
+      }
+      if (klick.target.closest('[data-aktion="vorschlaege"]')) {
+        zeigeVorschlaege();
+        return;
+      }
+      const knopf = klick.target.closest('[data-uebernehmen]');
+      if (knopf) {
+        const formular = formularBereich.querySelector('[data-rolle="fo-formular"]');
+        const feld = formular.querySelector(`[data-feld="${knopf.dataset.uebernehmen}"]`);
+        if (feld) {
+          feld.value = knopf.dataset.wert;
+          feld.dispatchEvent(new Event('input', { bubbles: true }));
+          knopf.textContent = 'übernommen ✓';
+          knopf.disabled = true;
+        }
+      }
     });
 
     formularBereich.addEventListener('submit', async (abschicken) => {

@@ -54,8 +54,9 @@ export default {
         abfrage({ typ: 'kontakt', baustelleId: baustelle.baustelleId }),
       ]);
       const rechnungen = await abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId });
+      const kreditoren = await abfrage({ typ: 'kreditor', baustelleId: baustelle.baustelleId });
       return { abschluesse, nachtraege, pendenzen, protokolle, rapporte, ereignisse,
-        meilensteine, kontakte, rechnungen };
+        meilensteine, kontakte, rechnungen, kreditoren };
     }
 
     function sprungKnopf(modulName) {
@@ -80,6 +81,14 @@ export default {
         && !d.nachtraege.some((n) => n.beweise?.rapportIds?.includes(r._id)));
       const gestellteRechnungen = d.rechnungen.filter((r) => r.status === 'gestellt');
       const gestellteSumme = gestellteRechnungen.reduce((s, r) => s + zahl(r.betrag), 0);
+      const kreditorenOffen = d.kreditoren.filter((k) => k.status !== 'bezahlt');
+      const kreditorenOffenSumme = kreditorenOffen.reduce((s, k) => s + zahl(k.betrag), 0);
+      const kreditorenUeberfaellig = kreditorenOffen.filter((k) => {
+        const frist = new Date(`${k.tag}T12:00:00`);
+        if (Number.isNaN(frist.getTime())) return false;
+        frist.setDate(frist.getDate() + (k.zahlungsfristTage ?? 30));
+        return frist < new Date(`${heuteTag()}T12:00:00`);
+      });
       const letzteEreignisse = d.ereignisse.slice(0, 5);
 
       // Zeit vs. Leistung: Start = ältestes Ereignis/Rapport, Ende = Bauende.
@@ -128,6 +137,9 @@ export default {
             <div class="karte kachel"><span class="kachel-titel">Gestellt, nicht bezahlt
               (${gestellteRechnungen.length})</span>
               <span class="kachel-wert">${chf(gestellteSumme)}</span></div>
+            <div class="karte kachel"><span class="kachel-titel">Kreditoren offen
+              (${kreditorenOffen.length})</span>
+              <span class="kachel-wert">${chf(kreditorenOffenSumme)}</span></div>
           </div>
 
           ${zeitAnteil !== null || leistungAnteil !== null ? `
@@ -142,7 +154,7 @@ export default {
             </div>` : ''}
 
           <div class="karte">
-            <h3>Offene Posten ${sprungKnopf('Nachträge')} ${sprungKnopf('Pendenzen')}</h3>
+            <h3>Offene Posten ${sprungKnopf('Nachträge')} ${sprungKnopf('Pendenzen')} ${sprungKnopf('Kreditoren')}</h3>
             ${ntOffen.length ? `<p class="gruppen-label">Nachträge</p>${ntOffen.map((n) => `
               <p class="hinweis">• ${esc(n.nummer)} ${esc(n.titel)} — ${esc(n.status)}${
                 zahl(n.summe) ? ` · ${chf(zahl(n.summe))}` : ''}</p>`).join('')}` : ''}
@@ -154,7 +166,11 @@ export default {
             ${regieOhneNachtrag.length ? `<p class="gruppen-label">Regie-Rapporte ohne Nachtrag</p>${
               regieOhneNachtrag.map((r) => `
                 <p class="hinweis">• Rapport ${formatTag(r.tag)} · Regie ${r.davonRegie} h</p>`).join('')}` : ''}
-            ${!ntOffen.length && !pendenzenOffen.length && !abnahmeMaengel.length && !regieOhneNachtrag.length
+            ${kreditorenUeberfaellig.length ? `<p class="gruppen-label">Kreditoren überfällig</p>${
+              kreditorenUeberfaellig.map((k) => `
+                <p class="hinweis">• ${esc(k.lieferant)} ${esc(k.rechnungsNr)} · ${chf(zahl(k.betrag))} (${esc(k.status)})</p>`).join('')}` : ''}
+            ${!ntOffen.length && !pendenzenOffen.length && !abnahmeMaengel.length
+              && !regieOhneNachtrag.length && !kreditorenUeberfaellig.length
               ? '<p class="hinweis">Nichts offen — sauber. ✓</p>' : ''}
           </div>
 
