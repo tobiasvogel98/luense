@@ -610,6 +610,64 @@ export default {
       });
     }
 
+    // ---------- Visum mit Lieferschein-Abgleich (Abend 9.4) ----------
+    // Beim Visieren zeigt der Dialog die Material-Zeilen aus den Tages-
+    // rapporten der Baustelle: «Wurde geliefert, was verrechnet wird?»
+    // Reine Anzeige-Hilfe zum Abhaken — keine Automatik, kein Speichern
+    // der Haken; entschieden wird mit Visum und Bemerkung.
+    async function oeffneVisumDialog(kreditor) {
+      const rapporte = await abfrage({ typ: 'rapport', baustelleId: baustelle.baustelleId });
+      const materialZeilen = rapporte
+        .flatMap((r) => (r.arbeiten || []).flatMap((arbeit) =>
+          (arbeit.material || []).map((m) => ({ tag: r.tag, ...m }))))
+        .filter((m) => m.name || m.menge)
+        .sort((a, b) => (b.tag || '').localeCompare(a.tag || ''));
+      const gezeigt = materialZeilen.slice(0, 30);
+      const dialog = document.createElement('div');
+      dialog.className = 'vollbild dialog-hintergrund';
+      dialog.innerHTML = `
+        <form class="karte formular dialog" data-rolle="visum-dialog">
+          <h3>Visum · ${esc(kreditor.lieferant)} ${esc(kreditor.rechnungsNr)}
+            · ${chf(zahl(kreditor.betrag))}</h3>
+          <p class="gruppen-label">Lieferschein-Abgleich — Material aus den Tagesrapporten</p>
+          ${gezeigt.length ? `
+            <div class="beweis-liste">
+              ${gezeigt.map((m) => `
+                <label class="beweis-zeile">
+                  <input type="checkbox">
+                  <span>${m.tag ? m.tag.split('-').reverse().join('.') + ' · ' : ''}${esc(m.name || '—')}${
+                    [m.menge, m.einheit].filter(Boolean).length
+                      ? ' · ' + [m.menge, m.einheit].filter(Boolean).map(esc).join(' ') : ''}</span>
+                </label>`).join('')}
+            </div>
+            ${materialZeilen.length > gezeigt.length ? `
+              <p class="hinweis">… und ${materialZeilen.length - gezeigt.length} ältere Einträge.</p>` : ''}
+            <p class="hinweis">Haken dienen nur dem Abgleich beim Prüfen — gespeichert
+              wird das Visum mit Bemerkung.</p>`
+          : '<p class="hinweis">Keine Material-Einträge in den Rapporten dieser Baustelle.</p>'}
+          <label>Visum-Bemerkung (optional)<input name="bemerkung" autocomplete="off"
+            placeholder="z. B. Mengen gemäss Rapporten geprüft"></label>
+          <div class="knopfzeile">
+            <button type="submit" class="knopf knopf-primaer">Visieren</button>
+            <button type="button" class="knopf" data-aktion="zu">Abbrechen</button>
+          </div>
+        </form>`;
+      document.body.append(dialog);
+      dialog.addEventListener('click', (klick) => {
+        if (klick.target === dialog || klick.target.closest('[data-aktion="zu"]')) dialog.remove();
+      });
+      dialog.querySelector('form').addEventListener('submit', async (abschicken) => {
+        abschicken.preventDefault();
+        const doc = mitHistorie(kreditor, 'visiert');
+        doc.visumNotiz = abschicken.target.elements.bemerkung.value.trim();
+        await put(doc);
+        dialog.remove();
+        meldungElement.textContent = `${kreditor.lieferant} ${kreditor.rechnungsNr} → visiert.`;
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneTabelle();
+      });
+    }
+
     // ---------- Aktionen ----------
     container.querySelector('[data-aktion="neu"]')
       .addEventListener('click', () => oeffneFormular(null));
@@ -650,13 +708,13 @@ export default {
       } else if (aktion === 'weiter') {
         const naechster = KREDITOR_STATUS[KREDITOR_STATUS.indexOf(kreditor.status) + 1];
         if (!naechster) return;
-        let doc = mitHistorie(kreditor, naechster);
         if (naechster === 'visiert') {
-          // Visum mit Bemerkung — wie in der Visumskontrolle grosser ERP.
-          const bemerkung = prompt('Visum-Bemerkung (optional, leer = ohne):', '');
-          if (bemerkung === null) return; // Abbrechen = nicht visieren
-          doc.visumNotiz = bemerkung.trim();
-        } else if (naechster === 'bezahlt') {
+          // Visum im Dialog mit Lieferschein-Abgleich (Abend 9.4).
+          oeffneVisumDialog(kreditor);
+          return;
+        }
+        const doc = mitHistorie(kreditor, naechster);
+        if (naechster === 'bezahlt') {
           doc.bezahltAm = heuteTag();
           const w = kreditorWerte(kreditor);
           if (w.skontoNutzbar) {
