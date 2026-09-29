@@ -59,6 +59,51 @@ function mitHistorie(kreditor, neuerStatus) {
   };
 }
 
+// ---------- Swiss-QR-Rechnung (Abend 9.2) ----------
+// Der QR-Code auf jeder Schweizer Rechnung (SIX-Standard) ist zeilenweise
+// aufgebaut: SPC / Version / Coding / IBAN / Zahlungsempfänger (7 Zeilen) /
+// endgültiger Empfänger (7) / Betrag / Währung / Zahlungspflichtiger (7) /
+// Referenztyp / Referenz / Mitteilung / EPD / Swico-Rechnungsinformationen.
+// Aus den optionalen Swico-Angaben (//S1/...) kommen Rechnungs-Nr., Datum
+// und sogar die Skonto-Konditionen (/40/2:10;0:30 = 2 % zu 10 Tagen,
+// netto 30 Tage).
+export function parseSwissQr(text) {
+  const zeilen = String(text).split(/\r?\n/).map((s) => s.trim());
+  if (zeilen[0] !== 'SPC') return null;
+  const daten = {
+    iban: zeilen[3] || '',
+    lieferant: zeilen[5] || '',
+    betrag: zeilen[18] || '',
+    waehrung: zeilen[19] || '',
+    refTyp: zeilen[27] || '',
+    referenz: zeilen[28] || '',
+    mitteilung: zeilen[29] || '',
+    rechnungsNr: '',
+    rechnungsTag: '',
+    skontoProzent: '',
+    skontoTage: '',
+    zahlungsfristTage: '',
+  };
+  const swico = zeilen.find((s) => s.startsWith('//S1/'));
+  if (swico) {
+    const teil = (code) => (swico.match(new RegExp(`/${code}/([^/]*)`)) || [])[1] || '';
+    daten.rechnungsNr = teil('10');
+    const datum = teil('11'); // JJMMTT
+    if (/^\d{6}/.test(datum)) {
+      daten.rechnungsTag = `20${datum.slice(0, 2)}-${datum.slice(2, 4)}-${datum.slice(4, 6)}`;
+    }
+    const konditionen = teil('40').split(';').map((k) => k.split(':'));
+    const skonto = konditionen.find(([p]) => zahl(p) > 0);
+    if (skonto?.[1]) {
+      daten.skontoProzent = skonto[0];
+      daten.skontoTage = skonto[1];
+    }
+    const netto = konditionen.find(([p]) => zahl(p) === 0);
+    if (netto?.[1]) daten.zahlungsfristTage = netto[1];
+  }
+  return daten;
+}
+
 // Abgeleitete Termine und Beträge eines Kreditors.
 export function kreditorWerte(k) {
   const betrag = zahl(k.betrag);
@@ -241,6 +286,14 @@ export default {
         <form class="karte formular" data-rolle="kreditor-formular">
           <h3>${kreditor ? `Rechnung ${esc(kreditor.rechnungsNr)} bearbeiten`
             : 'Neue Lieferantenrechnung'}</h3>
+          <div class="knopfzeile">
+            <button type="button" class="knopf" data-aktion="qr-scan">
+              ⛶ QR-Rechnung scannen
+            </button>
+          </div>
+          <p class="hinweis" data-rolle="qr-info" hidden></p>
+          <input type="hidden" name="iban" value="${esc(kreditor?.iban ?? '')}">
+          <input type="hidden" name="referenz" value="${esc(kreditor?.referenz ?? '')}">
           <div class="feld-reihe">
             <label>Lieferant / Firma *<input name="lieferant" required autocomplete="off"
               list="lieferanten-liste" value="${esc(kreditor?.lieferant ?? '')}"
@@ -312,8 +365,130 @@ export default {
       neuZeile.hidden = false;
     }
 
+    // QR-Daten ins Formular übernehmen — Felder werden gefüllt, aber alles
+    // bleibt editierbar (die Kostenart und den Rest ergänzt der Bauführer).
+    function uebernehmeQr(formular, daten) {
+      const setze = (name, wert) => {
+        if (wert) formular.elements[name].value = wert;
+      };
+      setze('lieferant', daten.lieferant);
+      setze('betrag', daten.betrag);
+      setze('rechnungsNr', daten.rechnungsNr || daten.referenz);
+      setze('tag', daten.rechnungsTag);
+      setze('skontoProzent', daten.skontoProzent);
+      setze('skontoTage', daten.skontoTage);
+      setze('zahlungsfrist', daten.zahlungsfristTage);
+      setze('iban', daten.iban);
+      setze('referenz', daten.referenz);
+      if (daten.mitteilung && !formular.elements.notiz.value) {
+        formular.elements.notiz.value = daten.mitteilung;
+      }
+      const info = formular.querySelector('[data-rolle="qr-info"]');
+      info.hidden = false;
+      info.textContent = `QR gelesen: ${daten.lieferant || '—'} · `
+        + `${daten.waehrung || 'CHF'} ${daten.betrag || '—'} · IBAN ${daten.iban || '—'}`
+        + (daten.skontoProzent ? ` · Skonto ${daten.skontoProzent} % / ${daten.skontoTage} Tage` : '')
+        + ' — bitte prüfen und Kostenart wählen.';
+    }
+
+    // Scan-Dialog: Kamera live (Handy) oder QR aus einem Foto (Rückfallebene).
+    // Nutzt die native BarcodeDetector-API — offline, keine Bibliothek.
+    async function oeffneQrScan(formular) {
+      if (!('BarcodeDetector' in window)) {
+        alert('Dieses Gerät kann QR-Codes nicht direkt lesen (BarcodeDetector fehlt) '
+          + '— am Handy scannen oder die Werte von Hand eintragen.');
+        return;
+      }
+      const erkenner = new BarcodeDetector({ formats: ['qr_code'] });
+      const dialog = document.createElement('div');
+      dialog.className = 'vollbild dialog-hintergrund';
+      dialog.innerHTML = `
+        <div class="karte formular dialog qr-dialog">
+          <h3>QR-Rechnung scannen</h3>
+          <video class="qr-video" autoplay playsinline muted></video>
+          <p class="meldung" data-rolle="qr-status" role="status">Kamera startet …</p>
+          <div class="knopfzeile">
+            <label class="knopf">
+              Aus Foto lesen
+              <input type="file" accept="image/*" data-rolle="qr-foto" class="visually-hidden">
+            </label>
+            <button type="button" class="knopf" data-aktion="zu">Abbrechen</button>
+          </div>
+        </div>`;
+      document.body.append(dialog);
+      const video = dialog.querySelector('.qr-video');
+      const status = dialog.querySelector('[data-rolle="qr-status"]');
+      let strom = null;
+      let laeuft = true;
+
+      const schliessen = () => {
+        laeuft = false;
+        strom?.getTracks().forEach((t) => t.stop());
+        dialog.remove();
+      };
+
+      const verarbeite = (rohtext) => {
+        const daten = parseSwissQr(rohtext);
+        if (!daten) {
+          status.textContent = 'QR-Code gefunden, aber keine Schweizer QR-Rechnung — weiter versuchen.';
+          return false;
+        }
+        uebernehmeQr(formular, daten);
+        schliessen();
+        return true;
+      };
+
+      dialog.addEventListener('click', (klick) => {
+        if (klick.target === dialog || klick.target.closest('[data-aktion="zu"]')) schliessen();
+      });
+      dialog.querySelector('[data-rolle="qr-foto"]').addEventListener('change', async (wechsel) => {
+        const datei = wechsel.target.files[0];
+        if (!datei) return;
+        try {
+          const bild = await createImageBitmap(datei);
+          const treffer = await erkenner.detect(bild);
+          if (!treffer.length || !verarbeite(treffer[0].rawValue)) {
+            status.textContent = treffer.length ? status.textContent
+              : 'Kein QR-Code im Foto gefunden — näher und gerade fotografieren.';
+          }
+        } catch {
+          status.textContent = 'Foto konnte nicht gelesen werden.';
+        }
+      });
+
+      try {
+        strom = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+        video.srcObject = strom;
+        status.textContent = 'Zahlteil der Rechnung vor die Kamera halten …';
+        let sucheLaeuft = false;
+        const suche = async () => {
+          if (!laeuft) return;
+          try {
+            const treffer = await erkenner.detect(video);
+            if (treffer.length && verarbeite(treffer[0].rawValue)) return;
+          } catch { /* Einzelbild nicht lesbar — weiter */ }
+          setTimeout(suche, 350);
+        };
+        const starteSuche = () => {
+          if (sucheLaeuft || !laeuft) return;
+          sucheLaeuft = true;
+          suche();
+        };
+        video.addEventListener('loadeddata', starteSuche, { once: true });
+        setTimeout(starteSuche, 1000); // Rückfallebene, falls das Ereignis ausbleibt
+      } catch {
+        status.textContent = 'Keine Kamera verfügbar — «Aus Foto lesen» nutzen.';
+      }
+    }
+
     formularBereich.addEventListener('click', (klick) => {
-      if (klick.target.closest('[data-aktion="abbrechen"]')) schliesseFormular();
+      if (klick.target.closest('[data-aktion="abbrechen"]')) {
+        schliesseFormular();
+      } else if (klick.target.closest('[data-aktion="qr-scan"]')) {
+        oeffneQrScan(formularBereich.querySelector('form'));
+      }
     });
 
     formularBereich.addEventListener('submit', async (abschicken) => {
@@ -357,6 +532,8 @@ export default {
           skontoTage: formular.elements.skontoTage.value.trim(),
           kostenart: formular.elements.kostenart.value,
           notiz: formular.elements.notiz.value.trim(),
+          iban: formular.elements.iban.value.trim(),
+          referenz: formular.elements.referenz.value.trim(),
         });
         // Belege anhängen: Fotos verkleinert, PDF unverändert.
         const dateien = [...formular.querySelector('[data-rolle="beleg-eingabe"]').files];
@@ -444,13 +621,15 @@ export default {
           `luense-kreditoren-${baustelle.ktr}.csv`,
           ['Lieferant', 'Rechnungs-Nr.', 'Datum', 'Kostenart', 'Betrag CHF',
             'Skonto %', 'Skonto bis', 'Skonto CHF', 'Fällig', 'Status',
-            'Bezahlt am', 'Skonto genutzt', 'Visum-Bemerkung', 'Notiz', 'Statusverlauf'],
+            'Bezahlt am', 'Skonto genutzt', 'IBAN', 'Referenz',
+            'Visum-Bemerkung', 'Notiz', 'Statusverlauf'],
           kreditoren.slice().reverse().map((k) => {
             const w = kreditorWerte(k);
             return [k.lieferant, k.rechnungsNr, formatTag(k.tag), k.kostenart,
               w.betrag, zahl(k.skontoProzent) || '', formatTag(w.skontoTag),
               w.skontoBetrag || '', formatTag(w.faelligTag), k.status,
               formatTag(k.bezahltAm), k.skontoGenutzt ? 'ja' : '',
+              k.iban || '', k.referenz || '',
               k.visumNotiz || '', k.notiz || '',
               (k.statusHistorie || []).map((h) => `${h.status} ${formatTag(h.datum)}`).join(' → ')];
           }),

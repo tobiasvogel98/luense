@@ -560,6 +560,24 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   white-space: nowrap;
 }
 
+/* Auf schmalen Schirmen brechen Vorschlagszeilen um statt zu sprengen */
+.vorschlaege .fo-zeile {
+  flex-wrap: wrap;
+}
+
+/* Kreditoren (Abend 9.2): QR-Scan-Dialog */
+.qr-dialog {
+  max-width: 30rem;
+}
+
+.qr-video {
+  width: 100%;
+  max-height: 55vh;
+  border-radius: var(--radius);
+  background: #000;
+  object-fit: cover;
+}
+
 /* Kreditoren (Abend 9.1): Skonto-Chance hervorheben */
 .skonto-chance {
   color: var(--farbe-akzent);
@@ -1083,6 +1101,7 @@ body:has(.modul-nav[hidden]) .nav-knopf {
 
 .fo-abgrenzung {
   flex: 1;
+  min-width: 0; /* darf schmaler werden als die Wunschbreite der Felder */
   display: flex;
   gap: var(--abstand-1);
 }
