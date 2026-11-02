@@ -7,7 +7,7 @@
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { erstelleRechnung } from '../kern/rechnung.js';
-import { exportiereCsv } from '../kern/export.js';
+import { exportiereCsv, teileDatei } from '../kern/export.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit, REGIE_MUSTER } from '../kern/ui.js';
 
@@ -344,6 +344,9 @@ export default {
                   data-id="${esc(r._id)}">Nachtrag…</button>` : ''}
               <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
                 data-id="${esc(r._id)}">PDF</button>
+              <button type="button" class="knopf eintrag-loeschen" data-aktion="uebergeben"
+                data-id="${esc(r._id)}" title="Rapport als Datei an den Bauführer senden —
+                dort über «Import» einlesen">Übergeben</button>
               <button type="button" class="knopf eintrag-loeschen" data-aktion="bearbeiten"
                 data-id="${esc(r._id)}">Bearbeiten</button>
               <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
@@ -670,6 +673,24 @@ export default {
       if (!rapport) return;
       if (knopf.dataset.aktion === 'nachtrag-zu') {
         oeffneNachtragZuordnung(rapport);
+      } else if (knopf.dataset.aktion === 'uebergeben') {
+        // Rapport-Übergabe (Polier → Bauführer): ein einzelner Rapport als
+        // Lünse-Datei — der Empfänger liest sie über «Import» ein (ergänzt,
+        // überschreibt nichts). Gleiches Format wie das Backup.
+        const datei = new File(
+          [JSON.stringify({
+            app: 'luense',
+            version: 1,
+            exportiertAm: new Date().toISOString(),
+            dokumente: [rapport],
+          })],
+          `luense-rapport-${String(baustelle.ktr).replace(/[^\w.-]/g, '_')}-${rapport.tag}.json`,
+          { type: 'application/json' },
+        );
+        if (await teileDatei(datei, `Tagesrapport ${formatTag(rapport.tag)}`)) {
+          meldung.textContent = `Rapport vom ${formatTag(rapport.tag)} übergeben — `
+            + 'der Empfänger liest ihn über «Import» ein.';
+        }
       } else if (knopf.dataset.aktion === 'rechnung-erstellen') {
         oeffneRegieRechnung(rapport);
       } else if (knopf.dataset.aktion === 'regie-weiter') {

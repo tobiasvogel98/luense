@@ -21,6 +21,24 @@ function ladeHerunter(datei) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+// Datei via Teilen-Dialog (Handy) oder Download (Laptop) weitergeben.
+// Gibt false zurück, wenn der Nutzer das Teilen abgebrochen hat.
+// Genutzt vom Backup und von der Rapport-Übergabe (Polier → Bauführer).
+export async function teileDatei(datei, titel) {
+  if (navigator.canShare?.({ files: [datei] })) {
+    try {
+      await navigator.share({ files: [datei], title: titel });
+      return true;
+    } catch (fehler) {
+      if (fehler.name === 'AbortError') return false;
+      ladeHerunter(datei); // Teilen fehlgeschlagen — Download als Ersatz
+      return true;
+    }
+  }
+  ladeHerunter(datei);
+  return true;
+}
+
 // ---------- Excel-Export (Abend 8.3) ----------
 // CSV, das Excel (Schweiz) per Doppelklick korrekt öffnet: Semikolon als
 // Trenner, UTF-8 mit BOM (Umlaute), CRLF. Zahlen mit Punkt als Dezimal-
@@ -57,16 +75,7 @@ export async function erstelleBackup() {
     `luense-backup-${new Date().toISOString().slice(0, 10)}.json`,
     { type: 'application/json' },
   );
-  if (navigator.canShare?.({ files: [datei] })) {
-    try {
-      await navigator.share({ files: [datei], title: 'Lünse-Backup' });
-    } catch (fehler) {
-      if (fehler.name === 'AbortError') return null;
-      ladeHerunter(datei); // Teilen fehlgeschlagen — Download als Ersatz
-    }
-  } else {
-    ladeHerunter(datei);
-  }
+  if (!await teileDatei(datei, 'Lünse-Backup')) return null;
   localStorage.setItem(MERKER, new Date().toISOString());
   return dokumente.length;
 }

@@ -99,6 +99,20 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
         <input type="file" accept=".json,application/json" data-rolle="import-datei">
         <p class="meldung" role="status"></p>
       </details>
+
+      <details class="karte import">
+        <summary>Gerätemodus (Polier-Modus)</summary>
+        <p class="hinweis">Im <b>Polier-Modus</b> zeigt dieses Gerät nur die
+          Tagesrapporte — schnell und übersichtlich für die Stundenerfassung.
+          Erfasste Rapporte gehen per «Übergeben»-Knopf an den Bauführer.
+          Einrichtung: Baustellen vorher per Lünse-Backup-Import übernehmen
+          (Import-Knopf), damit die Rapporte zur richtigen Baustelle passen.
+          Der Modus gilt nur für dieses Gerät und ist hier jederzeit umschaltbar.</p>
+        <p class="hinweis">Aktuell: <b data-rolle="modus-anzeige"></b></p>
+        <div class="knopfzeile">
+          <button type="button" class="knopf" data-rolle="modus-schalter"></button>
+        </div>
+      </details>
     </section>`;
 
   const formular = container.querySelector('[data-rolle="formular"]');
@@ -201,6 +215,32 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
     }
   });
 
+  // Gerätemodus: Polier-Modus zeigt nur die Tagesrapporte (nur UI-Zustand
+  // dieses Geräts — localStorage, keine Daten). Die Shell liest den Wert
+  // beim Start; Umschalten lädt darum neu.
+  const MODUS_MERKER = 'luense.modus';
+  const modusAnzeige = container.querySelector('[data-rolle="modus-anzeige"]');
+  const modusSchalter = container.querySelector('[data-rolle="modus-schalter"]');
+
+  function zeigeModus() {
+    const polier = localStorage.getItem(MODUS_MERKER) === 'polier';
+    modusAnzeige.textContent = polier
+      ? 'Polier-Modus (nur Tagesrapporte)' : 'Vollmodus (alle Module)';
+    modusSchalter.textContent = polier
+      ? 'Vollmodus einschalten' : 'Polier-Modus einschalten';
+  }
+
+  modusSchalter.addEventListener('click', () => {
+    const polier = localStorage.getItem(MODUS_MERKER) === 'polier';
+    if (polier) {
+      localStorage.removeItem(MODUS_MERKER);
+    } else {
+      localStorage.setItem(MODUS_MERKER, 'polier');
+    }
+    location.reload();
+  });
+
+  zeigeModus();
   fuelleFormular(null);
   zeichneListe();
 }

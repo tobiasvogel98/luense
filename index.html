@@ -70,9 +70,14 @@
     import offertModul from './module/offert.js';
 
     // Modul-Registrierung: mehr Kopplung gibt es nicht.
-    const MODULE = [dossierModul, ereignisModul, pendenzenModul, rapportModul,
-      ausmassModul, nachtragModul, rechnungModul, kreditorModul, personalModul,
-      protokolleModul, auswertungModul, offertModul];
+    // Polier-Modus (Gerätemodus im Stamm): nur die Tagesrapporte —
+    // schlank für die Stundenerfassung, Übergabe per Knopf am Rapport.
+    const POLIER_MODUS = localStorage.getItem('luense.modus') === 'polier';
+    const MODULE = POLIER_MODUS
+      ? [rapportModul]
+      : [dossierModul, ereignisModul, pendenzenModul, rapportModul,
+        ausmassModul, nachtragModul, rechnungModul, kreditorModul, personalModul,
+        protokolleModul, auswertungModul, offertModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
     const modulbereich = document.getElementById('modulbereich');
@@ -105,12 +110,14 @@
 
     // Seitenleiste im Cockpit-Stil: Module in vier Gruppen. Module, die in
     // keiner Gruppe stehen (z. B. neue), landen automatisch unter Verwaltung.
-    const NAV_GRUPPEN = [
-      ['Übersicht', ['Dossier', 'Controlling']],
-      ['Erfassung', ['Journal', 'Rapporte', 'Ausmass']],
-      ['Verwaltung', ['Pendenzen', 'Nachträge', 'Rechnungen', 'Kreditoren', 'Personal', 'Offerten']],
-      ['Wissen', ['Protokolle']],
-    ];
+    const NAV_GRUPPEN = POLIER_MODUS
+      ? [['Erfassung', ['Rapporte']]]
+      : [
+        ['Übersicht', ['Dossier', 'Controlling']],
+        ['Erfassung', ['Journal', 'Rapporte', 'Ausmass']],
+        ['Verwaltung', ['Pendenzen', 'Nachträge', 'Rechnungen', 'Kreditoren', 'Personal', 'Offerten']],
+        ['Wissen', ['Protokolle']],
+      ];
 
     async function zeichneModulNav() {
       const anzahlen = await Promise.all(MODULE.map((modul) =>
