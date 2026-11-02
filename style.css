@@ -565,6 +565,54 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   flex-wrap: wrap;
 }
 
+/* Rapport-Eingabe nach Sorba: Team-Chips, Stunden-Matrix, Kontrollzeile */
+
+.team-bereich {
+  padding: var(--abstand-3);
+  border: 1px dashed var(--farbe-linie);
+  border-radius: var(--radius);
+  margin-bottom: var(--abstand-3);
+}
+
+.stunden-matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: var(--abstand-2);
+}
+
+.matrix-zelle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--schrift-klein);
+  min-width: 0;
+}
+
+.matrix-zelle span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--farbe-text-gedaempft);
+  font-weight: 600;
+}
+
+.formular .matrix-zelle input {
+  margin-top: 0;
+  width: 100%;
+  min-width: 0;
+  padding: var(--abstand-1) var(--abstand-2);
+}
+
+/* Kontrollzeile wie Sorbas rote Summenzeile: Tagestotal je Mitarbeiter */
+.team-summen {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--abstand-2);
+  flex-wrap: wrap;
+  color: var(--farbe-akzent);
+  font-weight: 600;
+}
+
 /* Kreditoren (Abend 9.2): QR-Scan-Dialog */
 .qr-dialog {
   max-width: 30rem;

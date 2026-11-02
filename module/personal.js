@@ -32,7 +32,7 @@ export function modellVon(mitarbeiter) {
 
 export default {
   name: 'Personal',
-  dokumentTypen: ['mitarbeiter'],
+  dokumentTypen: ['mitarbeiter', 'geraet'],
 
   render(container) {
     let inBearbeitung = null;
@@ -74,6 +74,18 @@ export default {
 
         <div data-rolle="liste"></div>
         <div data-rolle="konto"></div>
+
+        <details class="karte import">
+          <summary>Geräte / Inventar pflegen</summary>
+          <p class="hinweis">Die Geräteliste erscheint im Tagesrapport als
+            Antipp-Matrix — einheitliche Namen statt Tipperei.</p>
+          <div data-rolle="geraete-liste"></div>
+          <form class="feld-reihe" data-rolle="geraet-form">
+            <label>Gerät / Maschine<input name="name" required autocomplete="off"
+              placeholder="z. B. Bagger 308"></label>
+            <button type="submit" class="knopf zeile-hinzu">+ Gerät</button>
+          </form>
+        </details>
       </section>`;
 
     const formular = container.querySelector('[data-rolle="mitarbeiter-formular"]');
@@ -392,7 +404,60 @@ export default {
       }
     }
 
+    // ---------- Gerätestamm (für die Maschinen-Matrix im Rapport) ----------
+    const geraeteListe = container.querySelector('[data-rolle="geraete-liste"]');
+
+    async function ladeGeraete() {
+      const alle = await abfrage({ typ: 'geraet', baustelleId: PERSONAL_ID });
+      return alle.sort((a, b) => a.name.localeCompare(b.name, 'de-CH'));
+    }
+
+    async function zeichneGeraete() {
+      const geraete = await ladeGeraete();
+      geraeteListe.innerHTML = geraete.length
+        ? geraete.map((g) => `
+            <div class="fo-zeile dossier-zeile${g.archiviert ? ' erledigt-zeile' : ''}">
+              <span class="fo-label">${esc(g.name)}${g.archiviert ? ' (archiviert)' : ''}</span>
+              <button type="button" class="knopf" data-geraet-archiv="${esc(g._id)}">
+                ${g.archiviert ? 'Aktivieren' : 'Archivieren'}</button>
+              <button type="button" class="knopf zeile-weg" data-geraet-weg="${esc(g._id)}"
+                aria-label="Gerät löschen">×</button>
+            </div>`).join('')
+        : '<p class="hinweis">Noch keine Geräte erfasst.</p>';
+    }
+
+    container.querySelector('[data-rolle="geraet-form"]')
+      .addEventListener('submit', async (abschicken) => {
+        abschicken.preventDefault();
+        const f = abschicken.target;
+        const name = f.elements.name.value.trim();
+        if (!name) return;
+        const geraete = await ladeGeraete();
+        if (geraete.some((g) => g.name.trim().toLowerCase() === name.toLowerCase())) {
+          alert(`«${name}» ist bereits im Gerätestamm.`);
+          return;
+        }
+        await put({ typ: 'geraet', baustelleId: PERSONAL_ID, name, archiviert: false });
+        f.reset();
+        await zeichneGeraete();
+      });
+
+    geraeteListe.addEventListener('click', async (klick) => {
+      const archivId = klick.target.closest('[data-geraet-archiv]')?.dataset.geraetArchiv;
+      const wegId = klick.target.closest('[data-geraet-weg]')?.dataset.geraetWeg;
+      if (archivId) {
+        const geraet = (await ladeGeraete()).find((g) => g._id === archivId);
+        await put({ ...geraet, archiviert: !geraet.archiviert });
+        await zeichneGeraete();
+      } else if (wegId) {
+        if (!confirm('Gerät aus dem Stamm löschen? Bestehende Rapporte bleiben unverändert.')) return;
+        await entferneDokument(wegId);
+        await zeichneGeraete();
+      }
+    });
+
     fuelleFormular(null);
     zeichneListe().then(zeigeUnzugeordnete);
+    zeichneGeraete();
   },
 };

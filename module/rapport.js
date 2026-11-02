@@ -5,11 +5,15 @@
 // Totale werden live gerechnet. Liste neuste zuerst, gruppiert nach
 // Kalenderwoche mit Wochensumme. Dokumenttyp «rapport».
 
-import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import {
+  put, abfrage, entferneDokument, haengeAnhangAn, holeAnhang, holeMitAnhaengen,
+  entferneAnhang,
+} from '../kern/speicher.js';
 import { erstelleRechnung } from '../kern/rechnung.js';
 import { exportiereCsv, teileDatei } from '../kern/export.js';
+import { verkleinereFoto } from '../kern/kamera.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
-import { esc, formatDatumZeit, REGIE_MUSTER } from '../kern/ui.js';
+import { esc, formatDatumZeit, REGIE_MUSTER, zeigeBildVollbild } from '../kern/ui.js';
 
 // Absenzarten nach LMV — zählen im Stundenkonto als Sollerfüllung.
 const ABSENZ_ARTEN = ['Ferien', 'Krankheit', 'Unfall', 'Schlechtwetter', 'Schule', 'Militär/ZS'];
@@ -122,10 +126,27 @@ export default {
           <label>Wetter<input name="wetter" autocomplete="off"
             placeholder="z. B. sonnig, 18 °C"></label>
 
+          <div class="gruppe team-bereich">
+            <p class="gruppen-label">Team des Tages — antippen, wer dabei war</p>
+            <div class="chips" data-rolle="team-chips"></div>
+            <div class="feld-reihe">
+              <label>Weitere Person (temporär/fremd)<input data-rolle="team-eigen"
+                autocomplete="off" placeholder="z. B. Temporär Luigi"></label>
+              <button type="button" class="knopf zeile-hinzu" data-aktion="team-hinzu">+ dazu</button>
+            </div>
+          </div>
+
           <div data-rolle="arbeiten"></div>
           <button type="button" class="knopf" data-aktion="arbeit-hinzu">
-            + Arbeit hinzufügen
+            + Arbeit/Vorgang hinzufügen
           </button>
+
+          <label class="knopf">
+            📷 Foto / Lieferschein anhängen
+            <input type="file" accept="image/*" multiple
+              data-rolle="rapport-foto" class="visually-hidden">
+          </label>
+          <p class="hinweis" data-rolle="foto-hinweis">Noch kein Foto gewählt.</p>
 
           <details class="absenz-bereich" data-rolle="absenz-bereich">
             <summary>Absenzen & Reisezeit (LMV)</summary>
@@ -167,7 +188,61 @@ export default {
     const totaleElement = formular.querySelector('[data-rolle="totale"]');
     const listeElement = container.querySelector('[data-rolle="liste"]');
 
-    // ---------- Formular-Aufbau ----------
+    formular.querySelector('[data-rolle="rapport-foto"]').addEventListener('change', (wechsel) => {
+      formular.querySelector('[data-rolle="foto-hinweis"]').textContent =
+        wechsel.target.files.length
+          ? `${wechsel.target.files.length} Foto${wechsel.target.files.length > 1 ? 's' : ''} gewählt.`
+          : 'Noch kein Foto gewählt.';
+    });
+
+    // ---------- Formular-Aufbau (Eingabe nach Sorba-Prinzip) ----------
+    // Team einmal pro Tag antippen (aus dem Personal-Stamm), dann je
+    // Arbeit/Vorgang die Stunden pro Person in der Matrix eintragen —
+    // die Kontrollzeile zählt das Tagestotal je Mitarbeiter zusammen.
+    // Maschinen kommen aus dem Gerätestamm (Personal-Modul), ebenfalls
+    // als Antipp-Matrix. Das GESPEICHERTE Dokument bleibt unverändert
+    // (arbeiten mit personen/maschinen/material/fremdleistungen).
+
+    let team = []; // Namen des Tages (Stamm + von Hand ergänzte)
+    let mitarbeiterStamm = []; // aktive Namen aus dem Personal-Stamm
+    let geraeteStamm = []; // aktive Gerätenamen aus dem Stamm
+
+    async function ladeStaemme() {
+      const [mitarbeiter, geraete] = await Promise.all([
+        abfrage({ typ: 'mitarbeiter', baustelleId: 'personal' }),
+        abfrage({ typ: 'geraet', baustelleId: 'personal' }),
+      ]);
+      mitarbeiterStamm = mitarbeiter.filter((m) => !m.archiviert)
+        .map((m) => m.name).sort((a, b) => a.localeCompare(b, 'de-CH'));
+      geraeteStamm = geraete.filter((g) => !g.archiviert)
+        .map((g) => g.name).sort((a, b) => a.localeCompare(b, 'de-CH'));
+    }
+
+    function zeichneTeamChips() {
+      const alleNamen = [...new Set([...mitarbeiterStamm, ...team])];
+      formular.querySelector('[data-rolle="team-chips"]').innerHTML = alleNamen.length
+        ? alleNamen.map((name) => `
+            <label class="chip-wahl">
+              <input type="checkbox" data-team-chip value="${esc(name)}"
+                ${team.includes(name) ? 'checked' : ''}>
+              <span>${esc(name)}</span>
+            </label>`).join('')
+        : '<p class="hinweis">Noch keine Mitarbeiter im Personal-Stamm — unten von Hand ergänzen.</p>';
+    }
+
+    // Matrix-Zellen: eine Stunden-Eingabe je Name (Personen oder Geräte).
+    function matrixHtml(artKlasse, datenAttr, namen, werte) {
+      if (!namen.length) {
+        return `<p class="hinweis">${artKlasse === 'personen'
+          ? 'Zuerst oben das Team antippen.' : 'Kein Gerät im Stamm — Zeile unten nutzen.'}</p>`;
+      }
+      return `<div class="stunden-matrix">${namen.map((name) => `
+        <label class="matrix-zelle">
+          <span>${esc(name)}</span>
+          <input type="number" inputmode="decimal" step="0.25" min="0" placeholder="Std."
+            ${datenAttr}="${esc(name)}" value="${esc(werte?.[name] ?? '')}">
+        </label>`).join('')}</div>`;
+    }
 
     function zeileHtml(gruppe, daten = {}) {
       const felder = gruppe.art === 'menge'
@@ -187,6 +262,18 @@ export default {
     }
 
     function arbeitHtml(daten = {}) {
+      // Personen-Stunden als Matrix (Werte aus dem Dokument je Name),
+      // Geräte aus dem Stamm ebenso; unbekannte Maschinen und alles
+      // Übrige als klassische Zeilen.
+      const personenWerte = Object.fromEntries(
+        (daten.personen || []).map((p) => [p.name, p.stunden]));
+      const geraeteWerte = Object.fromEntries(
+        (daten.maschinen || []).filter((m) => geraeteStamm.includes(m.name))
+          .map((m) => [m.name, m.stunden]));
+      const fremdeMaschinen = (daten.maschinen || [])
+        .filter((m) => !geraeteStamm.includes(m.name));
+      const material = daten.material || [];
+      const fremdleistungen = daten.fremdleistungen || [];
       return `
         <div class="arbeit" data-rolle="arbeit">
           <div class="arbeit-kopf">
@@ -200,15 +287,36 @@ export default {
           </div>
           <label>Was wurde gemacht?<textarea data-feld="text" rows="2"
             placeholder="z. B. Werkleitungsgraben Etappe 2 ausgehoben">${esc(daten.text ?? '')}</textarea></label>
-          ${GRUPPEN.map((gruppe) => `
-            <div class="gruppe" data-gruppe="${gruppe.schluessel}">
-              <p class="gruppen-label">${gruppe.label}</p>
-              <div data-rolle="zeilen">${
-                (daten[gruppe.schluessel]?.length ? daten[gruppe.schluessel] : [{}])
-                  .map((zeile) => zeileHtml(gruppe, zeile)).join('')}</div>
-              <button type="button" class="knopf zeile-hinzu" data-aktion="zeile-hinzu"
-                data-gruppe="${gruppe.schluessel}">${gruppe.hinzu}</button>
-            </div>`).join('')}
+
+          <div class="gruppe" data-gruppe="personen">
+            <p class="gruppen-label">Stunden je Mitarbeiter</p>
+            <div data-rolle="personen-matrix">${matrixHtml('personen', 'data-person', team, personenWerte)}</div>
+          </div>
+
+          <div class="gruppe" data-gruppe="geraete">
+            <p class="gruppen-label">Maschinen / Geräte (mit Stunden)</p>
+            <div data-rolle="geraete-matrix">${matrixHtml('geraete', 'data-geraet', geraeteStamm, geraeteWerte)}</div>
+            <div data-rolle="zeilen" data-gruppe-zeilen="maschinen">${
+              fremdeMaschinen.map((zeile) => zeileHtml(GRUPPEN[1], zeile)).join('')}</div>
+            <button type="button" class="knopf zeile-hinzu" data-aktion="zeile-hinzu"
+              data-gruppe="maschinen">+ Maschine (ohne Stamm)</button>
+          </div>
+
+          <div class="gruppe" data-gruppe="material">
+            <p class="gruppen-label">Material (Menge + Einheit)</p>
+            <div data-rolle="zeilen" data-gruppe-zeilen="material">${
+              (material.length ? material : [{}]).map((zeile) => zeileHtml(GRUPPEN[2], zeile)).join('')}</div>
+            <button type="button" class="knopf zeile-hinzu" data-aktion="zeile-hinzu"
+              data-gruppe="material">+ Material</button>
+          </div>
+
+          <div class="gruppe" data-gruppe="fremdleistungen">
+            <p class="gruppen-label">Fremdleistungen (mit Stunden)</p>
+            <div data-rolle="zeilen" data-gruppe-zeilen="fremdleistungen">${
+              fremdleistungen.map((zeile) => zeileHtml(GRUPPEN[3], zeile)).join('')}</div>
+            <button type="button" class="knopf zeile-hinzu" data-aktion="zeile-hinzu"
+              data-gruppe="fremdleistungen">+ Fremdleistung</button>
+          </div>
         </div>`;
     }
 
@@ -220,27 +328,46 @@ export default {
 
     function sammleArbeiten() {
       return [...arbeitenElement.querySelectorAll('[data-rolle="arbeit"]')].map((block) => {
-        const arbeit = {
+        const zeilen = (schluessel, art) => [...block.querySelectorAll(
+          `[data-gruppe-zeilen="${schluessel}"] [data-rolle="zeile"]`)].map((zeile) => {
+          const wert = (feld) => zeile.querySelector(`[data-feld="${feld}"]`)?.value.trim() ?? '';
+          return art === 'menge'
+            ? { name: wert('name'), menge: wert('menge'), einheit: wert('einheit') }
+            : { name: wert('name'), stunden: wert('stunden') };
+        }).filter((zeile) => Object.values(zeile).some(Boolean));
+        // Matrix: nur Zellen mit Stunden werden zu Zeilen — das Dokument
+        // behält exakt die bisherige Struktur.
+        const matrix = (attr) => [...block.querySelectorAll(`[${attr}]`)]
+          .map((feld) => ({ name: feld.getAttribute(attr), stunden: feld.value.trim() }))
+          .filter((zeile) => zahl(zeile.stunden) > 0);
+        return {
           text: block.querySelector('[data-feld="text"]').value.trim(),
           regie: block.querySelector('[data-feld="regie"]').checked,
+          personen: matrix('data-person'),
+          maschinen: [...matrix('data-geraet'), ...zeilen('maschinen', 'stunden')],
+          material: zeilen('material', 'menge'),
+          fremdleistungen: zeilen('fremdleistungen', 'stunden'),
         };
-        for (const gruppe of GRUPPEN) {
-          arbeit[gruppe.schluessel] = [...block.querySelectorAll(
-            `[data-gruppe="${gruppe.schluessel}"] [data-rolle="zeile"]`)].map((zeile) => {
-            const wert = (feld) => zeile.querySelector(`[data-feld="${feld}"]`)?.value.trim() ?? '';
-            return gruppe.art === 'menge'
-              ? { name: wert('name'), menge: wert('menge'), einheit: wert('einheit') }
-              : { name: wert('name'), stunden: wert('stunden') };
-          }).filter((zeile) => Object.values(zeile).some(Boolean));
-        }
-        return arbeit;
       }).filter((arbeit) =>
         arbeit.text || GRUPPEN.some((g) => arbeit[g.schluessel].length));
     }
 
     function zeigeTotale() {
-      const t = totale(sammleArbeiten());
+      const arbeiten = sammleArbeiten();
+      const t = totale(arbeiten);
+      // Kontrollzeile wie bei Sorba: Tagestotal je Mitarbeiter über alle
+      // Arbeiten/Vorgänge — stimmt es nicht, sieht man es sofort.
+      const jePerson = new Map();
+      for (const arbeit of arbeiten) {
+        for (const p of arbeit.personen) {
+          jePerson.set(p.name, (jePerson.get(p.name) || 0) + zahl(p.stunden));
+        }
+      }
       totaleElement.innerHTML = `
+        ${jePerson.size ? `
+          <div class="team-summen"><span>Kontrolle je Mitarbeiter</span>
+            <span>${[...jePerson.entries()]
+              .map(([name, s]) => `${esc(name)} ${stundenText(s)}`).join(' · ')}</span></div>` : ''}
         <div><span>Total Personal</span><span>${stundenText(t.personen)}</span></div>
         <div><span>Total Maschinen</span><span>${stundenText(t.maschinen)}</span></div>
         <div><span>Total Material</span><span>${t.materialText}</span></div>
@@ -289,8 +416,9 @@ export default {
       })).filter((z) => z.name || z.minuten);
     }
 
-    function fuelleFormular(rapport) {
+    async function fuelleFormular(rapport) {
       inBearbeitung = rapport;
+      await ladeStaemme();
       formularTitel.textContent = rapport
         ? `Rapport vom ${formatTag(rapport.tag)} bearbeiten`
         : 'Neuer Tagesrapport';
@@ -299,6 +427,13 @@ export default {
       formular.elements.mitarbeiter.value = rapport?.mitarbeiter ?? '';
       formular.elements.wetter.value = rapport?.wetter ?? '';
       formular.elements.bemerkungen.value = rapport?.bemerkungen ?? '';
+      // Team des Tages: beim Bearbeiten alle Namen aus dem Rapport,
+      // bei einem neuen Rapport leer — der Polier tippt sein Team an.
+      team = rapport
+        ? [...new Set((rapport.arbeiten || [])
+            .flatMap((a) => a.personen || []).map((p) => p.name).filter(Boolean))]
+        : [];
+      zeichneTeamChips();
       const arbeiten = rapport?.arbeiten?.length ? rapport.arbeiten : [{}];
       arbeitenElement.innerHTML = arbeiten.map((a) => arbeitHtml(a)).join('');
       const absenzBereich = formular.querySelector('[data-rolle="absenz-bereich"]');
@@ -307,10 +442,37 @@ export default {
       formular.querySelector('[data-rolle="reise-zeilen"]').innerHTML =
         (rapport?.reisezeiten || []).map(reiseZeileHtml).join('');
       absenzBereich.open = !!(rapport?.absenzen?.length || rapport?.reisezeiten?.length);
+      const fotoEingabe = formular.querySelector('[data-rolle="rapport-foto"]');
+      fotoEingabe.value = '';
+      const anzahlFotos = Object.keys(rapport?._attachments || {}).length;
+      formular.querySelector('[data-rolle="foto-hinweis"]').textContent = anzahlFotos
+        ? `${anzahlFotos} Foto${anzahlFotos > 1 ? 's' : ''} am Rapport — neue kommen dazu.`
+        : 'Noch kein Foto gewählt.';
       nummeriereArbeiten();
       zeigeTotale();
       meldung.textContent = '';
     }
+
+    // Team geändert: Personen-Matrizen in allen Arbeiten neu aufbauen,
+    // bereits eingetragene Stunden bleiben erhalten (nach Name gemerkt).
+    function baueMatrizenNeu() {
+      for (const block of arbeitenElement.querySelectorAll('[data-rolle="arbeit"]')) {
+        const werte = Object.fromEntries([...block.querySelectorAll('[data-person]')]
+          .map((f) => [f.getAttribute('data-person'), f.value]));
+        block.querySelector('[data-rolle="personen-matrix"]').innerHTML =
+          matrixHtml('personen', 'data-person', team, werte);
+      }
+      zeigeTotale();
+    }
+
+    formular.addEventListener('change', (wechsel) => {
+      const chip = wechsel.target.closest('[data-team-chip]');
+      if (!chip) return;
+      team = chip.checked
+        ? [...team, chip.value]
+        : team.filter((name) => name !== chip.value);
+      baueMatrizenNeu();
+    });
 
     // ---------- Liste ----------
 
@@ -342,6 +504,9 @@ export default {
               ${mitRegie ? `
                 <button type="button" class="knopf eintrag-loeschen" data-aktion="nachtrag-zu"
                   data-id="${esc(r._id)}">Nachtrag…</button>` : ''}
+              ${Object.keys(r._attachments || {}).length ? `
+                <button type="button" class="knopf eintrag-loeschen" data-aktion="fotos"
+                  data-id="${esc(r._id)}">Fotos (${Object.keys(r._attachments).length})</button>` : ''}
               <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
                 data-id="${esc(r._id)}">PDF</button>
               <button type="button" class="knopf eintrag-loeschen" data-aktion="uebergeben"
@@ -568,13 +733,67 @@ export default {
       });
     }
 
+    // Fotos/Lieferscheine eines Rapports ansehen: eines direkt im Vollbild
+    // (mit Löschen), mehrere über einen Auswahl-Dialog.
+    async function zeigeRapportFotos(rapport) {
+      const namen = Object.keys(rapport._attachments || {});
+      const oeffneEinzeln = async (name) => {
+        const blob = await holeAnhang(rapport._id, name);
+        const url = URL.createObjectURL(blob);
+        zeigeBildVollbild(url, {
+          onLoeschen: async () => {
+            await entferneAnhang(rapport._id, name);
+            document.dispatchEvent(new CustomEvent('luense:daten'));
+            await zeichneListe();
+          },
+        });
+        setTimeout(() => URL.revokeObjectURL(url), 120000);
+      };
+      if (namen.length === 1) {
+        oeffneEinzeln(namen[0]);
+        return;
+      }
+      const dialog = document.createElement('div');
+      dialog.className = 'vollbild dialog-hintergrund';
+      dialog.innerHTML = `
+        <div class="karte formular dialog">
+          <h3>Fotos · Rapport vom ${formatTag(rapport.tag)}</h3>
+          ${namen.map((name, i) => `
+            <div class="fo-zeile dossier-zeile">
+              <span class="fo-label">Foto ${i + 1}</span>
+              <button type="button" class="knopf" data-foto="${esc(name)}">Öffnen</button>
+            </div>`).join('')}
+          <div class="knopfzeile">
+            <button type="button" class="knopf" data-aktion="zu">Schliessen</button>
+          </div>
+        </div>`;
+      document.body.append(dialog);
+      dialog.addEventListener('click', (klick) => {
+        if (klick.target === dialog || klick.target.closest('[data-aktion="zu"]')) {
+          dialog.remove();
+          return;
+        }
+        const name = klick.target.closest('[data-foto]')?.dataset.foto;
+        if (name) oeffneEinzeln(name);
+      });
+    }
+
     // ---------- Ereignisse ----------
 
     formular.addEventListener('click', (klick) => {
       const knopf = klick.target.closest('[data-aktion]');
       if (!knopf) return;
       const aktion = knopf.dataset.aktion;
-      if (aktion === 'arbeit-hinzu') {
+      if (aktion === 'team-hinzu') {
+        const eigen = formular.querySelector('[data-rolle="team-eigen"]');
+        const name = eigen.value.trim();
+        if (name && !team.includes(name)) {
+          team = [...team, name];
+          eigen.value = '';
+          zeichneTeamChips();
+          baueMatrizenNeu();
+        }
+      } else if (aktion === 'arbeit-hinzu') {
         arbeitenElement.insertAdjacentHTML('beforeend', arbeitHtml());
         nummeriereArbeiten();
       } else if (aktion === 'arbeit-entfernen') {
@@ -591,9 +810,11 @@ export default {
       } else if (aktion === 'zeile-entfernen') {
         const zeilen = knopf.closest('[data-rolle="zeilen"]');
         knopf.closest('[data-rolle="zeile"]').remove();
-        if (!zeilen.querySelector('[data-rolle="zeile"]')) {
-          const gruppe = GRUPPEN.find((g) => g.schluessel === zeilen.closest('.gruppe').dataset.gruppe);
-          zeilen.insertAdjacentHTML('beforeend', zeileHtml(gruppe));
+        // Nur Material behält immer eine leere Zeile; Maschinen- und
+        // Fremdleistungs-Zeilen dürfen ganz verschwinden (Matrix reicht).
+        if (zeilen.dataset.gruppeZeilen === 'material'
+          && !zeilen.querySelector('[data-rolle="zeile"]')) {
+          zeilen.insertAdjacentHTML('beforeend', zeileHtml(GRUPPEN[2]));
         }
         zeigeTotale();
       } else if (aktion === 'absenz-hinzu') {
@@ -673,6 +894,8 @@ export default {
       if (!rapport) return;
       if (knopf.dataset.aktion === 'nachtrag-zu') {
         oeffneNachtragZuordnung(rapport);
+      } else if (knopf.dataset.aktion === 'fotos') {
+        zeigeRapportFotos(rapport);
       } else if (knopf.dataset.aktion === 'uebergeben') {
         // Rapport-Übergabe (Polier → Bauführer): ein einzelner Rapport als
         // Lünse-Datei — der Empfänger liest sie über «Import» ein (ergänzt,
@@ -682,7 +905,8 @@ export default {
             app: 'luense',
             version: 1,
             exportiertAm: new Date().toISOString(),
-            dokumente: [rapport],
+            // Mit Anhängen: die Fotos/Lieferscheine reisen mit zum Bauführer.
+            dokumente: [await holeMitAnhaengen(rapport._id)],
           })],
           `luense-rapport-${String(baustelle.ktr).replace(/[^\w.-]/g, '_')}-${rapport.tag}.json`,
           { type: 'application/json' },
@@ -707,7 +931,17 @@ export default {
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       } else if (knopf.dataset.aktion === 'pdf') {
-        zeigeRapportDruck(baustelle, rapport, totale(rapport.arbeiten));
+        // Fotos/Lieferscheine kommen mit in den Ausdruck.
+        const bilder = [];
+        for (const name of Object.keys(rapport._attachments || {})) {
+          try {
+            const blob = await holeAnhang(rapport._id, name);
+            const url = URL.createObjectURL(blob);
+            setTimeout(() => URL.revokeObjectURL(url), 120000);
+            bilder.push({ url, titel: `Beilage · ${formatTag(rapport.tag)}` });
+          } catch { /* Anhang nicht lesbar */ }
+        }
+        zeigeRapportDruck(baustelle, rapport, totale(rapport.arbeiten), bilder);
       } else if (knopf.dataset.aktion === 'bearbeiten') {
         fuelleFormular(rapport);
         formular.scrollIntoView({ behavior: 'smooth' });
@@ -743,6 +977,16 @@ export default {
           absenzen: sammleAbsenzen(),
           reisezeiten: sammleReisezeiten(),
         });
+        // Fotos/Lieferscheine anhängen (verkleinert, wie im Journal).
+        const fotos = [...formular.querySelector('[data-rolle="rapport-foto"]').files];
+        let lauf = Object.keys(gespeichert._attachments || {}).length;
+        for (const [i, datei] of fotos.entries()) {
+          meldung.textContent = `Foto ${i + 1} von ${fotos.length} wird verarbeitet …`;
+          lauf += 1;
+          const klein = await verkleinereFoto(datei);
+          await haengeAnhangAn(gespeichert._id,
+            `foto-${Date.now().toString(36)}-${lauf}.jpg`, klein);
+        }
         // Regie-Stunden > 0: Pendenz «Regierapport unterschreiben lassen»
         // automatisch erzeugen — genau einmal pro Rapport.
         let pendenzErstellt = false;
@@ -766,8 +1010,8 @@ export default {
             pendenzErstellt = true;
           }
         }
-        fuelleFormular(null);
-        meldung.textContent = pendenzErstellt
+        await fuelleFormular(null); // erst zurücksetzen, dann melden —
+        meldung.textContent = pendenzErstellt // sonst löscht der Reset die Meldung
           ? 'Rapport gespeichert — Pendenz «Regierapport unterschreiben lassen» erstellt.'
           : 'Rapport gespeichert.';
         document.dispatchEvent(new CustomEvent('luense:daten'));

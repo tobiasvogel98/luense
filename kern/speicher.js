@@ -32,6 +32,12 @@ export async function holeAnhang(docId, name) {
   return db.getAttachment(docId, name);
 }
 
+// Dokument samt Anhängen als Base64 — für Übergabedateien (z. B. Rapport
+// mit Fotos an den Bauführer), gleiches Format wie das Backup.
+export async function holeMitAnhaengen(docId) {
+  return db.get(docId, { attachments: true });
+}
+
 // Endgültiges Löschen — die Ansicht muss vorher bestätigen lassen.
 export async function entferneDokument(docId) {
   const doc = await db.get(docId);

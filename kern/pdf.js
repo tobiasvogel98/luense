@@ -202,7 +202,7 @@ function zeilenGruppe(label, liste, art) {
 
 // Einzelrapport: Kopf (KTR/Baustelle/Datum/Wetter), Arbeiten, Stunden-
 // Tabelle, Regie-Block separat, Unterschriftszeile.
-export function zeigeRapportDruck(baustelle, rapport, t) {
+export function zeigeRapportDruck(baustelle, rapport, t, bilder = []) {
   const regieArbeiten = (rapport.arbeiten || []).filter((a) => a.regie);
   druckOverlay(`
     <header class="bericht-kopf">
@@ -259,6 +259,18 @@ export function zeigeRapportDruck(baustelle, rapport, t) {
           druckZeile(`${a.name} — ${a.art}`, `${a.stunden} h`)).join('')}
         ${(rapport.reisezeiten || []).map((z) =>
           druckZeile(`${z.name} — Reisezeit`, `${z.minuten} min`)).join('')}
+      </section>` : ''}
+
+    ${bilder.length ? `
+      <section class="bericht-eintrag">
+        <h2>Beilagen (Fotos / Lieferscheine)</h2>
+        <div class="bericht-fotos">
+          ${bilder.map((bild) => `
+            <figure>
+              <img src="${bild.url}" alt="${esc(bild.titel || 'Beilage')}">
+              <figcaption>${esc(bild.titel || '')}</figcaption>
+            </figure>`).join('')}
+        </div>
       </section>` : ''}
 
     <div class="unterschriften">
