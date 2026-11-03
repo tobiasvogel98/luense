@@ -81,7 +81,22 @@ export function zusammenzug(offerte) {
   const skonto = nachRabatt * zahl(offerte.skonto) / 100;
   const exklMwst = nachRabatt - skonto;
   const mwst = exklMwst * MWST_PROZENT / 100;
-  return { total, rabatt, skonto, exklMwst, mwst, inklMwst: exklMwst + mwst };
+  // Rappenrundung nur auf dem Endbetrag (auf 0.05 CHF, kaufmännisch);
+  // Positionen bleiben ungerundet. Basis sind die angezeigten Beträge
+  // (exkl. und MwSt. je auf Rappen), damit der Zusammenzug aufgeht:
+  // exkl. + MwSt. + Rundung = Total inkl. MwSt.
+  const rappen = Math.round(exklMwst * 100) + Math.round(mwst * 100);
+  const inklMwst = (Math.round(rappen / 5) * 5) / 100;
+  const rundung = inklMwst - rappen / 100;
+  return {
+    total, rabatt, skonto, exklMwst, mwst, inklMwst,
+    rundung: Math.abs(rundung) < 0.001 ? 0 : rundung,
+  };
+}
+
+// Rundungsbetrag mit Vorzeichen, z. B. «− CHF 0.02» / «+ CHF 0.01».
+function rundungText(rundung) {
+  return `${rundung < 0 ? '−' : '+'} ${chf(Math.abs(rundung))}`;
 }
 
 // LV-Tabellenzeilen (Ansicht und Druck teilen dieselbe Darstellung).
@@ -152,6 +167,7 @@ function zusammenzugZeilen(offerte) {
     ...(z.skonto ? [{ label: `Skonto ${offerte.skonto} %`, wert: `− ${chf(z.skonto)}` }] : []),
     { label: 'Total exkl. MwSt.', wert: chf(z.exklMwst) },
     { label: `MwSt. ${MWST_PROZENT} %`, wert: chf(z.mwst) },
+    ...(z.rundung ? [{ label: 'Rundung', wert: rundungText(z.rundung) }] : []),
     { label: 'Total inkl. MwSt.', wert: chf(z.inklMwst) },
   ];
 }
@@ -409,6 +425,7 @@ export default {
         ${z.skonto ? `<div><span>− Skonto</span><span>${chf(z.skonto)}</span></div>` : ''}
         <div><span>Total exkl. MwSt.</span><span>${chf(z.exklMwst)}</span></div>
         <div><span>MwSt. ${MWST_PROZENT} %</span><span>${chf(z.mwst)}</span></div>
+        ${z.rundung ? `<div><span>Rundung</span><span>${rundungText(z.rundung)}</span></div>` : ''}
         <div class="regie-total"><span>Total inkl. MwSt.</span><span>${chf(z.inklMwst)}</span></div>`;
       let lauf = 0;
       formular.querySelectorAll('[data-rolle="lv-zeile"][data-art="position"] [data-rolle="tab-nr"]')
