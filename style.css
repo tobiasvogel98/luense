@@ -747,6 +747,7 @@ body:has(.modul-nav[hidden]) .nav-knopf {
 }
 
 .wochen-titel .knopf {
+  white-space: nowrap;
   text-transform: none;
   letter-spacing: normal;
 }
@@ -780,7 +781,13 @@ body:has(.modul-nav[hidden]) .nav-knopf {
 .rapport-knoepfe {
   margin-left: auto;
   display: flex;
+  flex-wrap: wrap; /* ganze Knöpfe umbrechen, nie Wörter darin */
+  justify-content: flex-end;
   gap: var(--abstand-1);
+}
+
+.rapport-knoepfe .knopf {
+  white-space: nowrap;
 }
 
 /* Arbeiten-Blöcke im Rapport-Formular */
