@@ -225,6 +225,18 @@ body {
   color: var(--farbe-text-gedaempft);
 }
 
+/* Datei-Knopf als <label class="knopf"> (Foto/Lieferschein): wie ein
+   echter Knopf — Text vertikal zentriert, normale Schrift. */
+.formular label.knopf {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  margin-top: var(--abstand-3);
+  margin-bottom: var(--abstand-2);
+  font-size: var(--schrift-basis);
+  color: var(--farbe-text);
+}
+
 .formular input,
 .formular textarea {
   display: block;
@@ -1793,6 +1805,37 @@ details.import > summary {
 
 details.archiv {
   margin-top: var(--abstand-4);
+}
+
+/* Rapport-Formular: Absenzen-Aufklapper mit Luft nach oben und unten,
+   damit er nicht an «Bemerkungen» klebt; Kopfzeile als Touch-Ziel. */
+details.absenz-bereich {
+  margin: var(--abstand-3) 0 var(--abstand-4);
+}
+
+details.absenz-bereich > summary {
+  min-height: var(--touch-ziel);
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+details.absenz-bereich > summary::before {
+  content: '▸';
+}
+
+details.absenz-bereich[open] > summary::before {
+  content: '▾';
+}
+
+details.absenz-bereich > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.absenz-bereich > summary {
+  list-style: none;
 }
 
 details.archiv > .karte {
