@@ -643,6 +643,21 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   white-space: nowrap;
 }
 
+/* Freitext-Spalten (Titel, Baustelle) brechen nur zwischen Wörtern und
+   bekommen eine Mindestbreite — nie ein paar Buchstaben je Zeile. */
+.uebersicht-tabelle td.text-spalte {
+  min-width: 11rem;
+}
+
+.uebersicht-tabelle td.status-spalte {
+  min-width: 9rem;
+}
+
+/* Aktionsknöpfe in Tabellen: zwei je Zeile statt eine hohe Säule. */
+.uebersicht-tabelle .rapport-knoepfe {
+  min-width: 12rem;
+}
+
 .badge-anzahl {
   display: inline-block;
   min-width: 1.6em;

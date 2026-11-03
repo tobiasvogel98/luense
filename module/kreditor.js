@@ -242,7 +242,7 @@ export default {
                       ? `bezahlt ${formatTag(k.bezahltAm)}`
                       : `${formatTag(w.faelligTag)}${w.ueberfaellig
                           ? ' <span class="ueberfaellig">überfällig</span>' : ''}`}</td>
-                    <td>${esc(k.status)}${k.visumNotiz
+                    <td class="status-spalte">${esc(k.status)}${k.visumNotiz
                         ? `<br><small class="hinweis">Visum: ${esc(k.visumNotiz)}</small>` : ''}<br>
                       <small class="hinweis">${(k.statusHistorie || [])
                         .map((h) => `${esc(h.status)} ${formatTag(h.datum)}`).join(' → ')}</small></td>

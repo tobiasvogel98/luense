@@ -188,15 +188,15 @@ export default {
                 return `
                   <tr>
                     <td>${esc(r.nummer)}</td>
-                    <td>${formatTag(r.tag)}</td>
-                    <td>${esc(r.titel)}</td>
-                    <td>${esc(basisText(r.basis))}</td>
+                    <td class="kein-umbruch">${formatTag(r.tag)}</td>
+                    <td class="text-spalte">${esc(r.titel)}</td>
+                    <td class="kein-umbruch">${esc(basisText(r.basis))}</td>
                     <td class="zahl">${chf(zahl(r.betrag))}</td>
-                    <td>${esc(r.status)}${ueberfaellig
+                    <td class="status-spalte">${esc(r.status)}${ueberfaellig
                       ? ' <span class="ueberfaellig">überfällig</span>' : ''}<br>
                       <small class="hinweis">${(r.statusHistorie || [])
                         .map((h) => `${esc(h.status)} ${formatTag(h.datum)}`).join(' → ')}</small></td>
-                    <td>${r.status === 'bezahlt' ? '—' : formatTag(frist)}</td>
+                    <td class="kein-umbruch">${r.status === 'bezahlt' ? '—' : formatTag(frist)}</td>
                     <td class="zahl"><span class="rapport-knoepfe">
                       ${naechster ? `
                         <button type="button" class="knopf eintrag-loeschen" data-aktion="weiter"
