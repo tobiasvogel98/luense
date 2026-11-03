@@ -68,7 +68,11 @@ body {
   display: flex;
   flex-direction: column;
   overflow-x: hidden; /* Sicherheitsnetz gegen Heraus-Zoomen durch Ueberbreite */
-  overflow-wrap: anywhere; /* lange Referenznummern/URLs umbrechen statt sprengen */
+  /* Lange Referenznummern/URLs umbrechen statt sprengen. Bewusst
+     «break-word» statt «anywhere»: «anywhere» senkt die Mindestbreite
+     auf einen Buchstaben, dann quetschen Flex-Kacheln, Knöpfe und
+     Tabellenzellen normale Wörter und Beträge («Lösche n», «CHF 1'4 50»). */
+  overflow-wrap: break-word;
 }
 
 /* Kopfzeile */
@@ -1378,12 +1382,14 @@ body:has(.modul-nav[hidden]) .nav-knopf {
 
 .kachel-reihe {
   display: flex;
+  flex-wrap: wrap; /* Handy: zwei Kacheln je Zeile statt vier gequetschte */
   gap: var(--abstand-3);
   margin-bottom: var(--abstand-3);
 }
 
 .kachel {
-  flex: 1;
+  flex: 1 1 9.5rem; /* Handy 2 je Zeile, breit bis 4 */
+  min-width: 0;
   margin-bottom: 0;
   display: flex;
   flex-direction: column;
@@ -1399,6 +1405,7 @@ body:has(.modul-nav[hidden]) .nav-knopf {
 }
 
 .kachel-wert {
+  white-space: nowrap; /* Betrag nie mitten in der Zahl umbrechen */
   font-size: 1.3rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
