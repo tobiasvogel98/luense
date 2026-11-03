@@ -18,7 +18,7 @@ import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { berechneAbschluss } from '../kern/fo.js';
 import { alleBaustellen } from '../kern/stamm.js';
-import { esc } from '../kern/ui.js';
+import { chfGanz, esc } from '../kern/ui.js';
 
 const W_ZEILEN = [
   ['w1', 'W1', 'ursprüngliche Werkvertragssumme'],
@@ -54,10 +54,6 @@ function zahl(wert) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function chf(n) {
-  return `CHF ${Math.round(n).toLocaleString('de-CH')}`;
-}
-
 function prozentText(anteil) {
   return anteil === null ? '—'
     : `${(anteil * 100).toLocaleString('de-CH', { maximumFractionDigits: 1 })} %`;
@@ -74,7 +70,6 @@ function heuteTag() {
   return new Date(jetzt.getTime() - jetzt.getTimezoneOffset() * 60000)
     .toISOString().slice(0, 10);
 }
-
 
 function geldZeile(schluessel, nr, label, wert, zusatz) {
   return `
@@ -199,11 +194,11 @@ export default {
                     class="${b.baustelleId === baustelle.baustelleId ? 'aktiv' : ''}">
                     <td>${esc(b.ktr)} · ${esc(b.name)}</td>
                     <td class="zahl">${letzter ? formatTag(letzter.stichtag) : '—'}</td>
-                    <td class="zahl">${kenn ? chf(kenn.w10) : '—'}</td>
-                    <td class="zahl ${ntGenehmigt ? 'gewinn' : ''}">${ntGenehmigt ? chf(ntGenehmigt) : '—'}</td>
-                    <td class="zahl">${ntOffen ? chf(ntOffen) : '—'}</td>
-                    <td class="zahl">${kenn ? chf(kenn.a13) : '—'}</td>
-                    <td class="zahl">${kenn ? chf(kenn.s6) : '—'}</td>
+                    <td class="zahl">${kenn ? chfGanz(kenn.w10) : '—'}</td>
+                    <td class="zahl ${ntGenehmigt ? 'gewinn' : ''}">${ntGenehmigt ? chfGanz(ntGenehmigt) : '—'}</td>
+                    <td class="zahl">${ntOffen ? chfGanz(ntOffen) : '—'}</td>
+                    <td class="zahl">${kenn ? chfGanz(kenn.a13) : '—'}</td>
+                    <td class="zahl">${kenn ? chfGanz(kenn.s6) : '—'}</td>
                     <td class="zahl">${fertig !== null ? prozentText(fertig) : '—'}</td>
                     <td class="zahl ${kenn?.k1 > 0 ? 'gewinn' : kenn?.k1 < 0 ? 'verlust' : ''}">
                       ${kenn ? prozentText(kenn.k1) : '—'}</td>
@@ -232,11 +227,11 @@ export default {
                     const kenn = berechneAbschluss(a.werte || {});
                     return `<tr>
                       <td>${formatTag(a.stichtag)}</td>
-                      <td class="zahl">${chf(kenn.a13)}</td>
-                      <td class="zahl">${chf(kenn.s6)}</td>
+                      <td class="zahl">${chfGanz(kenn.a13)}</td>
+                      <td class="zahl">${chfGanz(kenn.s6)}</td>
                       <td class="zahl ${kenn.k1 > 0 ? 'gewinn' : kenn.k1 < 0 ? 'verlust' : ''}">
                         ${prozentText(kenn.k1)}</td>
-                      <td class="zahl">${chf(kenn.k3)}</td>
+                      <td class="zahl">${chfGanz(kenn.k3)}</td>
                     </tr>`;
                   }).join('')}
                 </tbody>
@@ -386,16 +381,16 @@ export default {
         const el = formular.querySelector(`[data-kennzahl="${nr}"]`);
         if (el) el.textContent = text;
       };
-      setze('W5', chf(kenn.w5));
-      setze('W9', chf(kenn.w9));
-      setze('W10', chf(kenn.w10));
-      setze('B6', chf(kenn.b6));
-      setze('A8', chf(kenn.a8));
-      setze('A9', chf(kenn.a9));
-      setze('A13', chf(kenn.a13));
-      setze('S6', chf(kenn.s6));
+      setze('W5', chfGanz(kenn.w5));
+      setze('W9', chfGanz(kenn.w9));
+      setze('W10', chfGanz(kenn.w10));
+      setze('B6', chfGanz(kenn.b6));
+      setze('A8', chfGanz(kenn.a8));
+      setze('A9', chfGanz(kenn.a9));
+      setze('A13', chfGanz(kenn.a13));
+      setze('S6', chfGanz(kenn.s6));
       setze('K1', prozentText(kenn.k1));
-      setze('K3', chf(kenn.k3));
+      setze('K3', chfGanz(kenn.k3));
     }
 
     formularBereich.addEventListener('input', aktualisiereKennzahlen);
@@ -429,7 +424,7 @@ export default {
         <div class="fo-zeile">
           <span class="fo-nr">→</span>
           <span class="fo-label">${label}${hinweis ? `<small> ${hinweis}</small>` : ''}</span>
-          <span class="vorschlags-wert">${chf(wert)}</span>
+          <span class="vorschlags-wert">${chfGanz(wert)}</span>
           ${feld ? `<button type="button" class="knopf eintrag-loeschen"
             data-uebernehmen="${feld}" data-wert="${Math.round(wert * 100) / 100}">übernehmen</button>` : ''}
         </div>`;
@@ -515,8 +510,8 @@ export default {
                       data-id="${esc(a._id)}" aria-label="Abschluss löschen">Löschen</button>
                   </span>
                 </div>
-                <p class="hinweis">Ertrag ${chf(kenn.a13)} · Selbstkosten ${chf(kenn.s6)}
-                  · Restbausumme ${chf(kenn.k3)}${
+                <p class="hinweis">Ertrag ${chfGanz(kenn.a13)} · Selbstkosten ${chfGanz(kenn.s6)}
+                  · Restbausumme ${chfGanz(kenn.k3)}${
                     a.werte?.k2 ? ` · Prognose Bauende ${a.werte.k2} %` : ''}</p>
               </article>`;
           }).join('')
@@ -555,7 +550,7 @@ export default {
       } else if (knopf.dataset.aktion === 'pdf') {
         const w = abschluss.werte || {};
         const kenn = berechneAbschluss(w);
-        const geld = (wert) => (zahl(wert) ? chf(zahl(wert)) : '');
+        const geld = (wert) => (zahl(wert) ? chfGanz(zahl(wert)) : '');
         const block = (zeilen) => zeilen
           .map(([label, wert]) => ({ label, wert }))
           .filter((z) => z.wert);
@@ -568,34 +563,34 @@ export default {
           abschnitte: [
             { art: 'felder', titel: 'Bausumme Werkvertrag', zeilen: block([
               ...W_ZEILEN.map(([s, , l]) => [l, geld(w[s])]),
-              ['Nachgeführte Bausumme exkl. Regie (W5)', chf(kenn.w5)],
+              ['Nachgeführte Bausumme exkl. Regie (W5)', chfGanz(kenn.w5)],
               ...W_REGIE_ZEILEN.map(([s, , l]) => [l, geld(w[s])]),
-              ['Nachgeführte Bausumme inkl. Regie (W9)', chf(kenn.w9)],
-              ['Total Bausumme netto (W10)', chf(kenn.w10)],
+              ['Nachgeführte Bausumme inkl. Regie (W9)', chfGanz(kenn.w9)],
+              ['Total Bausumme netto (W10)', chfGanz(kenn.w10)],
             ]) },
             { art: 'felder', titel: 'Gebucht gemäss KTR-Übersicht', zeilen: block([
               ...B_ZEILEN.map(([s, , l]) => [l, geld(w[s])]),
-              ['Total Ertrag gemäss KTR-Übersicht (B6)', chf(kenn.b6)],
+              ['Total Ertrag gemäss KTR-Übersicht (B6)', chfGanz(kenn.b6)],
             ]) },
             { art: 'felder', titel: 'Ausmass', zeilen: block([
               ...A_ZEILEN.map(([s, , l]) => [l, geld(w[s])]),
               ...(w.ausmassAbgrenzungen || [])
                 .map((a) => [`Ausmassabgrenzung ${a.bez || ''}`.trim(), geld(a.betrag)]),
               ...A_REGIE_ZEILEN.map(([s, , l]) => [l, geld(w[s])]),
-              ['Total Ausmass inkl. Abgrenzungen brutto (A8)', chf(kenn.a8)],
-              ['Total Ertrag per Abgrenzungsstichtag (A13)', chf(kenn.a13)],
+              ['Total Ausmass inkl. Abgrenzungen brutto (A8)', chfGanz(kenn.a8)],
+              ['Total Ertrag per Abgrenzungsstichtag (A13)', chfGanz(kenn.a13)],
             ]) },
             { art: 'felder', titel: 'Selbstkosten', zeilen: block([
               ['Selbstkosten gemäss KTR-Übersicht', geld(w.s1)],
               ...(w.skAbgrenzungen || [])
                 .map((a) => [`Abgrenzung ${a.bez || ''}`.trim(), geld(a.betrag)]),
-              ['Total Selbstkosten inkl. Abgrenzungen (S6)', chf(kenn.s6)],
+              ['Total Selbstkosten inkl. Abgrenzungen (S6)', chfGanz(kenn.s6)],
             ]) },
             { art: 'felder', titel: 'Kenndaten', zeilen: [
               { label: 'Baustellenergebnis per Stichtag (K1)', wert: prozentText(kenn.k1) },
               ...(w.k2 ? [{ label: 'Baustellenergebnis per Baustellenende (K2)', wert: `${w.k2} %` }] : []),
-              { label: 'Restbausumme per Stichtag (K3)', wert: chf(kenn.k3) },
-              ...(zahl(w.k4) ? [{ label: 'Restbausumme aktuell (K4)', wert: chf(zahl(w.k4)) }] : []),
+              { label: 'Restbausumme per Stichtag (K3)', wert: chfGanz(kenn.k3) },
+              ...(zahl(w.k4) ? [{ label: 'Restbausumme aktuell (K4)', wert: chfGanz(zahl(w.k4)) }] : []),
               ...(w.bemerkungen ? [{ label: 'Bemerkungen', wert: w.bemerkungen }] : []),
               ...(w.visum ? [{ label: 'Visum', wert: w.visum }] : []),
             ] },

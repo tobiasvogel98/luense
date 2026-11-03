@@ -8,17 +8,13 @@ import { put, abfrage, entferneDokument, holeAnhang } from '../kern/speicher.js'
 import { erstelleRechnung, rapportDirektVerrechnet } from '../kern/rechnung.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
-import { esc, formatDatumZeit } from '../kern/ui.js';
+import { chf, esc, formatDatumZeit } from '../kern/ui.js';
 
 export const NACHTRAG_STATUS = ['erkannt', 'gemeldet', 'offeriert', 'genehmigt', 'verrechnet'];
 
 function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
-}
-
-function chf(n) {
-  return `CHF ${Math.round(n).toLocaleString('de-CH')}`;
 }
 
 function formatTag(tagIso) {

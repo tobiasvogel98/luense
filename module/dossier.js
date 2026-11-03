@@ -8,15 +8,11 @@
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { berechneAbschluss } from '../kern/fo.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
-import { esc, formatDatumZeit } from '../kern/ui.js';
+import { chf, chfGanz, esc, formatDatumZeit } from '../kern/ui.js';
 
 function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
-}
-
-function chf(n) {
-  return `CHF ${Math.round(n).toLocaleString('de-CH')}`;
 }
 
 function prozentText(anteil) {
@@ -124,22 +120,22 @@ export default {
 
           <div class="kachel-reihe">
             <div class="karte kachel"><span class="kachel-titel">Leistung (A13)</span>
-              <span class="kachel-wert">${kenn ? chf(kenn.a13) : '—'}</span></div>
+              <span class="kachel-wert">${kenn ? chfGanz(kenn.a13) : '—'}</span></div>
             <div class="karte kachel ${kenn?.k1 > 0 ? 'kachel-gruen' : ''}">
               <span class="kachel-titel">Ergebnis (K1)</span>
               <span class="kachel-wert ${kenn?.k1 < 0 ? 'verlust' : ''}">${kenn ? prozentText(kenn.k1) : '—'}</span></div>
           </div>
           <div class="kachel-reihe">
             <div class="karte kachel"><span class="kachel-titel">NT offen (${ntOffen.length})</span>
-              <span class="kachel-wert">${chf(ntOffenSumme)}</span></div>
+              <span class="kachel-wert">${chfGanz(ntOffenSumme)}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Pendenzen offen</span>
               <span class="kachel-wert">${pendenzenOffen.length}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Gestellt, nicht bezahlt
               (${gestellteRechnungen.length})</span>
-              <span class="kachel-wert">${chf(gestellteSumme)}</span></div>
+              <span class="kachel-wert">${chfGanz(gestellteSumme)}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Kreditoren offen
               (${kreditorenOffen.length})</span>
-              <span class="kachel-wert">${chf(kreditorenOffenSumme)}</span></div>
+              <span class="kachel-wert">${chfGanz(kreditorenOffenSumme)}</span></div>
           </div>
 
           ${zeitAnteil !== null || leistungAnteil !== null ? `
@@ -232,16 +228,16 @@ export default {
           ].filter(Boolean).join(' · '),
           abschnitte: [
             { art: 'felder', titel: 'Kennzahlen', zeilen: [
-              { label: 'Leistung (A13)', wert: kenn ? chf(kenn.a13) : '—' },
-              { label: 'Selbstkosten (S6)', wert: kenn ? chf(kenn.s6) : '—' },
+              { label: 'Leistung (A13)', wert: kenn ? chfGanz(kenn.a13) : '—' },
+              { label: 'Selbstkosten (S6)', wert: kenn ? chfGanz(kenn.s6) : '—' },
               { label: 'Ergebnis (K1)', wert: kenn ? prozentText(kenn.k1) : '—' },
-              { label: 'Restbausumme (K3)', wert: kenn ? chf(kenn.k3) : '—' },
-              { label: 'Nachträge offen', wert: `${ntOffen.length} · ${chf(ntOffenSumme)}` },
+              { label: 'Restbausumme (K3)', wert: kenn ? chfGanz(kenn.k3) : '—' },
+              { label: 'Nachträge offen', wert: `${ntOffen.length} · ${chfGanz(ntOffenSumme)}` },
               { label: 'Pendenzen offen', wert: String(pendenzenOffen.length) },
               { label: 'Rechnungen gestellt, nicht bezahlt',
-                wert: `${gestellteRechnungen.length} · ${chf(gestellteSumme)}` },
+                wert: `${gestellteRechnungen.length} · ${chfGanz(gestellteSumme)}` },
               { label: 'Kreditoren offen',
-                wert: `${kreditorenOffen.length} · ${chf(kreditorenOffenSumme)}` },
+                wert: `${kreditorenOffen.length} · ${chfGanz(kreditorenOffenSumme)}` },
             ] },
             ntOffen.length ? { art: 'tabelle', titel: 'Offene Nachträge',
               spalten: ['Nr.', 'Titel', 'Status', 'Summe'],

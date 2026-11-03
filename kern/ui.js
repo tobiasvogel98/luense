@@ -56,3 +56,21 @@ export function formatDatumZeit(iso) {
     minute: '2-digit',
   });
 }
+
+// Beträge in CHF, de-CH mit Apostroph als Tausendertrenner.
+// Regel für die ganze App:
+//  • chf()      — 2 Dezimalen (CHF 1'450.00) für Dokumente und Listen:
+//                 Rechnung, Offerte, Nachtrag, Kreditor, Ausmass, PDF-Positionen.
+//  • chfGanz()  — ganze Franken (CHF 1'450) NUR für grosse Kennzahl-Kacheln
+//                 und Summen-Übersichten (Dossier-KPIs, Controlling).
+// Gerechnet wird immer mit den ungerundeten Werten; gerundet wird nur
+// in der Anzeige.
+export function chf(n) {
+  return `CHF ${(Number(n) || 0).toLocaleString('de-CH', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  })}`;
+}
+
+export function chfGanz(n) {
+  return `CHF ${Math.round(Number(n) || 0).toLocaleString('de-CH')}`;
+}

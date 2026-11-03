@@ -13,7 +13,7 @@ import {
 } from '../kern/speicher.js';
 import { verkleinereFoto } from '../kern/kamera.js';
 import { exportiereCsv } from '../kern/export.js';
-import { esc, zeigeBildVollbild } from '../kern/ui.js';
+import { chf, esc, zeigeBildVollbild } from '../kern/ui.js';
 
 const KREDITOR_STATUS = ['offen', 'visiert', 'bezahlt'];
 const KOSTENARTEN = ['Material', 'Fremdleistung', 'Inventar/Miete', 'Entsorgung', 'Diverses'];
@@ -22,12 +22,6 @@ const ZAHLUNGSFRIST_TAGE = 30;
 function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
-}
-
-function chf(n) {
-  return `CHF ${(n || 0).toLocaleString('de-CH', {
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-  })}`;
 }
 
 function heuteTag() {

@@ -15,7 +15,7 @@
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { speichereBaustelle } from '../kern/stamm.js';
 import { zeigeOffertDruck } from '../kern/pdf.js';
-import { esc } from '../kern/ui.js';
+import { chf, esc } from '../kern/ui.js';
 
 const KATALOG_ID = 'katalog';
 const OFFERT_ID = 'offertwesen';
@@ -25,12 +25,6 @@ const OFFERT_STATUS = ['Entwurf', 'eingereicht', 'angenommen'];
 function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
-}
-
-function chf(n) {
-  return `CHF ${(n || 0).toLocaleString('de-CH', {
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-  })}`;
 }
 
 function mengeText(n) {
