@@ -9,7 +9,7 @@ import {
   put, abfrage, entferneDokument, haengeAnhangAn, holeAnhang, holeMitAnhaengen,
   entferneAnhang,
 } from '../kern/speicher.js';
-import { erstelleRechnung } from '../kern/rechnung.js';
+import { erstelleRechnung, nachtraegeMitVerrechnung } from '../kern/rechnung.js';
 import { exportiereCsv, teileDatei } from '../kern/export.js';
 import { verkleinereFoto } from '../kern/kamera.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
@@ -543,17 +543,20 @@ export default {
                 : 'keine erfasst'}</p>` : ''}
           ${zugeordnet.length ? `
             <p class="hinweis verknuepfung">↳ Zugeordnet: Nachtrag ${zugeordnet.map(esc).join(', ')}</p>` : ''}
-          ${mitRegie ? regieStatusHtml(r, rechnungen) : ''}
+          ${mitRegie ? regieStatusHtml(r, rechnungen, nachtraege) : ''}
         </article>`;
     }
 
     // Status-Pipeline des Regierapports mit datiertem Verlauf und
     // weiter/zurück — analog zur Nachtrags-Pipeline.
-    function regieStatusHtml(r, rechnungen = []) {
+    function regieStatusHtml(r, rechnungen = [], nachtraege = []) {
       const status = r.regieStatus || 'offen';
       const index = REGIE_STATUS.indexOf(status);
       const naechster = REGIE_STATUS[index + 1];
-      const verlinkte = rechnungen.filter((re) => re.basis?.id === r._id);
+      const verlinkte = rechnungen.filter((re) => re.basis?.art === 'regierapport'
+        && re.basis.id === r._id);
+      // Schon über einen Nachtrag verrechnet → keine zweite Rechnung.
+      const ueberNachtrag = nachtraegeMitVerrechnung(r._id, nachtraege, rechnungen);
       return `
         <div class="status-pipeline">
           ${REGIE_STATUS.map((s, i) => `<span class="pipeline-schritt${
@@ -567,6 +570,9 @@ export default {
         ${verlinkte.length ? `
           <p class="hinweis verknuepfung">↳ Rechnung ${verlinkte
             .map((re) => `${esc(re.nummer)} (${esc(re.status)})`).join(', ')}</p>` : ''}
+        ${ueberNachtrag.length ? `
+          <p class="hinweis verknuepfung">↳ Verrechnet über Nachtrag ${ueberNachtrag
+            .map((n) => esc(n.nummer)).join(', ')}</p>` : ''}
         <div class="knopfzeile">
           ${naechster ? `
             <button type="button" class="knopf" data-aktion="regie-weiter"
@@ -574,7 +580,7 @@ export default {
           ${index > 0 ? `
             <button type="button" class="knopf" data-aktion="regie-zurueck"
               data-id="${esc(r._id)}">← zurück</button>` : ''}
-          ${status === 'unterschrieben' && !verlinkte.length ? `
+          ${status === 'unterschrieben' && !verlinkte.length && !ueberNachtrag.length ? `
             <button type="button" class="knopf knopf-primaer" data-aktion="rechnung-erstellen"
               data-id="${esc(r._id)}">→ Rechnung erstellen</button>` : ''}
         </div>`;
@@ -603,8 +609,7 @@ export default {
         typ: 'ereignis', baustelleId: baustelle.baustelleId,
       })).filter((e) => e.tag === 'Regie');
       const nachtraege = await abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId });
-      const rechnungen = (await abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }))
-        .filter((re) => re.basis?.art === 'regierapport');
+      const rechnungen = await abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId });
       const gruppen = new Map();
       for (const r of alle) {
         const { jahr, kw } = kalenderwoche(r.tag);
@@ -916,6 +921,18 @@ export default {
             + 'der Empfänger liest ihn über «Import» ein.';
         }
       } else if (knopf.dataset.aktion === 'rechnung-erstellen') {
+        // Nochmals prüfen: inzwischen über einen Nachtrag verrechnet?
+        const [nachtraege, rechnungen] = await Promise.all([
+          abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId }),
+          abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }),
+        ]);
+        const ueberNachtrag = nachtraegeMitVerrechnung(rapport._id, nachtraege, rechnungen);
+        if (ueberNachtrag.length) {
+          meldung.textContent = `Bereits verrechnet über Nachtrag ${ueberNachtrag
+            .map((n) => n.nummer).join(', ')} — keine zweite Rechnung.`;
+          await zeichneListe();
+          return;
+        }
         oeffneRegieRechnung(rapport);
       } else if (knopf.dataset.aktion === 'regie-weiter') {
         const naechster = REGIE_STATUS[REGIE_STATUS.indexOf(rapport.regieStatus || 'offen') + 1];

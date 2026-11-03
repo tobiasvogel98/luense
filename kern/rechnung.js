@@ -44,3 +44,24 @@ export async function erstelleRechnung({ baustelleId, titel, betrag, basis }) {
     statusHistorie: [{ status: 'offen', datum: heuteTag() }],
   });
 }
+
+// Schutz gegen Doppelverrechnung: ein Regierapport kann direkt
+// (Rechnung mit Basis «regierapport») ODER als Beweis eines Nachtrags
+// verrechnet werden — nie beides. Gebraucht von module/rapport.js und
+// module/nachtrag.js.
+
+// Nachträge, über die ein Regierapport bereits verrechnet ist oder wird:
+// Rapport steht in den Beweisen, und der Nachtrag ist «verrechnet» oder
+// hat schon eine Rechnung.
+export function nachtraegeMitVerrechnung(rapportId, nachtraege, rechnungen) {
+  return nachtraege.filter((n) => n.beweise?.rapportIds?.includes(rapportId)
+    && (n.status === 'verrechnet'
+      || rechnungen.some((re) => re.basis?.art === 'nachtrag' && re.basis.id === n._id)));
+}
+
+// Direkt verrechneter Regierapport: eigene Rechnung vorhanden oder
+// Regie-Status «verrechnet».
+export function rapportDirektVerrechnet(rapport, rechnungen) {
+  return rapport.regieStatus === 'verrechnet'
+    || rechnungen.some((re) => re.basis?.art === 'regierapport' && re.basis.id === rapport._id);
+}

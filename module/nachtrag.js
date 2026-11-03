@@ -5,7 +5,7 @@
 // (Dokumente teilen, nie Code). Kacheln: Summe offen / genehmigt.
 
 import { put, abfrage, entferneDokument, holeAnhang } from '../kern/speicher.js';
-import { erstelleRechnung } from '../kern/rechnung.js';
+import { erstelleRechnung, rapportDirektVerrechnet } from '../kern/rechnung.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit } from '../kern/ui.js';
@@ -200,12 +200,19 @@ export default {
     async function zeichneListe() {
       const nachtraege = await ladeNachtraege();
       zeichneKacheln(nachtraege);
-      const rechnungen = (await abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }))
-        .filter((re) => re.basis?.art === 'nachtrag');
+      const [alleRechnungen, rapporte] = await Promise.all([
+        abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }),
+        abfrage({ typ: 'rapport', baustelleId: baustelle.baustelleId }),
+      ]);
+      const rechnungen = alleRechnungen.filter((re) => re.basis?.art === 'nachtrag');
       listeElement.innerHTML = nachtraege.length
         ? nachtraege.map((n) => {
             const beweise = n.beweise || {};
             const verlinkte = rechnungen.filter((re) => re.basis?.id === n._id);
+            // Beweis-Regierapporte, die schon direkt verrechnet sind →
+            // Rechnung aus dem Nachtrag würde sie doppelt verrechnen.
+            const direktVerrechnet = rapporte.filter((r) => beweise.rapportIds?.includes(r._id)
+              && rapportDirektVerrechnet(r, alleRechnungen));
             const beweisText = [
               beweise.ereignisIds?.length ? `${beweise.ereignisIds.length} Ereignis${beweise.ereignisIds.length > 1 ? 'se' : ''}` : '',
               beweise.rapportIds?.length ? `${beweise.rapportIds.length} Rapport${beweise.rapportIds.length > 1 ? 'e' : ''}` : '',
@@ -236,6 +243,10 @@ export default {
                 ${verlinkte.length ? `
                   <p class="hinweis verknuepfung">↳ Rechnung ${verlinkte
                     .map((re) => `${esc(re.nummer)} (${esc(re.status)})`).join(', ')}</p>` : ''}
+                ${direktVerrechnet.length && !verlinkte.length && n.status !== 'verrechnet' ? `
+                  <p class="hinweis verknuepfung">↳ Regierapport ${direktVerrechnet
+                    .map((r) => formatTag(r.tag)).join(', ')} bereits direkt verrechnet —
+                    Rechnung bei Bedarf ohne diese Stunden im Modul Rechnungen erfassen.</p>` : ''}
                 <div class="knopfzeile">
                   ${naechster ? `
                     <button type="button" class="knopf" data-aktion="weiter"
@@ -243,7 +254,7 @@ export default {
                   ${NACHTRAG_STATUS.indexOf(n.status) > 0 ? `
                     <button type="button" class="knopf" data-aktion="zurueck"
                       data-id="${esc(n._id)}">← zurück</button>` : ''}
-                  ${n.status === 'genehmigt' && !verlinkte.length ? `
+                  ${n.status === 'genehmigt' && !verlinkte.length && !direktVerrechnet.length ? `
                     <button type="button" class="knopf knopf-primaer" data-aktion="rechnung"
                       data-id="${esc(n._id)}">→ Rechnung erstellen</button>` : ''}
                 </div>
@@ -320,6 +331,16 @@ export default {
       } else if (knopf.dataset.aktion === 'rechnung') {
         // Kleinbaustellen-Automatik (Abend 8.4): genehmigter Nachtrag →
         // Rechnung mit der Nachtragssumme, Betrag editierbar.
+        // Nochmals prüfen: Beweis-Regierapport inzwischen direkt verrechnet?
+        const [alleRechnungen, rapporte] = await Promise.all([
+          abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }),
+          abfrage({ typ: 'rapport', baustelleId: baustelle.baustelleId }),
+        ]);
+        if (rapporte.some((r) => nachtrag.beweise?.rapportIds?.includes(r._id)
+          && rapportDirektVerrechnet(r, alleRechnungen))) {
+          await zeichneListe();
+          return;
+        }
         const dialog = document.createElement('div');
         dialog.className = 'vollbild dialog-hintergrund';
         dialog.innerHTML = `
