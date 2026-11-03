@@ -805,6 +805,26 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   white-space: nowrap;
 }
 
+/* Titelzeile mit Betrag rechts (Nachtrag): der Titel darf umbrechen,
+   der Betrag bleibt rechtsbündig auf derselben Zeile. */
+.titel-zeile {
+  flex: 1 1 16rem;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--abstand-2);
+}
+
+.titel-zeile strong {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.titel-zeile .rapport-stunden {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* Arbeiten-Blöcke im Rapport-Formular */
 
 .arbeit {

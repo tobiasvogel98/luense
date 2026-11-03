@@ -222,8 +222,10 @@ export default {
             return `
               <article class="karte nachtrag-karte">
                 <div class="rapport-kopf">
-                  <strong>${esc(n.nummer)} · ${esc(n.titel)}</strong>
-                  <span class="rapport-stunden">${chf(zahl(n.summe))}</span>
+                  <div class="titel-zeile">
+                    <strong>${esc(n.nummer)} · ${esc(n.titel)}</strong>
+                    <span class="rapport-stunden">${chf(zahl(n.summe))}</span>
+                  </div>
                   <span class="rapport-knoepfe">
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
                       data-id="${esc(n._id)}">PDF</button>
