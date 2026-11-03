@@ -150,9 +150,9 @@ export async function oeffneAltPendenzenImport(daten, { nachImport = () => {} } 
   dialog.className = 'vollbild dialog-hintergrund';
   dialog.innerHTML = `
     <form class="karte formular dialog" data-rolle="alt-import">
-      <h3>Pendenzen aus der Alt-App importieren</h3>
+      <h3>Pendenzen aus der bisherigen App importieren</h3>
       <p class="hinweis">${daten.items.length} Pendenzen gefunden. Ordne jeder
-        Alt-Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu — nicht
+        bisherigen Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu — nicht
         zugeordnete werden übersprungen.</p>
       ${altBaustellen.map((b) => `
         <label>${esc(b.name)} (${b.anzahl} Pendenz${b.anzahl > 1 ? 'en' : ''})
@@ -306,9 +306,9 @@ export async function oeffneAltRapportImport(daten, { nachImport = () => {} } = 
   dialog.className = 'vollbild dialog-hintergrund';
   dialog.innerHTML = `
     <form class="karte formular dialog" data-rolle="alt-rapport-import">
-      <h3>Tagesrapporte aus dem Alt-Tool importieren</h3>
+      <h3>Tagesrapporte aus dem bisherigen Rapport-Programm importieren</h3>
       <p class="hinweis">${liste.length} Rapport${liste.length > 1 ? 'e' : ''} gefunden.
-        Ordne jeder Alt-Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu —
+        Ordne jeder bisherigen Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu —
         nicht Zugeordnetes wird übersprungen.</p>
       ${[...projekte.entries()].map(([name, rapporte], index) => `
         <label>${esc(name)} (${rapporte.length} Rapport${rapporte.length > 1 ? 'e' : ''})

@@ -115,8 +115,7 @@ export default {
     container.innerHTML = `
       <section class="controlling">
         <h2>Controlling · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h2>
-        <p class="hinweis">Monatsabschluss nach FO 5.1.01 — das Alt-Cockpit bleibt
-          führend, bis zwei Monatsabschlüsse stimmig abgeglichen sind.</p>
+        <p class="hinweis">Monatsabschluss nach FO 5.1.01.</p>
 
         <div class="karte" data-rolle="uebersicht"></div>
 
@@ -130,7 +129,7 @@ export default {
         <div data-rolle="liste"></div>
 
         <details class="karte import">
-          <summary>Abgleich-Checkliste je Monatsabschluss (6.4)</summary>
+          <summary>Abgleich-Checkliste je Monatsabschluss</summary>
           <ol class="checkliste-text">
             <li>FO-5.1.01-Excel öffnen, Blatt zum gleichen Stichtag wählen.</li>
             <li>Hier beim Abschluss «Abgleich (JSON)» herunterladen oder die Kennzahlen ablesen.</li>
@@ -207,8 +206,8 @@ export default {
             </tbody>
           </table>
         </div>
-        <p class="hinweis">Zeile antippen wählt die Baustelle. Nachtragssummen live
-          aus dem Nachträge-Modul; übrige Werte aus dem letzten Monatsabschluss.</p>
+        <p class="hinweis">Zeile antippen wählt die Baustelle. Nachtragssummen sind
+          aktuell, die übrigen Werte stammen aus dem letzten Monatsabschluss.</p>
 
         <h3>Monatsverlauf · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h3>
         ${(() => {

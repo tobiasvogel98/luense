@@ -63,8 +63,7 @@ export default {
           </div>
           <p class="hinweis">Der Name muss den Personen-Einträgen in den
             Tagesrapporten entsprechen — daraus entsteht das Stundenkonto.
-            Soll = Arbeitstage (Mo–Fr) × Tagessoll; der offizielle
-            Arbeitszeitkalender kann später hinterlegt werden.</p>
+            Soll = Arbeitstage (Mo–Fr) × Tagessoll.</p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Speichern</button>
             <button type="button" class="knopf" data-aktion="abbrechen" hidden>Abbrechen</button>
