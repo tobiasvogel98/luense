@@ -8,7 +8,9 @@ import {
 import { verkleinereFoto } from '../kern/kamera.js';
 import { oeffneHandnotiz } from '../kern/handschrift.js';
 import { oeffneBericht } from '../kern/pdf.js';
-import { esc, formatDatumZeit, zeigeBildVollbild } from '../kern/ui.js';
+import {
+  esc, formatDatumZeit, regieTreffer, schadenTreffer, zeigeBildVollbild,
+} from '../kern/ui.js';
 
 const TAGS = ['Vorzustand', 'Fortschritt', 'Mangel', 'Regie', 'Abnahme'];
 
@@ -20,6 +22,7 @@ export default {
     const filter = new Set(); // gewählte Tag-Chips; leer = alle zeigen
     let gewaehlteFotos = []; // Dateien, die beim Speichern angehängt werden
     let inBearbeitung = null; // Ereignis, das gerade im Formular steht
+    let regieAbgelehnt = ''; // «Nein, keine Regie» für genau diesen Hinweis
     const objektUrls = []; // erzeugte Foto-URLs, beim Neuzeichnen freigeben
 
     container.innerHTML = `
@@ -37,6 +40,8 @@ export default {
           </div>
           <label>Ort / KV<input name="ortKv" autocomplete="off"></label>
           <label>Notiz<textarea name="notiz" rows="3"></textarea></label>
+          <div class="regie-erkannt regie-vorschlag" data-rolle="regie-vorschlag"
+            role="status" hidden></div>
           <div class="knopfzeile">
             <label class="foto-feld">
               <span class="knopf">📷 Foto aufnehmen</span>
@@ -94,10 +99,68 @@ export default {
       zeigeFotoInfo();
     });
 
+    // Regie-Vorschlag: Notiz klingt nach Regie, Tag ist aber ein anderer.
+    // Nichts geschieht automatisch — erst «Tag auf Regie setzen» führt
+    // beim Speichern zum gewohnten Ablauf (Nachtrag + Pendenz).
+    const vorschlag = formular.querySelector('[data-rolle="regie-vorschlag"]');
+
+    function gewaehlterTag() {
+      return formular.querySelector('input[name="tag"]:checked')?.value || '';
+    }
+
+    function zeigeRegieVorschlag() {
+      const notiz = formular.elements.notiz.value;
+      const treffer = regieTreffer(notiz);
+      const schaden = schadenTreffer(notiz);
+      const offen = gewaehlterTag() !== 'Regie'
+        && ((treffer && treffer !== regieAbgelehnt) || (schaden && schaden !== regieAbgelehnt));
+      vorschlag.hidden = !offen;
+      vorschlag.dataset.treffer = offen ? (treffer || schaden) : '';
+      vorschlag.dataset.verbindlich = offen && treffer ? '1' : '';
+      if (!offen) { vorschlag.innerHTML = ''; return; }
+      vorschlag.innerHTML = `
+        <p>${treffer
+          ? `Regie-Hinweis erkannt: «${esc(treffer)}». Als Regie erfassen? Beim Speichern
+             entstehen dann Nachtrag (erkannt) und Pendenz.`
+          : `Leitungsschaden («${esc(schaden)}») – Regie prüfen? War die Leitung nicht
+             ersichtlich oder nicht im Plan, Tag «Regie» wählen.`}</p>
+        <div class="knopfzeile">
+          <button type="button" class="knopf knopf-primaer" data-aktion="regie-uebernehmen">
+            Tag auf «Regie» setzen</button>
+          <button type="button" class="knopf" data-aktion="regie-ablehnen">Keine Regie</button>
+        </div>`;
+    }
+
+    formular.elements.notiz.addEventListener('input', zeigeRegieVorschlag);
+    formular.querySelector('[data-rolle="tag-wahl"]').addEventListener('change', zeigeRegieVorschlag);
+    vorschlag.addEventListener('click', (klick) => {
+      const knopf = klick.target.closest('[data-aktion]');
+      if (!knopf) return;
+      if (knopf.dataset.aktion === 'regie-uebernehmen') {
+        formular.querySelector('input[name="tag"][value="Regie"]').checked = true;
+        meldung.textContent = 'Tag «Regie» gewählt — beim Speichern entstehen Nachtrag und Pendenz.';
+      } else {
+        regieAbgelehnt = vorschlag.dataset.treffer;
+        meldung.textContent = '';
+      }
+      zeigeRegieVorschlag();
+    });
+
     function zeichneFilter() {
       filterElement.innerHTML = TAGS.map((tag) => `
         <button type="button" class="chip chip-knopf${filter.has(tag) ? ' aktiv' : ''}"
           data-tag="${tag}">${tag}</button>`).join('');
+    }
+
+    // Eintrag mit Regie-Hinweis, aber anderem Tag (z. B. älter oder
+    // importiert): nur anzeigen, «Prüfen» öffnet ihn mit dem Vorschlag.
+    function regieKartenHinweis(e) {
+      const treffer = e.tag !== 'Regie' && regieTreffer(e.notiz);
+      if (!treffer || treffer === e.regieHinweisAbgelehnt) return '';
+      return `<p class="regie-erkannt regie-warnung">⚠ Regie-Hinweis «${esc(treffer)}» —
+        Tag ist «${esc(e.tag)}».
+        <button type="button" class="knopf eintrag-loeschen" data-aktion="eintrag-bearbeiten"
+          data-id="${esc(e._id)}">Prüfen</button></p>`;
     }
 
     async function zeichneListe() {
@@ -129,6 +192,7 @@ export default {
                 </div>
                 ${e.notiz ? `<p class="ereignis-notiz">${esc(e.notiz)}</p>` : ''}
                 ${e.quelleText ? `<p class="hinweis verknuepfung">↳ ${esc(e.quelleText)}</p>` : ''}
+                ${regieKartenHinweis(e)}
                 ${fotos.length ? `
                   <div class="foto-reihe">
                     ${fotos.map((name) => `
@@ -203,6 +267,8 @@ export default {
       if (tagWahl) tagWahl.checked = true;
       formular.elements.ortKv.value = ereignis?.ortKv ?? '';
       formular.elements.notiz.value = ereignis?.notiz ?? '';
+      regieAbgelehnt = ereignis?.regieHinweisAbgelehnt || '';
+      zeigeRegieVorschlag();
       meldung.textContent = ereignis
         ? `Eintrag vom ${formatDatumZeit(ereignis.datum)} bearbeiten — Fotos bleiben erhalten.`
         : '';
@@ -241,17 +307,29 @@ export default {
 
     formular.addEventListener('submit', async (abschicken) => {
       abschicken.preventDefault();
+      // Offener Regie-Vorschlag: erst beantworten lassen, nicht raten.
+      if (vorschlag.dataset.verbindlich) {
+        meldung.textContent = 'Bitte zuerst den Regie-Vorschlag beantworten.';
+        vorschlag.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
       const felder = Object.fromEntries(new FormData(formular));
       const speichernKnopf = formular.querySelector('[type="submit"]');
       speichernKnopf.disabled = true;
       try {
         const warBearbeitung = !!inBearbeitung;
+        const vorherTag = inBearbeitung?.tag;
+        // «Keine Regie» merken, damit die Liste nicht weiter mahnt.
+        const abgelehnt = felder.tag !== 'Regie' && regieAbgelehnt
+          && [regieTreffer(felder.notiz), schadenTreffer(felder.notiz)].includes(regieAbgelehnt)
+          ? regieAbgelehnt : undefined;
         const doc = await put(warBearbeitung
           ? {
               ...inBearbeitung,
               tag: felder.tag,
               ortKv: (felder.ortKv || '').trim(),
               notiz: (felder.notiz || '').trim(),
+              regieHinweisAbgelehnt: abgelehnt,
             }
           : {
               typ: 'ereignis',
@@ -259,6 +337,7 @@ export default {
               tag: felder.tag,
               ortKv: (felder.ortKv || '').trim(),
               notiz: (felder.notiz || '').trim(),
+              regieHinweisAbgelehnt: abgelehnt,
             });
         // Fotos einzeln verarbeiten, mit sichtbarem Fortschritt.
         const anzahl = gewaehlteFotos.length;
@@ -269,12 +348,15 @@ export default {
             `foto-${Date.now().toString(36)}-${index + 1}.jpg`, blob);
         }
         // Regie heisst: Nachtrag erkannt — Nachtrag und Pendenz entstehen
-        // automatisch, aber nur bei NEUEN Einträgen (Bearbeiten würde
-        // sonst Duplikate erzeugen).
-        if (!warBearbeitung && doc.tag === 'Regie') {
-          const nachtraege = await abfrage({
-            typ: 'nachtrag', baustelleId: baustelle.baustelleId,
-          });
+        // automatisch bei NEUEN Einträgen. Beim Bearbeiten nur, wenn der
+        // Tag neu auf Regie wechselt (z. B. nach dem Regie-Vorschlag) und
+        // noch kein Nachtrag auf diesen Eintrag verweist — keine Duplikate.
+        const nachtraege = doc.tag === 'Regie'
+          ? await abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId })
+          : [];
+        const neuRegie = doc.tag === 'Regie' && (!warBearbeitung || (vorherTag !== 'Regie'
+          && !nachtraege.some((n) => n.beweise?.ereignisIds?.includes(doc._id))));
+        if (neuRegie) {
           const nummer = `N-${String(nachtraege.length + 1).padStart(2, '0')}`;
           const nachtrag = await put({
             typ: 'nachtrag',
@@ -310,11 +392,11 @@ export default {
         const alteBearbeitung = warBearbeitung;
         inBearbeitung = null;
         formular.querySelector('[data-aktion="bearbeiten-abbrechen"]').hidden = true;
-        meldung.textContent = alteBearbeitung
-          ? 'Eintrag aktualisiert.'
-          : doc.tag === 'Regie'
-            ? 'Eintrag gespeichert — Nachtrag (erkannt) und Pendenz erstellt.'
-            : 'Eintrag gespeichert.';
+        meldung.textContent = neuRegie
+          ? `Eintrag ${alteBearbeitung ? 'aktualisiert' : 'gespeichert'} — Nachtrag (erkannt) und Pendenz erstellt.`
+          : alteBearbeitung ? 'Eintrag aktualisiert.' : 'Eintrag gespeichert.';
+        regieAbgelehnt = '';
+        zeigeRegieVorschlag();
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       } catch (fehler) {
