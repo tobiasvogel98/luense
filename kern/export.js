@@ -8,6 +8,7 @@ import {
 } from './speicher.js';
 import { alleBaustellen } from './stamm.js';
 import { esc, REGIE_MUSTER, regieHinweiseRapport } from './ui.js';
+import { istBeispielDokument } from './demo.js';
 
 const MERKER = 'luense.letzterExport'; // nur UI-Zustand (Datum), keine Daten
 const ERINNERUNG_TAGE = 7;
@@ -62,8 +63,11 @@ export function exportiereCsv(dateiname, spalten, zeilen) {
 // Erstellt die Backup-Datei und übergibt sie dem Teilen-Dialog (Handy)
 // oder dem Download (Laptop). Gibt die Anzahl Dokumente zurück,
 // oder null, wenn der Nutzer das Teilen abgebrochen hat.
+// Beispieldaten (Beispielbaustelle aus kern/demo.js) bleiben bewusst
+// AUSSERHALB des Backups: sie gehören nicht ins Archiv und sollen nie per
+// Import auf ein anderes Gerät wandern. Der Zähler nennt nur echte Dokumente.
 export async function erstelleBackup() {
-  const dokumente = await exportiereAlles();
+  const dokumente = (await exportiereAlles()).filter((doc) => !istBeispielDokument(doc));
   const inhalt = JSON.stringify({
     app: 'luense',
     version: 1,

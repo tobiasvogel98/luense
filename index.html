@@ -29,6 +29,10 @@
       <select id="baustellen-auswahl" disabled>
         <option>Noch keine Baustellen</option>
       </select>
+      <!-- Hinweis sitzt als Etikett auf der Auswahl — nimmt dem schmalen
+           Handy-Kopf keinen Platz weg. -->
+      <span id="beispiel-hinweis" class="beispiel-badge" hidden
+        title="Beispielbaustelle — keine echten Daten">Beispiel</span>
     </label>
     <button type="button" id="stamm-knopf" class="kopf-knopf" title="Baustellen-Stamm">
       <span aria-hidden="true">⚙</span>
@@ -56,6 +60,7 @@
     // Shell: Kopfzeilen-Auswahl füttern, Module registrieren, Stamm anbieten.
     import { alleBaustellen, renderStammAnsicht } from './kern/stamm.js';
     import { renderBackupZeile } from './kern/export.js';
+    import { renderBeispielBereich } from './kern/demo.js';
     import ereignisModul from './module/ereignis.js';
     import pendenzenModul from './module/pendenzen.js';
     import rapportModul from './module/rapport.js';
@@ -103,7 +108,17 @@
       const gemerkt = localStorage.getItem(MERKER);
       if (baustellen.some((b) => b.baustelleId === gemerkt)) auswahl.value = gemerkt;
       localStorage.setItem(MERKER, auswahl.value);
+      zeigeBeispielHinweis(baustellen);
       return baustellen;
+    }
+
+    // Hinweis «Beispiel» in der Kopfzeile, solange die Beispielbaustelle
+    // gewählt ist — Demo-Daten nie mit echten verwechseln.
+    let letzteBaustellen = [];
+    function zeigeBeispielHinweis(baustellen = letzteBaustellen) {
+      letzteBaustellen = baustellen;
+      const gewaehlt = baustellen.find((b) => b.baustelleId === auswahl.value);
+      document.getElementById('beispiel-hinweis').hidden = !gewaehlt?.demo;
     }
 
     let aktuelleBaustelle = null;
@@ -170,6 +185,7 @@
       await aktualisiereAuswahl();
       auswahl.value = ziel;
       localStorage.setItem(MERKER, ziel);
+      zeigeBeispielHinweis();
       zeigeModul();
     });
 
@@ -216,10 +232,33 @@
       backupEcke.className = 'karte nav-fuss stamm-backup';
       modulbereich.querySelector('.stamm').append(backupEcke);
       renderBackupZeile(backupEcke, { nachImport: nachDatenImport });
+      // Beispielbaustelle (Kundendemo / Ausprobieren), klar abgesetzt.
+      const beispielEcke = document.createElement('section');
+      beispielEcke.className = 'karte beispiel-bereich';
+      modulbereich.querySelector('.stamm').append(beispielEcke);
+      renderBeispielBereich(beispielEcke, {
+        nachLaden: async (baustelleId) => {
+          await aktualisiereAuswahl();
+          auswahl.value = baustelleId;
+          localStorage.setItem(MERKER, baustelleId);
+          zeigeBeispielHinweis();
+          const dossier = MODULE.findIndex((m) => m.name === 'Dossier');
+          if (dossier >= 0) {
+            aktivesModul = dossier;
+            localStorage.setItem(MODUL_MERKER, MODULE[dossier].name);
+          }
+          zeigeModul();
+        },
+        nachLoeschen: async () => {
+          await aktualisiereAuswahl();
+          zeigeStamm();
+        },
+      });
     }
 
     auswahl.addEventListener('change', () => {
       localStorage.setItem(MERKER, auswahl.value);
+      zeigeBeispielHinweis();
       if (ansicht === 'modul') zeigeModul();
     });
 

@@ -51,6 +51,12 @@ export default {
       <section class="ausmass">
         <h2>Ausmass · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h2>
 
+        <div class="knopfzeile ausmass-aktionen">
+          <button type="button" class="knopf graben-sprung" data-aktion="zum-grabenrechner">
+            📐 Grabenrechner <span class="badge-anzahl" data-rolle="graben-anzahl" hidden></span>
+          </button>
+        </div>
+
         <form class="karte formular" data-rolle="erfassung">
           <h3 data-rolle="formular-titel">Neue Position</h3>
           <div class="feld-reihe">
@@ -90,7 +96,11 @@ export default {
         <p class="meldung" data-rolle="import-meldung" role="status"></p>
         <div data-rolle="liste"></div>
 
-        <h3 class="graben-titel">Grabenrechner</h3>
+        <div class="graben-kopf" data-rolle="graben-bereich">
+          <h3 class="graben-titel">Grabenrechner</h3>
+          <button type="button" class="knopf eintrag-loeschen" data-aktion="zu-positionen">
+            ↑ Positionen</button>
+        </div>
         <p class="hinweis">Abschnitte bleiben gespeichert — die berechneten Mengen
           lassen sich je Grabenteil einer NPK-Position zuordnen und übernehmen.</p>
         <div data-rolle="graben-liste"></div>
@@ -473,6 +483,9 @@ export default {
 
     async function zeichneGrabenListe() {
       const abschnitte = await ladeAbschnitte();
+      const anzahlElement = container.querySelector('[data-rolle="graben-anzahl"]');
+      anzahlElement.textContent = abschnitte.length;
+      anzahlElement.hidden = !abschnitte.length;
       grabenListe.innerHTML = abschnitte.length
         ? abschnitte.map((a) => {
             const teile = (a.teile || []).map((t) => {
@@ -622,6 +635,23 @@ export default {
 
     container.querySelector('[data-aktion="graben-neu"]')
       .addEventListener('click', () => oeffneGrabenEditor(null));
+
+    // Sprung-Knopf oben: direkt zum Grabenrechner. Ohne Abschnitte öffnet
+    // er gleich den Editor für einen neuen Abschnitt, sonst die Liste.
+    container.querySelector('[data-aktion="zum-grabenrechner"]')
+      .addEventListener('click', async () => {
+        if (grabenEditor.querySelector('form')) {
+          grabenEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else if (!(await ladeAbschnitte()).length) {
+          await oeffneGrabenEditor(null);
+        } else {
+          container.querySelector('[data-rolle="graben-bereich"]')
+            .scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    container.querySelector('[data-aktion="zu-positionen"]')
+      .addEventListener('click', () => container.querySelector('.ausmass')
+        .scrollIntoView({ behavior: 'smooth', block: 'start' }));
     container.querySelector('[data-aktion="uebernehmen"]')
       .addEventListener('click', uebernehmeMengen);
 

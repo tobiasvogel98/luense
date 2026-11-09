@@ -57,6 +57,14 @@ export async function exportiereAlles() {
     .filter((doc) => !doc._id.startsWith('_design/'));
 }
 
+// Alle Dokumente (ohne Anhänge), die eine Bedingung erfüllen — z. B. um
+// die markierten Beispieldaten gezielt wiederzufinden (kern/demo.js).
+export async function sucheDokumente(bedingung) {
+  const ergebnis = await db.allDocs({ include_docs: true });
+  return ergebnis.rows.map((zeile) => zeile.doc)
+    .filter((doc) => !doc._id.startsWith('_design/') && bedingung(doc));
+}
+
 // Import mit Duplikat-Schutz: ergänzt statt überschreibt — vorhandene
 // _ids bleiben unangetastet.
 export async function importiereDokumente(dokumente) {

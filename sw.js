@@ -20,6 +20,7 @@ const DATEIEN = [
   './kern/rechnung.js',
   './kern/pdf.js',
   './kern/export.js',
+  './kern/demo.js',
   './kern/ui.js',
   './kern/katalog.js',
   './module/ereignis.js',
