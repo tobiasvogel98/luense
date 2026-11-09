@@ -4,7 +4,8 @@
 // davon braucht, übernimmt es als eigenes Dokument (z. B. Gerätestamm) oder
 // nutzt es als Vorschlag beim Tippen (Rapport). Keine Preise.
 // Nicht verwechseln mit dem NPK-Positionskatalog (Dokumente «katalogposition»).
-// Genutzt von: Personal-Modul (Gerätestamm) und Rapport-Modul (Vorschläge).
+// Genutzt von: Personal-Modul (Gerätestamm, Maschinen UND Fremdleistungen)
+// und Rapport-Modul (Vorschläge).
 //
 // Eintrag: { name, gruppe, einheit } — einheit 'h' = nach Stunden.
 
@@ -14,13 +15,13 @@ const eintraege = (gruppe, einheit, namen) =>
     : { gruppe, einheit, ...name }));
 
 // Gruppen der Maschinen/Geräte — Reihenfolge = Anzeige-Reihenfolge.
-export const MASCHINEN_GRUPPEN = [
-  'Bagger', 'Lader & Dumper', 'Verdichtung', 'Lastwagen & Transport', 'Kleingeräte',
-];
+// Bewusst schlank für den Start: Bagger nach Gewicht, Dumper nach
+// Nutzlast, gängige Kleingeräte. Lastwagen/Transport sind Fremdleistungen.
+export const MASCHINEN_GRUPPEN = ['Bagger', 'Dumper', 'Kleingeräte'];
 
 export const FREMDLEISTUNGS_GRUPPEN = [
-  'Kanal & Werkleitungen', 'Belag & Oberbau', 'Spezialtiefbau & Wasser',
-  'Kran & Transport', 'Vermessung & Prüfung', 'Handwerker', 'Verkehr & Entsorgung',
+  'Transport & Kran', 'Kanal & Werkleitungen', 'Belag & Oberbau', 'Spezialtiefbau & Wasser',
+  'Vermessung & Prüfung', 'Handwerker', 'Verkehr & Entsorgung',
 ];
 
 export const MASCHINEN = Object.freeze([
@@ -29,23 +30,14 @@ export const MASCHINEN = Object.freeze([
     'Mobilbagger 8 t', 'Mobilbagger 14 t', 'Mobilbagger 18 t',
     'Raupenbagger 14 t', 'Raupenbagger 22 t', 'Raupenbagger 30 t',
   ]),
-  ...eintraege('Lader & Dumper', 'h', [
-    'Pneulader', 'Kompaktlader', 'Dumper 3 t', 'Dumper 6 t',
-  ]),
-  ...eintraege('Verdichtung', 'h', [
-    'Grabenwalze', 'Tandemwalze 2.5 t', 'Tandemwalze 4 t',
-    'Vibroplatte 100 kg', 'Vibroplatte 200 kg', 'Vibroplatte 400 kg',
-    'Rüttelplatte reversierbar', 'Stampfer',
-  ]),
-  ...eintraege('Lastwagen & Transport', 'h', [
-    'LKW 2-Achser Kipper', 'LKW 3-Achser Kipper', 'LKW 4-Achser Kipper',
-    'Sattelzug', 'Kranwagen', 'Lieferwagen', 'Anhänger',
+  ...eintraege('Dumper', 'h', [
+    'Dumper 1.5 t Nutzlast', 'Dumper 3 t Nutzlast', 'Dumper 6 t Nutzlast', 'Dumper 9 t Nutzlast',
   ]),
   ...eintraege('Kleingeräte', 'h', [
-    'Kompressor mit Abbauhammer', 'Betonmischer', 'Grabenverbau (Verbauboxen)',
-    'Tauchpumpe', 'Notstromaggregat', 'Belagsfräse klein', 'Fugenschneider',
-    'Kernbohrgerät',
-    { name: 'Abschrankung / Signalisation', einheit: 'Tag' },
+    'Vibroplatte 100 kg', 'Vibroplatte 200 kg', 'Vibroplatte 400 kg',
+    'Stampfer', 'Grabenwalze', 'Kompressor mit Abbauhammer', 'Tauchpumpe',
+    'Notstromaggregat', 'Fugenschneider', 'Kernbohrgerät', 'Betonmischer',
+    'Trennscheibe', 'Nivellier-/Rotationslaser', 'Verbauboxen (Grabenverbau)',
   ]),
 ]);
 
@@ -62,8 +54,9 @@ export const FREMDLEISTUNGEN = Object.freeze([
   ...eintraege('Spezialtiefbau & Wasser', 'h', [
     'Spundwand / Spezialtiefbau', 'Wasserhaltung (Firma)',
   ]),
-  ...eintraege('Kran & Transport', 'h', [
-    'Autokran mit Kranführer', 'Pneukran',
+  ...eintraege('Transport & Kran', 'h', [
+    'Lastwagen 3-Achser mit Chauffeur', 'Lastwagen 4-Achser mit Chauffeur',
+    'Sattelzug / Tieflader', 'Autokran mit Kranführer', 'Pneukran',
     { name: 'Betonlieferung mit Pumpe', einheit: 'm³' },
   ]),
   ...eintraege('Vermessung & Prüfung', 'h', [

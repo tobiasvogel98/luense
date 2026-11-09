@@ -11,7 +11,9 @@
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { exportiereCsv } from '../kern/export.js';
 import { esc } from '../kern/ui.js';
-import { MASCHINEN, MASCHINEN_GRUPPEN, nachGruppe } from '../kern/katalog.js';
+import {
+  MASCHINEN, MASCHINEN_GRUPPEN, FREMDLEISTUNGEN, FREMDLEISTUNGS_GRUPPEN, nachGruppe,
+} from '../kern/katalog.js';
 
 const PERSONAL_ID = 'personal';
 // LMV-Lohnklassen — reine Angabe für den Treuhänder, Lünse rechnet keine Löhne.
@@ -78,19 +80,20 @@ export default {
         <details class="karte import">
           <summary>Geräte / Inventar pflegen</summary>
           <p class="hinweis">Die Geräteliste erscheint im Tagesrapport als
-            Antipp-Matrix — einheitliche Namen statt Tipperei.</p>
+            Antipp-Matrix — einheitliche Namen statt Tipperei. Auch
+            Fremdleistungen (z. B. Lastwagen mit Chauffeur) können hier stehen.</p>
           <div data-rolle="geraete-liste"></div>
-          <form class="feld-reihe" data-rolle="geraet-form">
+          <form class="feld-reihe geraet-form" data-rolle="geraet-form">
             <label>Gerät / Maschine<input name="name" required autocomplete="off"
               placeholder="z. B. Bagger 308"></label>
             <button type="submit" class="knopf zeile-hinzu">+ Gerät</button>
           </form>
           <details class="katalog-wahl" data-rolle="katalog-wahl">
             <summary>Aus Katalog übernehmen</summary>
-            <p class="hinweis">Übliche Maschinen und Geräte — antippen, dann
-              übernehmen. Bereits erfasste sind ausgegraut.</p>
+            <p class="hinweis">Übliche Maschinen, Geräte und Fremdleistungen —
+              antippen, dann übernehmen. Bereits erfasste sind ausgegraut.</p>
             <label class="katalog-suche">Suchen<input type="search" data-rolle="katalog-suche"
-              autocomplete="off" placeholder="z. B. Bagger, Walze"></label>
+              autocomplete="off" placeholder="z. B. Bagger, Lastwagen"></label>
             <div data-rolle="katalog-gruppen"></div>
             <div class="knopfzeile katalog-aktionen">
               <button type="button" class="knopf knopf-primaer"
@@ -430,7 +433,8 @@ export default {
       geraeteListe.innerHTML = geraete.length
         ? geraete.map((g) => `
             <div class="fo-zeile dossier-zeile${g.archiviert ? ' erledigt-zeile' : ''}">
-              <span class="fo-label">${esc(g.name)}${g.archiviert ? ' (archiviert)' : ''}</span>
+              <span class="fo-label">${esc(g.name)}${g.archiviert ? ' (archiviert)' : ''}${
+                g.art === 'fremdleistung' ? ' <span class="chip">Fremdleistung</span>' : ''}</span>
               <button type="button" class="knopf" data-geraet-archiv="${esc(g._id)}">
                 ${g.archiviert ? 'Aktivieren' : 'Archivieren'}</button>
               <button type="button" class="knopf zeile-weg" data-geraet-weg="${esc(g._id)}"
@@ -466,19 +470,27 @@ export default {
       const vorhanden = new Set((await ladeGeraete()).map((g) => g.name.trim().toLowerCase()));
       const gewaehlt = new Set([...katalogGruppen.querySelectorAll('[data-katalog]:checked')]
         .map((el) => el.value));
-      katalogGruppen.innerHTML = nachGruppe(MASCHINEN, MASCHINEN_GRUPPEN).map(({ gruppe, eintraege }) => `
+      const gruppeHtml = (art) => ({ gruppe, eintraege }) => `
         <fieldset class="katalog-gruppe">
           <legend>${esc(gruppe)}</legend>
           <div class="chips">${eintraege.map((e) => {
             const schon = vorhanden.has(e.name.toLowerCase());
             return `
               <label class="chip-wahl${schon ? ' katalog-vorhanden' : ''}" data-katalog-name="${esc(e.name.toLowerCase())}">
-                <input type="checkbox" data-katalog value="${esc(e.name)}"
+                <input type="checkbox" data-katalog data-art="${art}" value="${esc(e.name)}"
                   ${schon ? 'disabled' : ''} ${!schon && gewaehlt.has(e.name) ? 'checked' : ''}>
                 <span>${schon ? '✓ ' : ''}${esc(e.name)}</span>
               </label>`;
           }).join('')}</div>
-        </fieldset>`).join('');
+        </fieldset>`;
+      // Zwei Abschnitte: eigene Maschinen/Geräte und Fremdleistungen.
+      // Beide werden normale Geräte im Stamm (Zeilen der Rapport-Matrix),
+      // Fremdleistungen tragen art: 'fremdleistung'.
+      katalogGruppen.innerHTML = `
+        <h4 class="katalog-abschnitt">Maschinen / Geräte</h4>
+        ${nachGruppe(MASCHINEN, MASCHINEN_GRUPPEN).map(gruppeHtml('maschine')).join('')}
+        <h4 class="katalog-abschnitt" data-rolle="fremd-abschnitt">Fremdleistungen</h4>
+        ${nachGruppe(FREMDLEISTUNGEN, FREMDLEISTUNGS_GRUPPEN).map(gruppeHtml('fremdleistung')).join('')}`;
       filtereKatalog();
     }
 
@@ -494,6 +506,16 @@ export default {
         });
         gruppe.hidden = !sichtbar;
       });
+      // Abschnittstitel ohne sichtbare Gruppe ausblenden.
+      katalogGruppen.querySelectorAll('.katalog-abschnitt').forEach((titel) => {
+        let el = titel.nextElementSibling;
+        let leer = true;
+        while (el && !el.classList.contains('katalog-abschnitt')) {
+          if (!el.hidden) leer = false;
+          el = el.nextElementSibling;
+        }
+        titel.hidden = leer;
+      });
     }
 
     katalogSuche.addEventListener('input', filtereKatalog);
@@ -503,19 +525,23 @@ export default {
 
     katalogWahl.querySelector('[data-aktion="katalog-uebernehmen"]')
       .addEventListener('click', async () => {
-        const namen = [...katalogGruppen.querySelectorAll('[data-katalog]:checked')]
-          .map((el) => el.value);
+        const gewaehlte = [...katalogGruppen.querySelectorAll('[data-katalog]:checked')]
+          .map((el) => ({ name: el.value, art: el.dataset.art }));
+        const namen = gewaehlte.map((g) => g.name);
         if (!namen.length) {
-          katalogMeldung.textContent = 'Nichts ausgewählt — zuerst Geräte antippen.';
+          katalogMeldung.textContent = 'Nichts ausgewählt — zuerst Einträge antippen.';
           return;
         }
         const vorhanden = new Set((await ladeGeraete()).map((g) => g.name.trim().toLowerCase()));
-        const neu = namen.filter((name) => !vorhanden.has(name.toLowerCase()));
-        for (const name of neu) {
-          await put({ typ: 'geraet', baustelleId: PERSONAL_ID, name, archiviert: false });
+        const neu = gewaehlte.filter((g) => !vorhanden.has(g.name.toLowerCase()));
+        for (const { name, art } of neu) {
+          await put({
+            typ: 'geraet', baustelleId: PERSONAL_ID, name, archiviert: false,
+            ...(art === 'fremdleistung' ? { art } : {}),
+          });
         }
         const uebersprungen = namen.length - neu.length;
-        katalogMeldung.textContent = `${neu.length} ${neu.length === 1 ? 'Gerät' : 'Geräte'} übernommen${
+        katalogMeldung.textContent = `${neu.length} ${neu.length === 1 ? 'Eintrag' : 'Einträge'} übernommen${
           uebersprungen ? `, ${uebersprungen} schon vorhanden` : ''}.`;
         katalogGruppen.querySelectorAll('[data-katalog]:checked').forEach((el) => { el.checked = false; });
         await zeichneGeraete();

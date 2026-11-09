@@ -628,10 +628,19 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   min-width: 0;
 }
 
+.stunden-matrix {
+  align-items: end; /* Felder auf einer Linie, auch bei zweizeiligen Namen */
+}
+
+/* Lange Namen (z. B. «Lastwagen 3-Achser mit Chauffeur») auf höchstens
+   zwei Zeilen statt aus der Zelle zu laufen. */
 .matrix-zelle span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
   color: var(--farbe-text-gedaempft);
   font-weight: 600;
 }
@@ -2761,4 +2770,49 @@ details.katalog-wahl > summary {
   .blatt-schleier {
     display: none !important;
   }
+}
+
+/* Gerätestamm: Abschnitte im Katalog und Eingabe von Hand */
+
+.katalog-abschnitt {
+  margin: var(--abstand-4) 0 var(--abstand-2);
+  padding-bottom: var(--abstand-1);
+  font-size: var(--schrift-basis);
+  border-bottom: 1px solid var(--farbe-linie);
+}
+
+.geraet-form {
+  align-items: flex-end;
+  margin-top: var(--abstand-3);
+}
+
+.geraet-form label {
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--farbe-text-gedaempft);
+}
+
+.geraet-form input {
+  display: block;
+  font-weight: 400;
+  width: 100%;
+  min-height: var(--touch-ziel);
+  margin-top: var(--abstand-1);
+  padding: 0 var(--abstand-3);
+  font-family: inherit;
+  font-size: var(--schrift-basis);
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.geraet-form input:focus-visible {
+  outline: 2px solid var(--farbe-akzent);
+  outline-offset: 1px;
+}
+
+.geraet-form .zeile-hinzu {
+  min-height: var(--touch-ziel);
+  margin-top: 0;
 }
