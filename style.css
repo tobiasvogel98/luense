@@ -2145,3 +2145,42 @@ code {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Beispielbaustelle (kern/demo.js): Hinweis in der Kopfzeile und im Stamm */
+
+.baustellen-wahl {
+  position: relative;
+}
+
+.beispiel-badge {
+  position: absolute;
+  top: -9px;
+  right: 30px;
+  padding: 0 var(--abstand-2);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  pointer-events: none; /* Antippen trifft die Auswahl darunter */
+  font-weight: 700;
+  color: var(--farbe-akzent-kontrast);
+  background: var(--farbe-akzent);
+  border-radius: 999px;
+}
+
+.chip.beispiel-chip {
+  color: var(--farbe-akzent-kontrast);
+  background: var(--farbe-akzent);
+  border-color: var(--farbe-akzent);
+  font-weight: 700;
+}
+
+.beispiel-bereich {
+  border-left: 4px solid var(--farbe-akzent);
+}
+
+.beispiel-bereich h3 {
+  margin-bottom: var(--abstand-2);
+}
+
+.beispiel-bereich .knopfzeile {
+  margin-top: var(--abstand-3);
+}

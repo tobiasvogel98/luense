@@ -143,6 +143,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
       <article class="karte baustelle${b.archiviert ? ' archiviert' : ''}">
         <div class="baustelle-kopf">
           <strong>${esc(b.ktr)}</strong> ${esc(b.name)}
+          ${b.demo ? '<span class="chip beispiel-chip">Beispiel</span>' : ''}
           ${b.archiviert ? '<span class="chip">archiviert</span>' : ''}
         </div>
         ${details ? `<p class="hinweis">${details}</p>` : ''}
