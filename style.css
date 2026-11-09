@@ -2189,3 +2189,69 @@ code {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Gerätestamm: Auswahl aus dem fix hinterlegten Katalog */
+
+details.katalog-wahl {
+  margin-top: var(--abstand-4);
+  padding-top: var(--abstand-3);
+  border-top: 1px solid var(--farbe-linie);
+}
+
+details.katalog-wahl > summary {
+  min-height: var(--touch-ziel);
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  color: var(--farbe-akzent);
+  cursor: pointer;
+}
+
+.katalog-suche {
+  display: block;
+  margin: var(--abstand-3) 0;
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--farbe-text-gedaempft);
+}
+
+.katalog-suche input {
+  display: block;
+  width: 100%;
+  min-height: var(--touch-ziel);
+  margin-top: var(--abstand-1);
+  padding: 0 var(--abstand-3);
+  font: inherit;
+  font-size: var(--schrift-basis);
+  color: var(--farbe-text);
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.katalog-gruppe {
+  border: 0;
+  padding: 0;
+  margin: 0 0 var(--abstand-3);
+}
+
+.katalog-gruppe legend {
+  padding: 0;
+  margin-bottom: var(--abstand-2);
+  font-size: var(--schrift-klein);
+  font-weight: 700;
+  color: var(--farbe-text-gedaempft);
+}
+
+.katalog-gruppe .chips {
+  margin-bottom: 0;
+}
+
+.katalog-vorhanden span {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.katalog-aktionen .knopf {
+  flex: 1 1 auto;
+}

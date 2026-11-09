@@ -21,6 +21,7 @@ const DATEIEN = [
   './kern/pdf.js',
   './kern/export.js',
   './kern/ui.js',
+  './kern/katalog.js',
   './module/ereignis.js',
   './module/pendenzen.js',
   './module/rapport.js',

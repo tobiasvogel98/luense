@@ -11,6 +11,7 @@
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { exportiereCsv } from '../kern/export.js';
 import { esc } from '../kern/ui.js';
+import { MASCHINEN, MASCHINEN_GRUPPEN, nachGruppe } from '../kern/katalog.js';
 
 const PERSONAL_ID = 'personal';
 // LMV-Lohnklassen — reine Angabe für den Treuhänder, Lünse rechnet keine Löhne.
@@ -84,6 +85,19 @@ export default {
               placeholder="z. B. Bagger 308"></label>
             <button type="submit" class="knopf zeile-hinzu">+ Gerät</button>
           </form>
+          <details class="katalog-wahl" data-rolle="katalog-wahl">
+            <summary>Aus Katalog übernehmen</summary>
+            <p class="hinweis">Übliche Maschinen und Geräte — antippen, dann
+              übernehmen. Bereits erfasste sind ausgegraut.</p>
+            <label class="katalog-suche">Suchen<input type="search" data-rolle="katalog-suche"
+              autocomplete="off" placeholder="z. B. Bagger, Walze"></label>
+            <div data-rolle="katalog-gruppen"></div>
+            <div class="knopfzeile katalog-aktionen">
+              <button type="button" class="knopf knopf-primaer"
+                data-aktion="katalog-uebernehmen">Ausgewählte übernehmen</button>
+            </div>
+            <p class="meldung" role="status" data-rolle="katalog-meldung"></p>
+          </details>
         </details>
       </section>`;
 
@@ -439,6 +453,73 @@ export default {
         await put({ typ: 'geraet', baustelleId: PERSONAL_ID, name, archiviert: false });
         f.reset();
         await zeichneGeraete();
+        if (katalogWahl.open) await zeichneKatalog();
+      });
+
+    // ---------- Katalog-Wahl: fix hinterlegte Geräte übernehmen ----------
+    const katalogWahl = container.querySelector('[data-rolle="katalog-wahl"]');
+    const katalogGruppen = katalogWahl.querySelector('[data-rolle="katalog-gruppen"]');
+    const katalogSuche = katalogWahl.querySelector('[data-rolle="katalog-suche"]');
+    const katalogMeldung = katalogWahl.querySelector('[data-rolle="katalog-meldung"]');
+
+    async function zeichneKatalog() {
+      const vorhanden = new Set((await ladeGeraete()).map((g) => g.name.trim().toLowerCase()));
+      const gewaehlt = new Set([...katalogGruppen.querySelectorAll('[data-katalog]:checked')]
+        .map((el) => el.value));
+      katalogGruppen.innerHTML = nachGruppe(MASCHINEN, MASCHINEN_GRUPPEN).map(({ gruppe, eintraege }) => `
+        <fieldset class="katalog-gruppe">
+          <legend>${esc(gruppe)}</legend>
+          <div class="chips">${eintraege.map((e) => {
+            const schon = vorhanden.has(e.name.toLowerCase());
+            return `
+              <label class="chip-wahl${schon ? ' katalog-vorhanden' : ''}" data-katalog-name="${esc(e.name.toLowerCase())}">
+                <input type="checkbox" data-katalog value="${esc(e.name)}"
+                  ${schon ? 'disabled' : ''} ${!schon && gewaehlt.has(e.name) ? 'checked' : ''}>
+                <span>${schon ? '✓ ' : ''}${esc(e.name)}</span>
+              </label>`;
+          }).join('')}</div>
+        </fieldset>`).join('');
+      filtereKatalog();
+    }
+
+    function filtereKatalog() {
+      const suche = katalogSuche.value.trim().toLowerCase();
+      katalogGruppen.querySelectorAll('.katalog-gruppe').forEach((gruppe) => {
+        let sichtbar = 0;
+        gruppe.querySelectorAll('[data-katalog-name]').forEach((chip) => {
+          const passt = !suche || chip.dataset.katalogName.includes(suche)
+            || gruppe.querySelector('legend').textContent.toLowerCase().includes(suche);
+          chip.hidden = !passt;
+          if (passt) sichtbar += 1;
+        });
+        gruppe.hidden = !sichtbar;
+      });
+    }
+
+    katalogSuche.addEventListener('input', filtereKatalog);
+    katalogWahl.addEventListener('toggle', () => {
+      if (katalogWahl.open) zeichneKatalog();
+    });
+
+    katalogWahl.querySelector('[data-aktion="katalog-uebernehmen"]')
+      .addEventListener('click', async () => {
+        const namen = [...katalogGruppen.querySelectorAll('[data-katalog]:checked')]
+          .map((el) => el.value);
+        if (!namen.length) {
+          katalogMeldung.textContent = 'Nichts ausgewählt — zuerst Geräte antippen.';
+          return;
+        }
+        const vorhanden = new Set((await ladeGeraete()).map((g) => g.name.trim().toLowerCase()));
+        const neu = namen.filter((name) => !vorhanden.has(name.toLowerCase()));
+        for (const name of neu) {
+          await put({ typ: 'geraet', baustelleId: PERSONAL_ID, name, archiviert: false });
+        }
+        const uebersprungen = namen.length - neu.length;
+        katalogMeldung.textContent = `${neu.length} ${neu.length === 1 ? 'Gerät' : 'Geräte'} übernommen${
+          uebersprungen ? `, ${uebersprungen} schon vorhanden` : ''}.`;
+        katalogGruppen.querySelectorAll('[data-katalog]:checked').forEach((el) => { el.checked = false; });
+        await zeichneGeraete();
+        await zeichneKatalog();
       });
 
     geraeteListe.addEventListener('click', async (klick) => {
@@ -452,6 +533,7 @@ export default {
         if (!confirm('Gerät aus dem Stamm löschen? Bestehende Rapporte bleiben unverändert.')) return;
         await entferneDokument(wegId);
         await zeichneGeraete();
+        if (katalogWahl.open) await zeichneKatalog();
       }
     });
 
