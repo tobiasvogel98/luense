@@ -26,8 +26,11 @@ export const esc = (s) =>
 // - Ausgeschlossen: Regierung, Mittagsunterbruch, Zusatzmittel/-stoff
 //   (Beton), Behindertenparkplatz.
 // - Bewusst grosszügig: «zusätzlich», «Mehrmenge», «Wartezeit»,
-//   «angetroffen», «nicht im Plan» — können auch normale Arbeit sein,
-//   sind aber häufige Vorboten eines Nachtrags.
+//   «angetroffen», «nicht im Plan», «nicht ersichtlich/bekannt»,
+//   «unbekannt» — können auch normale Arbeit sein («Lieferzeit
+//   unbekannt»), sind aber häufige Vorboten eines Nachtrags.
+// - Leitungsschaden allein («herausgerissen», «beschädigt») ist KEIN
+//   Treffer hier (kann Unternehmerverschulden sein) → SCHADEN_MUSTER.
 const W = '(?<![\\p{L}\\p{N}])'; // Wortanfang (auch vor Umlauten korrekt)
 const E = '(?![\\p{L}\\p{N}])'; // Wortende
 const AG = `(?:bl|obl|bh|bauleitung|oberbauleitung|bauherr(?:in|en|n|schaft)?|ingenieur|projektverfasser|auftraggeber(?:in)?|gemeinde|tiefbauamt|bauamt|werkeigentümer)${E}`;
@@ -62,8 +65,11 @@ const REGIE_TEILE = [
   `${W}(?:arbeits)?unterbruch`,
   // Unvorhergesehenes im Boden
   'findling', 'altlast', 'kontaminiert', 'angetroffen',
-  `nicht\\s+(?:im|in\\s+den|auf\\s+dem|auf\\s+den)\\s+pl(?:a|ä)ne?n?${E}`,
-  'nicht\\s+eingezeichnet', `${W}unbekannte[nrs]?\\s+(?:werk)?leitung`,
+  // Werkleitung nicht ersichtlich/nicht im Plan = Baugrundrisiko des
+  // Bauherrn (SIA 118 Art. 58) — typischer Regie-/Nachtragsfall.
+  `nicht\\s+(?:im|in\\s+den|in\\s+der|auf\\s+dem|auf\\s+den)\\s+\\p{L}*(?:pl(?:a|ä)ne?n?|kataster)${E}`,
+  'nicht\\s+(?:ersichtlich|eingezeichnet|erfasst|vermerkt|bekannt|dokumentiert|verzeichnet)',
+  `${W}unbekannt`, 'fremdleitung',
   `${W}(?:notfall|pikett)einsatz`,
 ];
 
@@ -71,6 +77,23 @@ export const REGIE_MUSTER = new RegExp(
   REGIE_TEILE.join('|')
     .replace(/ä/g, '(?:ä|ae)').replace(/ö/g, '(?:ö|oe)').replace(/ü/g, '(?:ü|ue)'),
   'iu');
+
+// Leitungsschaden allein (herausgerissen, beschädigt, angefahren) kann
+// auch Unternehmerverschulden sein — darum KEIN automatisches Häkchen,
+// nur ein sichtbarer Hinweis «Leitungsschaden – Regie prüfen?». Greift
+// nur, wenn REGIE_MUSTER nicht schon trifft.
+export const SCHADEN_MUSTER = new RegExp([
+  '(?:her|r)?ausgerissen', 'rausgerissen', 'abgerissen', 'beschädigt', 'angefahren',
+  'angebaggert', 'angebohrt', 'durchtrennt', 'gekappt',
+  '(?:leitungs|kabel|rohr)(?:schaden|bruch)', '(?<![\\p{L}])leck',
+].join('|').replace(/ä/g, '(?:ä|ae)'), 'iu');
+
+export function schadenTreffer(text) {
+  const t = String(text ?? '');
+  if (REGIE_MUSTER.test(t)) return '';
+  const treffer = t.match(SCHADEN_MUSTER);
+  return treffer ? treffer[0] : '';
+}
 
 // Die erkannte Stelle als kurzer Text («auf Anordnung»), sonst ''.
 export function regieTreffer(text) {
@@ -99,9 +122,12 @@ export function regieHinweiseRapport(rapport) {
     const treffer = regieTreffer(arbeitTexte(arbeit));
     if (treffer) hinweise.push({ ort: `Arbeit ${index + 1}`, index, treffer });
   });
-  if (!arbeiten.some((a) => a.regie) && !rapport?.regieHinweisIgnoriert) {
+  if (!arbeiten.some((a) => a.regie)) {
     const treffer = regieTreffer(rapport?.bemerkungen);
-    if (treffer) hinweise.push({ ort: 'Bemerkungen', index: -1, treffer });
+    // «Ohne Regie speichern» gilt nur für genau diesen Hinweis.
+    if (treffer && treffer !== rapport?.regieHinweisIgnoriert) {
+      hinweise.push({ ort: 'Bemerkungen', index: -1, treffer });
+    }
   }
   return hinweise;
 }

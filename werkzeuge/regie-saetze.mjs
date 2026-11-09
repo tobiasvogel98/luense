@@ -5,7 +5,7 @@
 // gegen das bisherige Muster (Stand vor der Erweiterung) und druckt eine
 // Treffer-Tabelle. Exit-Code 1, wenn ein Satz falsch erkannt wird.
 
-import { REGIE_MUSTER } from '../kern/ui.js';
+import { REGIE_MUSTER, schadenTreffer } from '../kern/ui.js';
 
 // Muster bis luense-v49 — zum Vergleich vorher/nachher.
 const ALT = new RegExp([
@@ -54,6 +54,19 @@ export const SAETZE = [
   ['Kontaminiertes Material separat abgeführt', true],
   ['Position fehlt im LV, Kies nachgeliefert', true],
   ['nach Aufwand: Hausanschluss freigelegt', true],
+  // Echter Testsatz des Eigentümers (sic) und Varianten: Werkleitung,
+  // die nicht ersichtlich/nicht im Plan war = Risiko Bauherr.
+  ['Werkleitungen herausgerissen, die nicht ersichtlich war', true],
+  ['beim Aushub Werkleitung herausgerissen, die nicht ersichtlich war', true],
+  ['Werkleitung herausgerissen, war nicht ersichtlich', true],
+  ['Wasserleitung beschädigt, nicht im Werkleitungsplan', true],
+  ['Kabel angefahren, nicht eingezeichnet', true],
+  ['Leitung nicht im Kataster', true],
+  ['Gasleitung war nicht bekannt', true],
+  ['nicht vermerkte Leitung angebaggert', true],
+  ['Leitung nicht erfasst, Bagger hat sie gekappt', true],
+  ['unbekannte Werkleitung freigelegt', true],
+  ['Fremdleitung im Graben, umgelegt', true],
   // --- Normale Arbeit (darf nicht treffen) ---
   ['Graben ausgehoben', false],
   ['Rohre verlegt und eingesandet', false],
@@ -73,18 +86,25 @@ export const SAETZE = [
   ['BL-Sitzung 10:00', false],
   ['Leitungen eingemessen und Blechabdeckung montiert', false],
   ['Info an Regierungsrat zur Strassensperrung', false],
+  // Leitungsschaden ohne Hinweis auf «nicht ersichtlich» → kein Häkchen,
+  // nur Hinweis «Leitungsschaden – Regie prüfen?» (Spalte «Schaden»).
+  ['Werkleitungen herausgerissen', false, true],
+  ['Wasserleitung beim Aushub beschädigt', false, true],
+  ['Kabel mit Bagger angefahren', false, true],
+  ['Hausanschluss abgerissen, Sanitär avisiert', false, true],
 ];
 
 const fmt = (b) => (b ? 'ja ' : '-  ');
 let alt = 0; let neu = 0; let fehler = 0; let altFehler = 0;
-console.log('soll alt neu  Satz');
-for (const [satz, soll] of SAETZE) {
+console.log('soll alt neu  Schaden  Satz');
+for (const [satz, soll, schadenSoll = false] of SAETZE) {
   const a = ALT.test(satz);
   const n = REGIE_MUSTER.test(satz);
+  const sch = !!schadenTreffer(satz);
   if (a === soll) alt++; else altFehler++;
-  if (n === soll) neu++; else fehler++;
-  const flag = n !== soll ? '  <-- FALSCH' : '';
-  console.log(`${fmt(soll)}  ${fmt(a)} ${fmt(n)}  ${satz}${flag}`);
+  if (n === soll && sch === schadenSoll) neu++; else fehler++;
+  const flag = n !== soll || sch !== schadenSoll ? '  <-- FALSCH' : '';
+  console.log(`${fmt(soll)}  ${fmt(a)} ${fmt(n)} ${fmt(sch)}      ${satz}${flag}`);
 }
 const pos = SAETZE.filter(([, s]) => s).length;
 console.log(`\n${SAETZE.length} Sätze (${pos} Regie, ${SAETZE.length - pos} normal)`);
