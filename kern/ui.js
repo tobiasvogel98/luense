@@ -4,22 +4,107 @@ export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-// Woran ein Arbeitstext Regie erkennt: das Wort selbst plus typische
-// Indikatoren (Quelle: Regieanmeldung in LünseDok und Baupraxis).
-// Wortstämme, damit Beugungen wie «unvorhergesehener» mitgehen.
-// Genutzt vom Rapport-Modul (Vorschlag beim Tippen) und vom Importer.
-export const REGIE_MUSTER = new RegExp([
-  'regie',
-  'nachtrag',
-  'unvorhergesehen',
-  'zusatzarbeit', 'zusatzaufwand', 'zusatzleistung',
-  'mehraufwand', 'mehrleistung', 'mehrkosten',
-  'stundenlohn',
-  'nicht im lv', 'ausserhalb (des )?lv', 'nicht ausgeschrieben', 'nicht offeriert',
-  'auf anordnung', 'anordnung (der )?bauleitung', 'anordnung (des )?bauherrn',
-  'auf wunsch',
+// Woran ein Text Regie erkennt: das Wort selbst plus typische Indikatoren
+// aus der Baupraxis (Regieanmeldung, SIA 118 Art. 84 ff.: Bestellungs-
+// änderung, Erschwernis, Behinderung, Mehrmengen). Genutzt vom Rapport
+// (Häkchen-Vorschlag beim Tippen, beim Laden und beim Speichern), vom
+// Journal (Vorschlag Tag «Regie») und vom Importer.
+//
+// Schreibweise: Umlaute werden unten automatisch auch als ae/oe/ue
+// erkannt («zusaetzlich», «gemaess»). Wortstämme, damit Beugungen
+// mitgehen («zusätzliche», «Mehrmengen», «Regiearbeit»).
+//
+// Abwägung Fehltreffer: Ein falsch gesetztes Häkchen kostet einen
+// Antipp (und wird nach dem Abwählen nie wieder gesetzt) — eine
+// vergessene Regie kostet Geld. Darum lieber etwas grosszügig, aber:
+// - Kürzel BL/BH/OBL nur als ganzes Wort UND nur mit «gem./lt./gemäss/
+//   laut» davor oder mit einem Anordnungs-Verb danach («BL hat
+//   angeordnet», «BH will …») — «BL-Sitzung», «Blech», «Bauleitung vor
+//   Ort Begehung» treffen bewusst NICHT (Anwesenheit ≠ Anordnung).
+// - «Anordnung» allein trifft nicht («Anordnung der Schächte»), nur
+//   «auf/gemäss/laut Anordnung» bzw. «Anordnung der Bauleitung».
+// - Ausgeschlossen: Regierung, Mittagsunterbruch, Zusatzmittel/-stoff
+//   (Beton), Behindertenparkplatz.
+// - Bewusst grosszügig: «zusätzlich», «Mehrmenge», «Wartezeit»,
+//   «angetroffen», «nicht im Plan» — können auch normale Arbeit sein,
+//   sind aber häufige Vorboten eines Nachtrags.
+const W = '(?<![\\p{L}\\p{N}])'; // Wortanfang (auch vor Umlauten korrekt)
+const E = '(?![\\p{L}\\p{N}])'; // Wortende
+const AG = `(?:bl|obl|bh|bauleitung|oberbauleitung|bauherr(?:in|en|n|schaft)?|ingenieur|projektverfasser|auftraggeber(?:in)?|gemeinde|tiefbauamt|bauamt|werkeigentümer)${E}`;
+const REGIE_TEILE = [
+  // Das Wort selbst und direkte Begriffe
+  'regie(?!rung)', 'nachtrag', 'unvorhergesehen', 'stundenlohn', 'taglohn',
+  `${W}nach\\s+aufwand`,
   'ausservertraglich',
-].join('|'), 'i');
+  // Zusatz-/Mehr-/Sonderleistungen
+  `${W}zusätzlich`, `${W}zusatz(?!mittel|stoff)`,
+  `${W}mehr(?:arbeit|aufwand|leistung|kosten|menge|ausmass|preis)`,
+  `${W}(?:extra|sonder)(?:arbeit|aufwand|leistung|wunsch)`,
+  // Nicht im Vertrag
+  `nicht\\s+(?:im|in\\s+der|in\\s+den)\\s+(?:lv|devis|leistungsverzeichnis|vertrag|werkvertrag|angebot|offerte|auftrag)${E}`,
+  `(?:lv|devis|vertrag|offerte)\\s+nicht${E}`,
+  `fehlt\\s+im\\s+(?:lv|devis|leistungsverzeichnis|vertrag|angebot|offerte)${E}`,
+  `nicht\\s+(?:ausgeschrieben|offeriert|devisiert|vorgesehen|enthalten|vereinbart|bestellt)`,
+  `ausserhalb\\s+(?:des\\s+|der\\s+)?(?:lv|devis|leistungsverzeichnis|vertrags?|werkvertrags?|auftrags?|offerte)${E}`,
+  `${W}(?:keine|ohne|fehlende)\\s+(?:npk[- ]?)?pos(?:ition|\\.)`,
+  // Anordnung / Wunsch des Auftraggebers
+  `${W}(?:auf|gemäss|gem\\.?|lt\\.?|laut|nach|per)\\s+(?:(?:mündliche|telefonische|ausdrückliche)[rn]?\\s+)?(?:anordnung|anweisung|weisung|verlangen|wunsch|bestellung)${E}`,
+  `${W}(?:anordnung|anweisung|auftrag|wunsch)\\s+(?:der\\s+|des\\s+|von\\s+|vom\\s+)?${AG}`,
+  `${W}(?:gemäss|gem\\.?|lt\\.?|laut)\\s+${AG}`,
+  `${W}${AG}\\s+(?:\\p{L}+\\s+){0,3}?(?:angeordnet|angewiesen|verlangt|gewünscht|wünscht|bestellt|will|möchte)${E}`,
+  'angeordnet',
+  `${W}(?:änderungs|bauherren|kunden)wunsch`, `${W}änderungswünsche`,
+  `(?:projekt|plan|bestellungs|ausführungs)änderung`,
+  `${W}projekt\\s+geändert`, 'umprojektiert',
+  // Erschwernis, Behinderung, Wartezeit
+  'erschwernis', 'erschwert', `behinderung`, `behindert(?!en)`,
+  'wartezeit', `${W}(?:warten|gewartet)\\s+auf${E}`, 'stillstand',
+  `${W}(?:arbeits)?unterbruch`,
+  // Unvorhergesehenes im Boden
+  'findling', 'altlast', 'kontaminiert', 'angetroffen',
+  `nicht\\s+(?:im|in\\s+den|auf\\s+dem|auf\\s+den)\\s+pl(?:a|ä)ne?n?${E}`,
+  'nicht\\s+eingezeichnet', `${W}unbekannte[nrs]?\\s+(?:werk)?leitung`,
+  `${W}(?:notfall|pikett)einsatz`,
+];
+
+export const REGIE_MUSTER = new RegExp(
+  REGIE_TEILE.join('|')
+    .replace(/ä/g, '(?:ä|ae)').replace(/ö/g, '(?:ö|oe)').replace(/ü/g, '(?:ü|ue)'),
+  'iu');
+
+// Die erkannte Stelle als kurzer Text («auf Anordnung»), sonst ''.
+export function regieTreffer(text) {
+  const treffer = String(text ?? '').match(REGIE_MUSTER);
+  return treffer ? treffer[0].replace(/\s+/g, ' ').trim() : '';
+}
+
+// Alle Texte einer Rapport-Arbeit, in denen ein Regie-Hinweis stehen kann:
+// Beschreibung plus die Textzeilen von Maschinen, Material, Fremdleistungen.
+export function arbeitTexte(arbeit) {
+  return [arbeit?.text,
+    ...[...(arbeit?.maschinen || []), ...(arbeit?.material || []),
+      ...(arbeit?.fremdleistungen || [])].map((z) => z?.name)]
+    .filter(Boolean).join(' · ');
+}
+
+// Regie-Hinweise eines gespeicherten Rapports, die (noch) nicht als Regie
+// verbucht sind — für Liste, Import-Meldung und Kontrolle beim Speichern.
+// Eine Arbeit mit von Hand gesetztem/entferntem Häkchen (regieManuell)
+// zählt nicht. Bemerkungen zählen nur, wenn keine Arbeit Regie ist.
+export function regieHinweiseRapport(rapport) {
+  const arbeiten = rapport?.arbeiten || [];
+  const hinweise = [];
+  arbeiten.forEach((arbeit, index) => {
+    if (arbeit.regie || arbeit.regieManuell) return;
+    const treffer = regieTreffer(arbeitTexte(arbeit));
+    if (treffer) hinweise.push({ ort: `Arbeit ${index + 1}`, index, treffer });
+  });
+  if (!arbeiten.some((a) => a.regie) && !rapport?.regieHinweisIgnoriert) {
+    const treffer = regieTreffer(rapport?.bemerkungen);
+    if (treffer) hinweise.push({ ort: 'Bemerkungen', index: -1, treffer });
+  }
+  return hinweise;
+}
 
 // Bild in Vollbild zeigen, optional mit Löschen — genutzt vom Journal
 // (Fotos) und von den Protokollen (Handnotizen).
