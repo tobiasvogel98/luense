@@ -2184,3 +2184,29 @@ code {
 .beispiel-bereich .knopfzeile {
   margin-top: var(--abstand-3);
 }
+
+/* Ausmass: Sprung zum Grabenrechner oben, Rücksprung am Abschnitt */
+
+.ausmass-aktionen {
+  margin-bottom: var(--abstand-3);
+}
+
+.graben-sprung {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  border-color: var(--farbe-akzent);
+  border-width: 2px;
+}
+
+.graben-kopf {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  margin: var(--abstand-5) 0 var(--abstand-1);
+  scroll-margin-top: var(--abstand-3);
+}
+
+.graben-kopf .graben-titel {
+  margin: 0;
+}
