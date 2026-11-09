@@ -14,15 +14,16 @@ import { exportiereCsv, teileDatei } from '../kern/export.js';
 import { verkleinereFoto } from '../kern/kamera.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
 import { esc, formatDatumZeit, REGIE_MUSTER, zeigeBildVollbild } from '../kern/ui.js';
+import { MASCHINEN, FREMDLEISTUNGEN } from '../kern/katalog.js';
 
 // Absenzarten nach LMV — zählen im Stundenkonto als Sollerfüllung.
 const ABSENZ_ARTEN = ['Ferien', 'Krankheit', 'Unfall', 'Schlechtwetter', 'Schule', 'Militär/ZS'];
 
 const GRUPPEN = [
   { schluessel: 'personen', label: 'Personen (mit Stunden)', hinzu: '+ Person', art: 'stunden', platzhalter: 'Name, z. B. Max' },
-  { schluessel: 'maschinen', label: 'Maschinen / Geräte (mit Stunden)', hinzu: '+ Maschine', art: 'stunden', platzhalter: 'z. B. Bagger' },
+  { schluessel: 'maschinen', label: 'Maschinen / Geräte (mit Stunden)', hinzu: '+ Maschine', art: 'stunden', platzhalter: 'z. B. Mobilbagger 14 t', vorschlaege: 'katalog-maschinen' },
   { schluessel: 'material', label: 'Material (Menge + Einheit)', hinzu: '+ Material', art: 'menge', platzhalter: 'z. B. Kiessand' },
-  { schluessel: 'fremdleistungen', label: 'Fremdleistungen (mit Stunden)', hinzu: '+ Fremdleistung', art: 'stunden', platzhalter: 'z. B. Kran Firma X' },
+  { schluessel: 'fremdleistungen', label: 'Fremdleistungen (mit Stunden)', hinzu: '+ Fremdleistung', art: 'stunden', platzhalter: 'z. B. Saugwagen', vorschlaege: 'katalog-fremdleistungen' },
 ];
 
 function heuteTag() {
@@ -115,6 +116,10 @@ export default {
     container.innerHTML = `
       <section class="rapporte">
         <h2>Rapporte · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h2>
+        <datalist id="katalog-maschinen">${MASCHINEN.map((e) =>
+          `<option value="${esc(e.name)}"></option>`).join('')}</datalist>
+        <datalist id="katalog-fremdleistungen">${FREMDLEISTUNGEN.map((e) =>
+          `<option value="${esc(e.name)}"></option>`).join('')}</datalist>
 
         <form class="karte formular" data-rolle="erfassung">
           <h3 data-rolle="formular-titel">Neuer Tagesrapport</h3>
@@ -253,7 +258,8 @@ export default {
            <input data-feld="einheit" class="zeile-einheit" placeholder="Einheit"
              autocomplete="off" value="${esc(daten.einheit ?? '')}">`
         : `<input data-feld="name" class="zeile-name" placeholder="${gruppe.platzhalter}"
-             autocomplete="off" value="${esc(daten.name ?? '')}">
+             autocomplete="off" value="${esc(daten.name ?? '')}"${
+             gruppe.vorschlaege ? ` list="${gruppe.vorschlaege}"` : ''}>
            <input data-feld="stunden" class="zeile-zahl" type="number" inputmode="decimal"
              step="0.25" min="0" placeholder="Std." value="${esc(daten.stunden ?? '')}">`;
       return `<div class="rapport-zeile" data-rolle="zeile">${felder}
