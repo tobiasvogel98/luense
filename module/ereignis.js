@@ -1,5 +1,7 @@
 // module/ereignis.js — Ereignis-Journal, erstes Modul der Shell.
-// Erfassung (Tag, Ort/KV, Notiz, Fotos) und gefilterte Liste, neuste zuerst.
+// Liste zuerst (nach Tagen gruppiert, neuste zuerst, mit Suche und
+// Tag-Filter); erfasst und bearbeitet wird in einem Blatt, das der
+// Knopf «+ Eintrag» unten rechts öffnet (Tag, Ort/KV, Notiz, Fotos).
 // Spricht ausschliesslich über den Kern mit der Datenbank.
 
 import {
@@ -13,28 +15,93 @@ import {
 } from '../kern/ui.js';
 
 const TAGS = ['Vorzustand', 'Fortschritt', 'Mangel', 'Regie', 'Abnahme'];
+const STANDARD_TAG = 'Fortschritt';
+const WOCHENTAGE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const FOTOS_IM_STREIFEN = 4; // danach eine Kachel «+N»
+
+// CSS-Klasse je Tag (Farbe der Chips und des Kartenrands).
+const tagKlasse = (tag) => `tag-${String(tag || '').toLowerCase()}`;
+
+// Suche: Gross/klein egal, Umlaute auch als ae/oe/ue (wie die Regie-
+// Erkennung) — «Schacht Mueller» findet «Schacht Müller» und umgekehrt.
+const normal = (text) => String(text ?? '').toLowerCase()
+  .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+  .normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+const tagSchluessel = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+};
+
+// «Mo 09.11.2026»
+function formatTagKopf(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Ohne Datum';
+  return `${WOCHENTAGE[d.getDay()]} ${d.toLocaleDateString('de-CH', {
+    day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+}
+
+function formatZeit(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? ''
+    : d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+}
 
 export default {
   name: 'Journal',
   dokumentTypen: ['ereignis'],
 
   render(container, baustelle) {
-    const filter = new Set(); // gewählte Tag-Chips; leer = alle zeigen
+    const filter = new Set(); // gewählte Filter-Chips; leer = alle zeigen
+    let suche = ''; // Suchtext (normalisiert)
     let gewaehlteFotos = []; // Dateien, die beim Speichern angehängt werden
     let inBearbeitung = null; // Ereignis, das gerade im Formular steht
     let regieAbgelehnt = ''; // «Nein, keine Regie» für genau diesen Hinweis
+    let rueckkehr = null; // Listenposition beim Öffnen des Blatts
     const objektUrls = []; // erzeugte Foto-URLs, beim Neuzeichnen freigeben
+    const offeneNotizen = new Set(); // aufgeklappte Notizen (Ids)
+    const offeneFotos = new Set(); // aufgeklappte Fotostreifen (Ids)
 
     container.innerHTML = `
       <section class="journal">
         <h2>Journal · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h2>
 
-        <form class="karte formular" data-rolle="erfassung">
-          <div class="chips" data-rolle="tag-wahl">
+        <div class="journal-werkzeuge">
+          <label class="journal-suche">
+            <span class="visually-hidden">Suchen in Notiz und Ort/KV</span>
+            <input type="search" data-rolle="suche" autocomplete="off"
+              placeholder="🔍 Suchen (Notiz, Ort/KV)">
+          </label>
+          <button type="button" class="knopf bericht-knopf" data-rolle="bericht"
+            title="PDF-Fotobericht erstellen">📄 PDF</button>
+        </div>
+        <div class="filter-zeile" role="group" aria-label="Liste filtern">
+          <span class="filter-titel">Filter</span>
+          <div class="chips" data-rolle="filter"></div>
+        </div>
+        <p class="meldung journal-meldung" role="status" data-rolle="listen-meldung"></p>
+
+        <input type="file" accept="image/*" capture="environment" multiple
+          data-rolle="foto-nachtrag" class="visually-hidden">
+        <div class="journal-liste" data-rolle="liste"></div>
+
+        <button type="button" class="knopf knopf-primaer neu-knopf" data-aktion="neu"
+          aria-haspopup="dialog">+ Eintrag</button>
+
+        <div class="blatt-schleier" data-rolle="schleier" hidden></div>
+        <form class="karte formular journal-blatt" data-rolle="erfassung" hidden
+          role="dialog" aria-modal="true" aria-labelledby="journal-blatt-titel">
+          <div class="blatt-kopf">
+            <h3 id="journal-blatt-titel" data-rolle="blatt-titel">Neuer Eintrag</h3>
+            <button type="button" class="knopf blatt-zu" data-aktion="bearbeiten-abbrechen"
+              aria-label="Schliessen">✕</button>
+          </div>
+          <p class="hinweis blatt-tag-titel">Tag</p>
+          <div class="chips tag-wahl" data-rolle="tag-wahl">
             ${TAGS.map((tag) => `
-              <label class="chip-wahl">
+              <label class="chip-wahl ${tagKlasse(tag)}">
                 <input type="radio" name="tag" value="${tag}"
-                  ${tag === 'Fortschritt' ? 'checked' : ''}>
+                  ${tag === STANDARD_TAG ? 'checked' : ''}>
                 <span>${tag}</span>
               </label>`).join('')}
           </div>
@@ -51,30 +118,27 @@ export default {
             <button type="button" class="knopf" data-rolle="handnotiz">✍ Handnotiz</button>
           </div>
           <p class="hinweis" data-rolle="foto-info"></p>
-          <div class="knopfzeile">
+          <div class="knopfzeile blatt-aktionen">
             <button type="submit" class="knopf knopf-primaer">Eintrag speichern</button>
-            <button type="button" class="knopf" data-aktion="bearbeiten-abbrechen" hidden>
+            <button type="button" class="knopf" data-aktion="bearbeiten-abbrechen">
               Abbrechen
             </button>
           </div>
           <p class="meldung" role="status"></p>
         </form>
-
-        <div class="listen-kopf">
-          <div class="chips" data-rolle="filter"></div>
-          <button type="button" class="knopf" data-rolle="bericht">PDF-Bericht</button>
-        </div>
-        <input type="file" accept="image/*" capture="environment" multiple
-          data-rolle="foto-nachtrag" class="visually-hidden">
-        <div data-rolle="liste"></div>
       </section>`;
 
     const formular = container.querySelector('[data-rolle="erfassung"]');
     const meldung = formular.querySelector('.meldung');
+    const blattTitel = formular.querySelector('[data-rolle="blatt-titel"]');
+    const schleier = container.querySelector('[data-rolle="schleier"]');
+    const neuKnopf = container.querySelector('[data-aktion="neu"]');
     const fotoEingabe = formular.querySelector('[data-rolle="foto-eingabe"]');
     const fotoInfo = formular.querySelector('[data-rolle="foto-info"]');
     const filterElement = container.querySelector('[data-rolle="filter"]');
     const listeElement = container.querySelector('[data-rolle="liste"]');
+    const listenMeldung = container.querySelector('[data-rolle="listen-meldung"]');
+    const sucheEingabe = container.querySelector('[data-rolle="suche"]');
 
     function zeigeFotoInfo() {
       fotoInfo.textContent = gewaehlteFotos.length
@@ -148,8 +212,9 @@ export default {
 
     function zeichneFilter() {
       filterElement.innerHTML = TAGS.map((tag) => `
-        <button type="button" class="chip chip-knopf${filter.has(tag) ? ' aktiv' : ''}"
-          data-tag="${tag}">${tag}</button>`).join('');
+        <button type="button" class="chip chip-knopf filter-chip${filter.has(tag) ? ' aktiv' : ''}"
+          data-tag="${tag}" aria-pressed="${filter.has(tag)}">${
+            filter.has(tag) ? '✓ ' : ''}${tag}</button>`).join('');
     }
 
     // Eintrag mit Regie-Hinweis, aber anderem Tag (z. B. älter oder
@@ -163,57 +228,127 @@ export default {
           data-id="${esc(e._id)}">Prüfen</button></p>`;
     }
 
+    // Was aus einem Eintrag entstanden ist: Nachtrag (verweist über
+    // beweise.ereignisIds) und Pendenz (verweist über ereignisId).
+    // Antippen wechselt ins jeweilige Modul (Shell-Ereignis, kein Aufruf).
+    function verweiseHtml(e, nachtraege, pendenzen) {
+      const zeilen = [
+        ...nachtraege.filter((n) => n.beweise?.ereignisIds?.includes(e._id)).map((n) => `
+          <button type="button" class="verweis" data-modul="Nachträge" data-ziel="${esc(n._id)}">
+            ↳ Nachtrag <strong>${esc(n.nummer || '')}</strong> · ${esc(n.status || 'erkannt')}
+          </button>`),
+        ...pendenzen.filter((p) => p.ereignisId === e._id).map((p) => `
+          <button type="button" class="verweis${p.erledigtAm ? ' verweis-erledigt' : ''}"
+            data-modul="Pendenzen" data-ziel="${esc(p._id)}">
+            ↳ Pendenz <strong>${p.erledigtAm ? 'erledigt' : 'offen'}</strong>
+          </button>`),
+      ];
+      return zeilen.length ? `<div class="verweise">${zeilen.join('')}</div>` : '';
+    }
+
+    function fotoStreifenHtml(e) {
+      const fotos = Object.keys(e._attachments || {});
+      if (!fotos.length) return '';
+      const alle = offeneFotos.has(e._id) || fotos.length <= FOTOS_IM_STREIFEN;
+      const gezeigt = alle ? fotos : fotos.slice(0, FOTOS_IM_STREIFEN - 1);
+      const rest = fotos.length - gezeigt.length;
+      return `
+        <div class="foto-streifen${alle && fotos.length > FOTOS_IM_STREIFEN ? ' offen' : ''}">
+          ${gezeigt.map((name) => `
+            <button type="button" class="foto-kachel" aria-label="Foto in Vollbild">
+              <img class="foto-thumb" alt="" data-id="${esc(e._id)}" data-name="${esc(name)}">
+            </button>`).join('')}
+          ${rest ? `<button type="button" class="foto-kachel foto-mehr" data-aktion="fotos-alle"
+            data-id="${esc(e._id)}" aria-label="Alle ${fotos.length} Fotos zeigen">+${rest}</button>` : ''}
+        </div>`;
+    }
+
+    function karteHtml(e, nachtraege, pendenzen) {
+      return `
+        <article class="karte ereignis ${tagKlasse(e.tag)}" data-ereignis="${esc(e._id)}">
+          <div class="ereignis-kopf">
+            <span class="tag-chip ${tagKlasse(e.tag)}">${esc(e.tag)}</span>
+            ${e.wiederholung > 1
+              ? `<span class="chip wiederhol-chip">⚠ ${e.wiederholung}. Mal</span>` : ''}
+            <span class="ereignis-zeit">${formatZeit(e.datum)}</span>
+            ${e.ortKv ? `<span class="ereignis-ort">· ${esc(e.ortKv)}</span>` : ''}
+            <span class="ereignis-aktionen">
+              <button type="button" class="knopf karten-knopf" data-aktion="foto-plus"
+                data-id="${esc(e._id)}" aria-label="Foto ergänzen">+ 📷</button>
+              <button type="button" class="knopf karten-knopf" data-aktion="menue"
+                data-id="${esc(e._id)}" aria-haspopup="menu" aria-expanded="false"
+                aria-label="Weitere Aktionen">⋯</button>
+              <span class="karten-menue" role="menu" hidden>
+                <button type="button" class="knopf" role="menuitem"
+                  data-aktion="eintrag-bearbeiten" data-id="${esc(e._id)}">✎ Bearbeiten</button>
+                <button type="button" class="knopf menue-loeschen" role="menuitem"
+                  data-aktion="loeschen" data-id="${esc(e._id)}">🗑 Löschen</button>
+              </span>
+            </span>
+          </div>
+          ${e.notiz ? `<p class="ereignis-notiz${offeneNotizen.has(e._id) ? ' offen' : ''}"
+            data-aktion="notiz-umschalten" data-id="${esc(e._id)}">${esc(e.notiz)}</p>` : ''}
+          ${e.quelleText ? `<p class="hinweis verknuepfung">↳ ${esc(e.quelleText)}</p>` : ''}
+          ${verweiseHtml(e, nachtraege, pendenzen)}
+          ${regieKartenHinweis(e)}
+          ${fotoStreifenHtml(e)}
+        </article>`;
+    }
+
+    function passt(e) {
+      if (filter.size && !filter.has(e.tag)) return false;
+      if (!suche) return true;
+      return normal(`${e.notiz || ''} ${e.ortKv || ''}`).includes(suche);
+    }
+
     async function zeichneListe() {
       objektUrls.forEach(URL.revokeObjectURL);
       objektUrls.length = 0;
-      const alle = await abfrage({ typ: 'ereignis', baustelleId: baustelle.baustelleId });
-      const gezeigt = filter.size ? alle.filter((e) => filter.has(e.tag)) : alle;
-      listeElement.innerHTML = gezeigt.length
-        ? gezeigt.map((e) => {
-            const fotos = Object.keys(e._attachments || {});
-            return `
-              <article class="karte ereignis">
-                <div class="ereignis-kopf">
-                  <span class="chip">${esc(e.tag)}</span>
-                  ${e.wiederholung > 1
-                    ? `<span class="chip wiederhol-chip">⚠ ${e.wiederholung}. Mal</span>` : ''}
-                  <span class="hinweis">${formatDatumZeit(e.datum)}${
-                    e.ortKv ? ' · ' + esc(e.ortKv) : ''}</span>
-                  <span class="rapport-knoepfe">
-                    <button type="button" class="knopf eintrag-loeschen"
-                      data-aktion="eintrag-bearbeiten" data-id="${esc(e._id)}">Bearbeiten</button>
-                    <button type="button" class="knopf eintrag-loeschen"
-                      data-aktion="foto-plus" data-id="${esc(e._id)}"
-                      aria-label="Foto ergänzen">+ 📷</button>
-                    <button type="button" class="knopf eintrag-loeschen"
-                      data-aktion="loeschen" data-id="${esc(e._id)}"
-                      aria-label="Eintrag löschen">Löschen</button>
-                  </span>
-                </div>
-                ${e.notiz ? `<p class="ereignis-notiz">${esc(e.notiz)}</p>` : ''}
-                ${e.quelleText ? `<p class="hinweis verknuepfung">↳ ${esc(e.quelleText)}</p>` : ''}
-                ${regieKartenHinweis(e)}
-                ${fotos.length ? `
-                  <div class="foto-reihe">
-                    ${fotos.map((name) => `
-                      <img class="foto-thumb" alt="Foto zum Eintrag" loading="lazy"
-                        data-id="${esc(e._id)}" data-name="${esc(name)}">`).join('')}
-                  </div>` : ''}
-              </article>`;
-          }).join('')
-        : `<p class="hinweis">${
-            alle.length
-              ? 'Keine Einträge zu dieser Tag-Auswahl.'
-              : 'Noch keine Einträge auf dieser Baustelle.'}</p>`;
+      const [alle, nachtraege, pendenzen] = await Promise.all([
+        abfrage({ typ: 'ereignis', baustelleId: baustelle.baustelleId }),
+        abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId }),
+        abfrage({ typ: 'pendenz', baustelleId: baustelle.baustelleId }),
+      ]);
+      const gezeigt = alle.filter(passt);
 
-      for (const bild of listeElement.querySelectorAll('.foto-thumb')) {
+      // Nach Kalendertag gruppieren (Liste kommt schon neuste zuerst).
+      const tage = [];
+      for (const e of gezeigt) {
+        const schluessel = tagSchluessel(e.datum);
+        if (tage.at(-1)?.schluessel !== schluessel) tage.push({ schluessel, eintraege: [] });
+        tage.at(-1).eintraege.push(e);
+      }
+
+      listeElement.innerHTML = gezeigt.length
+        ? tage.map(({ eintraege }) => `
+            <section class="tag-gruppe">
+              <h3 class="tag-kopf">${formatTagKopf(eintraege[0].datum)}
+                <span class="tag-anzahl">· ${eintraege.length} ${
+                  eintraege.length === 1 ? 'Eintrag' : 'Einträge'}</span></h3>
+              ${eintraege.map((e) => karteHtml(e, nachtraege, pendenzen)).join('')}
+            </section>`).join('')
+        : `<p class="hinweis">${
+            !alle.length ? 'Noch keine Einträge auf dieser Baustelle — unten rechts «+ Eintrag».'
+              : suche ? 'Keine Einträge zu dieser Suche.'
+                : 'Keine Einträge zu dieser Tag-Auswahl.'}</p>`;
+
+      // Notizen, die in zwei Zeilen passen, brauchen kein Aufklappen.
+      for (const notiz of listeElement.querySelectorAll('.ereignis-notiz:not(.offen)')) {
+        if (notiz.scrollHeight <= notiz.clientHeight + 1) notiz.classList.add('kurz');
+      }
+
+      await ladeThumbs(listeElement.querySelectorAll('.foto-thumb'));
+    }
+
+    async function ladeThumbs(bilder) {
+      for (const bild of bilder) {
         try {
           const blob = await holeAnhang(bild.dataset.id, bild.dataset.name);
           const url = URL.createObjectURL(blob);
           objektUrls.push(url);
           bild.src = url;
         } catch {
-          bild.remove();
+          bild.closest('.foto-kachel')?.remove();
         }
       }
     }
@@ -222,9 +357,30 @@ export default {
       zeigeBildVollbild(quelle, {
         onLoeschen: async () => {
           await entferneAnhang(docId, name);
-          await zeichneListe();
+          await neuZeichnenAnOrt(docId);
         },
       });
+    }
+
+    // Neu zeichnen, ohne dass die Liste springt: die Karte (oder sonst
+    // die Scrollhöhe) bleibt an derselben Stelle im Bildschirm.
+    async function neuZeichnenAnOrt(id) {
+      const karte = id && listeElement.querySelector(`[data-ereignis="${CSS.escape(id)}"]`);
+      const oben = karte ? karte.getBoundingClientRect().top : null;
+      const y = window.scrollY;
+      await zeichneListe();
+      const neu = id && listeElement.querySelector(`[data-ereignis="${CSS.escape(id)}"]`);
+      if (neu && oben !== null) {
+        window.scrollTo(0, window.scrollY + neu.getBoundingClientRect().top - oben);
+      } else {
+        window.scrollTo(0, y);
+      }
+    }
+
+    function zeigeListenMeldung(text) {
+      listenMeldung.textContent = text;
+      clearTimeout(zeigeListenMeldung.uhr);
+      zeigeListenMeldung.uhr = setTimeout(() => { listenMeldung.textContent = ''; }, 6000);
     }
 
     container.querySelector('[data-rolle="bericht"]')
@@ -239,6 +395,11 @@ export default {
       zeichneListe();
     });
 
+    sucheEingabe.addEventListener('input', () => {
+      suche = normal(sucheEingabe.value.trim());
+      zeichneListe();
+    });
+
     // Fotos nachträglich an einen bestehenden Eintrag hängen (z. B. an
     // Mängel, die eine Begehung automatisch erzeugt hat).
     const fotoNachtrag = container.querySelector('[data-rolle="foto-nachtrag"]');
@@ -248,62 +409,169 @@ export default {
       const dateien = [...fotoNachtrag.files];
       fotoNachtrag.value = '';
       if (!fotoZielId || !dateien.length) return;
+      const ziel = fotoZielId;
       for (const [index, datei] of dateien.entries()) {
         const klein = await verkleinereFoto(datei);
-        await haengeAnhangAn(fotoZielId,
+        await haengeAnhangAn(ziel,
           `foto-${Date.now().toString(36)}-${index}.jpg`, klein);
       }
       fotoZielId = null;
       document.dispatchEvent(new CustomEvent('luense:daten'));
-      await zeichneListe();
+      await neuZeichnenAnOrt(ziel);
     });
 
-    // Bestehenden Eintrag ins Formular laden (Fotos bleiben erhalten).
+    // ---------- Erfassungsblatt öffnen / schliessen ----------
+
+    function blattOffen() {
+      return !formular.hidden;
+    }
+
+    function oeffneBlatt(ereignis) {
+      rueckkehr = { y: window.scrollY, id: ereignis?._id || null };
+      fuelleFormular(ereignis);
+      formular.hidden = false;
+      schleier.hidden = false;
+      neuKnopf.hidden = true;
+      document.body.classList.add('blatt-offen');
+      formular.scrollTop = 0;
+    }
+
+    function schliesseBlatt() {
+      formular.hidden = true;
+      schleier.hidden = true;
+      neuKnopf.hidden = false;
+      document.body.classList.remove('blatt-offen');
+      fuelleFormular(null);
+      if (rueckkehr) window.scrollTo(0, rueckkehr.y);
+    }
+
+    // Bestehenden Eintrag ins Formular laden (Fotos bleiben erhalten);
+    // ohne Eintrag: leeres Formular, Tag zurück auf «Fortschritt».
     function fuelleFormular(ereignis) {
       inBearbeitung = ereignis;
-      const abbrechen = formular.querySelector('[data-aktion="bearbeiten-abbrechen"]');
-      abbrechen.hidden = !ereignis;
-      const tagWahl = formular.querySelector(`input[value="${ereignis?.tag || 'Fortschritt'}"]`);
+      blattTitel.textContent = ereignis
+        ? `Eintrag vom ${formatDatumZeit(ereignis.datum)}` : 'Neuer Eintrag';
+      const tagWahl = formular.querySelector(`input[value="${ereignis?.tag || STANDARD_TAG}"]`);
       if (tagWahl) tagWahl.checked = true;
       formular.elements.ortKv.value = ereignis?.ortKv ?? '';
       formular.elements.notiz.value = ereignis?.notiz ?? '';
+      gewaehlteFotos = [];
+      zeigeFotoInfo();
       regieAbgelehnt = ereignis?.regieHinweisAbgelehnt || '';
       zeigeRegieVorschlag();
-      meldung.textContent = ereignis
-        ? `Eintrag vom ${formatDatumZeit(ereignis.datum)} bearbeiten — Fotos bleiben erhalten.`
-        : '';
-      if (ereignis) formular.scrollIntoView({ behavior: 'smooth' });
+      meldung.textContent = ereignis ? 'Bearbeiten — vorhandene Fotos bleiben erhalten.' : '';
     }
 
-    formular.querySelector('[data-aktion="bearbeiten-abbrechen"]')
-      .addEventListener('click', () => fuelleFormular(null));
+    // Antippen daneben schliesst nur, wenn nichts verloren geht.
+    function hatEingaben() {
+      if (inBearbeitung) {
+        return gewaehlteFotos.length
+          || formular.elements.notiz.value !== (inBearbeitung.notiz ?? '')
+          || formular.elements.ortKv.value !== (inBearbeitung.ortKv ?? '')
+          || gewaehlterTag() !== inBearbeitung.tag;
+      }
+      return gewaehlteFotos.length || formular.elements.notiz.value.trim()
+        || formular.elements.ortKv.value.trim();
+    }
 
-    listeElement.addEventListener('click', async (klick) => {
-      const bearbeitenKnopf = klick.target.closest('[data-aktion="eintrag-bearbeiten"]');
-      if (bearbeitenKnopf) {
-        const alle = await abfrage({ typ: 'ereignis', baustelleId: baustelle.baustelleId });
-        const ereignis = alle.find((e) => e._id === bearbeitenKnopf.dataset.id);
-        if (ereignis) fuelleFormular(ereignis);
+    neuKnopf.addEventListener('click', () => oeffneBlatt(null));
+    formular.querySelectorAll('[data-aktion="bearbeiten-abbrechen"]').forEach((knopf) =>
+      knopf.addEventListener('click', schliesseBlatt));
+    schleier.addEventListener('click', () => {
+      if (hatEingaben()) {
+        meldung.textContent = 'Noch nicht gespeichert — «Eintrag speichern» oder «Abbrechen».';
         return;
       }
-      const fotoKnopf = klick.target.closest('[data-aktion="foto-plus"]');
-      if (fotoKnopf) {
-        fotoZielId = fotoKnopf.dataset.id;
+      schliesseBlatt();
+    });
+    const escTaste = (taste) => {
+      if (taste.key === 'Escape' && blattOffen() && !document.querySelector('.vollbild, .handnotiz')) {
+        schliesseBlatt();
+      }
+    };
+    document.addEventListener('keydown', escTaste);
+
+    // ---------- Karten-Menü «⋯» ----------
+
+    function schliesseMenues(ausser) {
+      listeElement.querySelectorAll('.karten-menue:not([hidden])').forEach((menue) => {
+        if (menue === ausser) return;
+        menue.hidden = true;
+        menue.previousElementSibling?.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    const draussenKlick = (klick) => {
+      if (!klick.target.closest('.ereignis-aktionen')) schliesseMenues();
+    };
+    document.addEventListener('click', draussenKlick);
+    // Aufräumen, sobald die Shell ein anderes Modul zeichnet.
+    new MutationObserver((_, beobachter) => {
+      if (!container.contains(listeElement)) {
+        document.removeEventListener('click', draussenKlick);
+        document.removeEventListener('keydown', escTaste);
+        document.body.classList.remove('blatt-offen');
+        beobachter.disconnect();
+      }
+    }).observe(container, { childList: true });
+
+    listeElement.addEventListener('click', async (klick) => {
+      const ziel = klick.target.closest('[data-aktion], .foto-kachel, [data-modul]');
+      if (!ziel) return;
+      const aktion = ziel.dataset.aktion;
+      const id = ziel.dataset.id;
+
+      if (aktion === 'menue') {
+        const menue = ziel.nextElementSibling;
+        const auf = menue.hidden;
+        schliesseMenues(menue);
+        menue.hidden = !auf;
+        ziel.setAttribute('aria-expanded', String(auf));
+        return;
+      }
+      schliesseMenues();
+
+      if (ziel.dataset.modul) {
+        document.dispatchEvent(new CustomEvent('luense:modulWechseln', {
+          detail: { name: ziel.dataset.modul, fokusId: ziel.dataset.ziel },
+        }));
+        return;
+      }
+      if (aktion === 'eintrag-bearbeiten') {
+        const alle = await abfrage({ typ: 'ereignis', baustelleId: baustelle.baustelleId });
+        const ereignis = alle.find((e) => e._id === id);
+        if (ereignis) oeffneBlatt(ereignis);
+        return;
+      }
+      if (aktion === 'foto-plus') {
+        fotoZielId = id;
         fotoNachtrag.click();
         return;
       }
-      const loeschKnopf = klick.target.closest('[data-aktion="loeschen"]');
-      if (loeschKnopf) {
+      if (aktion === 'loeschen') {
         if (confirm('Diesen Eintrag endgültig löschen? Zugehörige Fotos werden mitgelöscht.')) {
-          await entferneDokument(loeschKnopf.dataset.id);
-          if (inBearbeitung?._id === loeschKnopf.dataset.id) fuelleFormular(null);
-          await zeichneListe();
+          await entferneDokument(id);
+          await neuZeichnenAnOrt(null);
+          zeigeListenMeldung('Eintrag gelöscht.');
         }
         return;
       }
-      const bild = klick.target.closest('.foto-thumb');
+      if (aktion === 'notiz-umschalten') {
+        if (ziel.classList.contains('kurz')) return;
+        ziel.classList.toggle('offen');
+        offeneNotizen[ziel.classList.contains('offen') ? 'add' : 'delete'](id);
+        return;
+      }
+      if (aktion === 'fotos-alle') {
+        offeneFotos.add(id);
+        await neuZeichnenAnOrt(id);
+        return;
+      }
+      const bild = ziel.querySelector('.foto-thumb');
       if (bild?.src) zeigeVollbild(bild.src, bild.dataset.id, bild.dataset.name);
     });
+
+    // ---------- Speichern ----------
 
     formular.addEventListener('submit', async (abschicken) => {
       abschicken.preventDefault();
@@ -356,8 +624,9 @@ export default {
           : [];
         const neuRegie = doc.tag === 'Regie' && (!warBearbeitung || (vorherTag !== 'Regie'
           && !nachtraege.some((n) => n.beweise?.ereignisIds?.includes(doc._id))));
+        let nummer = '';
         if (neuRegie) {
-          const nummer = `N-${String(nachtraege.length + 1).padStart(2, '0')}`;
+          nummer = `N-${String(nachtraege.length + 1).padStart(2, '0')}`;
           const nachtrag = await put({
             typ: 'nachtrag',
             baustelleId: baustelle.baustelleId,
@@ -385,20 +654,27 @@ export default {
             nachtragId: nachtrag._id,
           });
         }
-        formular.elements.ortKv.value = '';
-        formular.elements.notiz.value = '';
-        gewaehlteFotos = [];
-        zeigeFotoInfo();
-        const alteBearbeitung = warBearbeitung;
-        inBearbeitung = null;
-        formular.querySelector('[data-aktion="bearbeiten-abbrechen"]').hidden = true;
-        meldung.textContent = neuRegie
-          ? `Eintrag ${alteBearbeitung ? 'aktualisiert' : 'gespeichert'} — Nachtrag (erkannt) und Pendenz erstellt.`
-          : alteBearbeitung ? 'Eintrag aktualisiert.' : 'Eintrag gespeichert.';
-        regieAbgelehnt = '';
-        zeigeRegieVorschlag();
+        // Blatt zu, Formular leer und Tag zurück auf «Fortschritt» —
+        // der nächste schnelle Eintrag erzeugt so keinen zweiten Nachtrag.
+        const zurueck = rueckkehr;
+        formular.hidden = true;
+        schleier.hidden = true;
+        neuKnopf.hidden = false;
+        document.body.classList.remove('blatt-offen');
+        fuelleFormular(null);
+        zeigeListenMeldung(neuRegie
+          ? `Eintrag ${warBearbeitung ? 'aktualisiert' : 'gespeichert'} — Nachtrag ${nummer} (erkannt) und Pendenz erstellt.`
+          : warBearbeitung ? 'Eintrag aktualisiert.' : 'Eintrag gespeichert.');
         document.dispatchEvent(new CustomEvent('luense:daten'));
-        await zeichneListe();
+        if (warBearbeitung) {
+          if (zurueck) window.scrollTo(0, zurueck.y);
+          await neuZeichnenAnOrt(doc._id);
+        } else {
+          await zeichneListe();
+          // Neuer Eintrag steht zuoberst — dorthin, damit man ihn sieht.
+          listeElement.querySelector(`[data-ereignis="${CSS.escape(doc._id)}"]`)
+            ?.scrollIntoView({ block: 'center' });
+        }
       } catch (fehler) {
         meldung.textContent = fehler.message;
       } finally {
@@ -406,6 +682,7 @@ export default {
       }
     });
 
+    fuelleFormular(null);
     zeichneFilter();
     zeichneListe();
   },

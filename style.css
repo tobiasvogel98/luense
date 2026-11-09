@@ -28,6 +28,19 @@
   --touch-ziel: 44px;
   --breite-max: 62rem; /* App-Breite auf dem Laptop; Handys bleiben unberührt */
   --schatten: 0 1px 3px rgba(0, 0, 0, 0.12);
+
+  /* Journal-Tags: Regie und Mangel vollflächig (am auffälligsten),
+     die übrigen getönt. Kontrast Text/Fläche ≥ 4.5:1 — auch in der Sonne. */
+  --tag-vorzustand: #1f5591;
+  --tag-vorzustand-flaeche: #e1ebf7;
+  --tag-fortschritt: #22662b;
+  --tag-fortschritt-flaeche: #e0f0e2;
+  --tag-abnahme: #5a3a9a;
+  --tag-abnahme-flaeche: #ebe4f7;
+  --tag-mangel: #b3221c;
+  --tag-mangel-text: #ffffff;
+  --tag-regie: #b45309;
+  --tag-regie-text: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,6 +55,17 @@
     --farbe-kopf: #1a232b;
     --farbe-kopf-text: #e8e6e1;
     --schatten: 0 1px 3px rgba(0, 0, 0, 0.5);
+
+    --tag-vorzustand: #93bdf2;
+    --tag-vorzustand-flaeche: #1b2a3e;
+    --tag-fortschritt: #8fd197;
+    --tag-fortschritt-flaeche: #1a2e1e;
+    --tag-abnahme: #c2adf5;
+    --tag-abnahme-flaeche: #2a2340;
+    --tag-mangel: #ef6a62;
+    --tag-mangel-text: #15171a;
+    --tag-regie: #f0a04b;
+    --tag-regie-text: #15171a;
   }
 }
 
@@ -2254,6 +2278,7 @@ details.katalog-wahl > summary {
 
 .katalog-aktionen .knopf {
   flex: 1 1 auto;
+}
 
 /* Beispielbaustelle (kern/demo.js): Hinweis in der Kopfzeile und im Stamm */
 
@@ -2318,4 +2343,422 @@ details.katalog-wahl > summary {
 
 .graben-kopf .graben-titel {
   margin: 0;
+}
+
+/* ---------- Journal: Liste zuerst, Erfassung im Blatt ---------- */
+
+.journal {
+  /* Platz unter der letzten Karte, damit «+ Eintrag» nichts verdeckt */
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+
+.journal-werkzeuge {
+  display: flex;
+  gap: var(--abstand-2);
+  margin-bottom: var(--abstand-2);
+}
+
+.journal-suche {
+  flex: 1;
+  min-width: 0;
+}
+
+.journal-suche input {
+  width: 100%;
+  min-height: var(--touch-ziel);
+  padding: 0 var(--abstand-3);
+  font: inherit;
+  font-size: var(--schrift-basis);
+  color: var(--farbe-text);
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.journal-suche input:focus-visible {
+  outline: 2px solid var(--farbe-akzent);
+  outline-offset: 1px;
+}
+
+.bericht-knopf {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0 var(--abstand-3);
+}
+
+/* Filter über der Liste: neutral (Stahlblau), klar anders als die
+   farbige Tag-Wahl im Erfassungsblatt. */
+.filter-zeile {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--abstand-2);
+}
+
+.filter-zeile .chips {
+  margin-bottom: 0;
+  gap: var(--abstand-1);
+}
+
+.filter-titel {
+  flex-shrink: 0;
+  line-height: var(--touch-ziel);
+  font-size: var(--schrift-klein);
+  font-weight: 700;
+  color: var(--farbe-text-gedaempft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.filter-chip {
+  white-space: nowrap;
+  padding: 0 var(--abstand-3);
+  background: transparent;
+  border-style: dashed;
+}
+
+.filter-chip.aktiv {
+  color: var(--farbe-kopf-text);
+  background: var(--farbe-kopf);
+  border: 1px solid var(--farbe-kopf);
+}
+
+@media (prefers-color-scheme: dark) {
+  .filter-chip.aktiv {
+    color: var(--farbe-text);
+    background: #3a4b59;
+    border-color: #5a6f80;
+  }
+}
+
+.journal-meldung {
+  min-height: 1.2em; /* fixe Höhe: Meldung lässt die Liste nicht springen */
+  margin: var(--abstand-1) 0;
+}
+
+/* Tag-Chip auf der Karte und farbige Tag-Wahl im Blatt */
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0 var(--abstand-2);
+  font-size: var(--schrift-klein);
+  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.tag-chip.tag-vorzustand { color: var(--tag-vorzustand); background: var(--tag-vorzustand-flaeche); }
+.tag-chip.tag-fortschritt { color: var(--tag-fortschritt); background: var(--tag-fortschritt-flaeche); }
+.tag-chip.tag-abnahme { color: var(--tag-abnahme); background: var(--tag-abnahme-flaeche); }
+.tag-chip.tag-mangel {
+  color: var(--tag-mangel-text);
+  background: var(--tag-mangel);
+  border-color: var(--tag-mangel);
+}
+.tag-chip.tag-regie {
+  color: var(--tag-regie-text);
+  background: var(--tag-regie);
+  border-color: var(--tag-regie);
+}
+
+.tag-wahl .chip-wahl.tag-vorzustand input:checked + span { color: var(--tag-vorzustand); background: var(--tag-vorzustand-flaeche); border: 2px solid var(--tag-vorzustand); }
+.tag-wahl .chip-wahl.tag-fortschritt input:checked + span { color: var(--tag-fortschritt); background: var(--tag-fortschritt-flaeche); border: 2px solid var(--tag-fortschritt); }
+.tag-wahl .chip-wahl.tag-abnahme input:checked + span { color: var(--tag-abnahme); background: var(--tag-abnahme-flaeche); border: 2px solid var(--tag-abnahme); }
+.tag-wahl .chip-wahl.tag-mangel input:checked + span { color: var(--tag-mangel-text); background: var(--tag-mangel); border-color: var(--tag-mangel); }
+.tag-wahl .chip-wahl.tag-regie input:checked + span { color: var(--tag-regie-text); background: var(--tag-regie); border-color: var(--tag-regie); }
+
+.tag-wahl input:checked + span::before {
+  content: '✓ ';
+  white-space: pre;
+}
+
+/* Tagesgruppen mit klebendem Datum */
+
+.tag-gruppe {
+  margin-bottom: var(--abstand-3);
+}
+
+.tag-kopf {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin: 0 calc(-1 * var(--abstand-4)) var(--abstand-2);
+  padding: var(--abstand-2) var(--abstand-4);
+  font-size: var(--schrift-basis);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--farbe-hintergrund);
+  border-bottom: 1px solid var(--farbe-linie);
+}
+
+.tag-anzahl {
+  font-weight: 500;
+  color: var(--farbe-text-gedaempft);
+}
+
+/* Kompakte Karte */
+
+.journal .ereignis {
+  padding: var(--abstand-2) var(--abstand-3);
+  margin-bottom: var(--abstand-2);
+  border-left: 4px solid var(--farbe-linie);
+}
+
+.journal .ereignis.tag-vorzustand { border-left-color: var(--tag-vorzustand); }
+.journal .ereignis.tag-fortschritt { border-left-color: var(--tag-fortschritt); }
+.journal .ereignis.tag-abnahme { border-left-color: var(--tag-abnahme); }
+.journal .ereignis.tag-mangel { border-left: 6px solid var(--tag-mangel); }
+.journal .ereignis.tag-regie { border-left: 6px solid var(--tag-regie); }
+
+.journal .ereignis-kopf {
+  flex-wrap: nowrap;
+  min-height: var(--touch-ziel);
+}
+
+.ereignis-zeit {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ereignis-ort {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.2;
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+}
+
+.ereignis-aktionen {
+  position: relative;
+  margin-left: auto;
+  align-self: flex-start;
+  display: flex;
+  gap: var(--abstand-1);
+  flex-shrink: 0;
+}
+
+.karten-knopf {
+  min-width: var(--touch-ziel);
+  padding: 0 var(--abstand-1);
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+  white-space: nowrap;
+}
+
+.karten-knopf[data-aktion='menue'] {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.karten-menue {
+  position: absolute;
+  top: calc(100% + var(--abstand-1));
+  right: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: var(--abstand-1);
+  min-width: 11rem;
+  padding: var(--abstand-1);
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.karten-menue .knopf {
+  width: 100%;
+  text-align: left;
+  border-color: transparent;
+}
+
+.karten-menue .menue-loeschen {
+  color: var(--tag-mangel);
+}
+
+.journal .ereignis-notiz {
+  margin-top: var(--abstand-1);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.journal .ereignis-notiz.offen,
+.journal .ereignis-notiz.kurz {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: none;
+}
+
+.journal .ereignis-notiz.kurz {
+  cursor: auto;
+}
+
+.journal .verknuepfung {
+  margin: var(--abstand-1) 0 0;
+}
+
+/* Verweise einer Regie-Karte auf Nachtrag und Pendenz */
+
+.verweise {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-1) var(--abstand-2);
+  margin-top: var(--abstand-1);
+}
+
+.verweis {
+  min-height: var(--touch-ziel);
+  padding: 0 var(--abstand-2);
+  font: inherit;
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--tag-regie);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+}
+
+.verweis-erledigt {
+  border-color: var(--farbe-linie);
+  color: var(--farbe-text-gedaempft);
+}
+
+.journal .regie-warnung {
+  margin-top: var(--abstand-2);
+}
+
+/* Fotostreifen: kleine Kacheln, «+N» klappt alle auf */
+
+.foto-streifen {
+  display: flex;
+  gap: var(--abstand-1);
+  margin-top: var(--abstand-2);
+  overflow-x: auto;
+}
+
+.foto-streifen.offen {
+  flex-wrap: wrap;
+}
+
+.foto-kachel {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  overflow: hidden;
+  font: inherit;
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--farbe-linie);
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+
+.foto-kachel .foto-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.foto-mehr {
+  font-weight: 700;
+  color: var(--farbe-text);
+  cursor: pointer;
+}
+
+/* «+ Eintrag»: unten rechts im Daumenbereich */
+
+.neu-knopf {
+  position: fixed;
+  right: calc(var(--abstand-4) + env(safe-area-inset-right));
+  bottom: calc(var(--abstand-4) + env(safe-area-inset-bottom));
+  z-index: 9;
+  min-height: 56px;
+  padding: 0 var(--abstand-5);
+  font-size: 1.1rem;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+/* Erfassungsblatt: von unten, über der Liste */
+
+.blatt-schleier {
+  position: fixed;
+  inset: 0;
+  z-index: 24;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.journal-blatt {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 25;
+  transform: translateX(-50%);
+  width: min(40rem, 100%);
+  max-height: 92dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding-bottom: calc(var(--abstand-4) + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.3);
+}
+
+.blatt-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--abstand-2);
+  margin-bottom: var(--abstand-2);
+}
+
+.blatt-kopf h3 {
+  font-size: var(--schrift-basis);
+}
+
+.blatt-zu {
+  min-width: var(--touch-ziel);
+  padding: 0;
+}
+
+.blatt-tag-titel {
+  margin-bottom: var(--abstand-1);
+  font-weight: 600;
+}
+
+.blatt-aktionen .knopf-primaer {
+  flex: 1 1 auto;
+}
+
+/* Sprung aus einem anderen Modul: Zielkarte kurz hervorheben */
+
+.fokus-karte {
+  animation: fokus-blinken 2.4s ease-out;
+}
+
+@keyframes fokus-blinken {
+  0%, 40% { box-shadow: 0 0 0 4px var(--farbe-akzent); }
+  100% { box-shadow: var(--schatten); }
+}
+
+@media print {
+  .neu-knopf,
+  .journal-blatt,
+  .blatt-schleier {
+    display: none !important;
+  }
 }
