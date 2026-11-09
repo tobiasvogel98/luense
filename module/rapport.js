@@ -13,7 +13,9 @@ import { erstelleRechnung, nachtraegeMitVerrechnung } from '../kern/rechnung.js'
 import { exportiereCsv, teileDatei } from '../kern/export.js';
 import { verkleinereFoto } from '../kern/kamera.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
-import { esc, formatDatumZeit, REGIE_MUSTER, zeigeBildVollbild } from '../kern/ui.js';
+import {
+  esc, formatDatumZeit, regieTreffer, regieHinweiseRapport, schadenTreffer, zeigeBildVollbild,
+} from '../kern/ui.js';
 
 // Absenzarten nach LMV — zählen im Stundenkonto als Sollerfüllung.
 const ABSENZ_ARTEN = ['Ferien', 'Krankheit', 'Unfall', 'Schlechtwetter', 'Schule', 'Militär/ZS'];
@@ -34,6 +36,12 @@ function heuteTag() {
 // Regierapporte durchlaufen offen → unterschrieben → verrechnet.
 // Jeder Wechsel wird mit Datum protokolliert (Grundlage der Abrechnung).
 const REGIE_STATUS = ['offen', 'unterschrieben', 'verrechnet'];
+
+// Unterschriebene/verrechnete Regierapporte ändert die Automatik nie —
+// dort wird ein Regie-Hinweis nur angezeigt.
+function istUnterschrieben(rapport) {
+  return ['unterschrieben', 'verrechnet'].includes(rapport?.regieStatus);
+}
 
 function mitRegieHistorie(rapport, neuerStatus) {
   return {
@@ -163,8 +171,10 @@ export default {
           </details>
 
           <label>Bemerkungen<textarea name="bemerkungen" rows="2"></textarea></label>
+          <p class="regie-erkannt" data-rolle="bemerkung-regie" role="status" hidden></p>
 
           <div class="rapport-totale" data-rolle="totale"></div>
+          <div class="regie-pruefung" data-rolle="regie-pruefung" role="alert" hidden></div>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Rapport speichern</button>
             <button type="button" class="knopf" data-aktion="abbrechen" hidden>Abbrechen</button>
@@ -279,12 +289,14 @@ export default {
           <div class="arbeit-kopf">
             <strong data-rolle="arbeit-nr"></strong>
             <label class="chip-wahl regie-schalter">
-              <input type="checkbox" data-feld="regie" ${daten.regie ? 'checked' : ''}>
+              <input type="checkbox" data-feld="regie" ${daten.regie ? 'checked' : ''}
+                ${daten.regieManuell ? 'data-manuell="1"' : ''}>
               <span>Regie</span>
             </label>
             <button type="button" class="knopf eintrag-loeschen"
               data-aktion="arbeit-entfernen">Entfernen</button>
           </div>
+          <p class="regie-erkannt" data-rolle="regie-erkannt" role="status" hidden></p>
           <label>Was wurde gemacht?<textarea data-feld="text" rows="2"
             placeholder="z. B. Werkleitungsgraben Etappe 2 ausgehoben">${esc(daten.text ?? '')}</textarea></label>
 
@@ -327,29 +339,35 @@ export default {
     }
 
     function sammleArbeiten() {
-      return [...arbeitenElement.querySelectorAll('[data-rolle="arbeit"]')].map((block) => {
-        const zeilen = (schluessel, art) => [...block.querySelectorAll(
-          `[data-gruppe-zeilen="${schluessel}"] [data-rolle="zeile"]`)].map((zeile) => {
-          const wert = (feld) => zeile.querySelector(`[data-feld="${feld}"]`)?.value.trim() ?? '';
-          return art === 'menge'
-            ? { name: wert('name'), menge: wert('menge'), einheit: wert('einheit') }
-            : { name: wert('name'), stunden: wert('stunden') };
-        }).filter((zeile) => Object.values(zeile).some(Boolean));
-        // Matrix: nur Zellen mit Stunden werden zu Zeilen — das Dokument
-        // behält exakt die bisherige Struktur.
-        const matrix = (attr) => [...block.querySelectorAll(`[${attr}]`)]
-          .map((feld) => ({ name: feld.getAttribute(attr), stunden: feld.value.trim() }))
-          .filter((zeile) => zahl(zeile.stunden) > 0);
-        return {
-          text: block.querySelector('[data-feld="text"]').value.trim(),
-          regie: block.querySelector('[data-feld="regie"]').checked,
-          personen: matrix('data-person'),
-          maschinen: [...matrix('data-geraet'), ...zeilen('maschinen', 'stunden')],
-          material: zeilen('material', 'menge'),
-          fremdleistungen: zeilen('fremdleistungen', 'stunden'),
-        };
-      }).filter((arbeit) =>
-        arbeit.text || GRUPPEN.some((g) => arbeit[g.schluessel].length));
+      return [...arbeitenElement.querySelectorAll('[data-rolle="arbeit"]')].map(arbeitAusBlock)
+        .filter((arbeit) => arbeit.text || GRUPPEN.some((g) => arbeit[g.schluessel].length));
+    }
+
+    function arbeitAusBlock(block) {
+      const zeilen = (schluessel, art) => [...block.querySelectorAll(
+        `[data-gruppe-zeilen="${schluessel}"] [data-rolle="zeile"]`)].map((zeile) => {
+        const wert = (feld) => zeile.querySelector(`[data-feld="${feld}"]`)?.value.trim() ?? '';
+        return art === 'menge'
+          ? { name: wert('name'), menge: wert('menge'), einheit: wert('einheit') }
+          : { name: wert('name'), stunden: wert('stunden') };
+      }).filter((zeile) => Object.values(zeile).some(Boolean));
+      // Matrix: nur Zellen mit Stunden werden zu Zeilen — das Dokument
+      // behält exakt die bisherige Struktur.
+      const matrix = (attr) => [...block.querySelectorAll(`[${attr}]`)]
+        .map((feld) => ({ name: feld.getAttribute(attr), stunden: feld.value.trim() }))
+        .filter((zeile) => zahl(zeile.stunden) > 0);
+      const schalter = block.querySelector('[data-feld="regie"]');
+      return {
+        text: block.querySelector('[data-feld="text"]').value.trim(),
+        regie: schalter.checked,
+        // Von Hand gesetzt/entfernt: die Automatik bleibt auch nach dem
+        // Wiederöffnen draussen (nur gespeichert, wenn es zutrifft).
+        ...(schalter.dataset.manuell ? { regieManuell: true } : {}),
+        personen: matrix('data-person'),
+        maschinen: [...matrix('data-geraet'), ...zeilen('maschinen', 'stunden')],
+        material: zeilen('material', 'menge'),
+        fremdleistungen: zeilen('fremdleistungen', 'stunden'),
+      };
     }
 
     function zeigeTotale() {
@@ -416,6 +434,100 @@ export default {
       })).filter((z) => z.name || z.minuten);
     }
 
+    // ---------- Regie-Erkennung ----------
+    // Sucht in Beschreibung und Textzeilen (Maschinen, Material,
+    // Fremdleistungen) einer Arbeit nach Regie-Hinweisen. Setzt das
+    // Häkchen nur, wenn es nie von Hand berührt wurde, und sagt sichtbar
+    // warum. Bei unterschriebenen Rapporten wird nur angezeigt.
+    // Rückgabe: true, wenn das Häkchen dabei neu gesetzt wurde.
+    let pruefungUebersprungen = false; // «So speichern» in der Schlusskontrolle
+
+    function blockTexte(block) {
+      return [block.querySelector('[data-feld="text"]').value,
+        ...[...block.querySelectorAll('[data-rolle="zeile"] [data-feld="name"]')]
+          .map((feld) => feld.value)]
+        .map((t) => t.trim()).filter(Boolean).join(' · ');
+    }
+
+    function pruefeArbeit(block) {
+      const schalter = block.querySelector('[data-feld="regie"]');
+      const notiz = block.querySelector('[data-rolle="regie-erkannt"]');
+      const treffer = regieTreffer(blockTexte(block));
+      const gesperrt = istUnterschrieben(inBearbeitung);
+      let neuGesetzt = false;
+      if (!schalter.dataset.manuell && !gesperrt) {
+        if (treffer && !schalter.checked) {
+          schalter.checked = true;
+          schalter.dataset.auto = '1';
+          neuGesetzt = true;
+        } else if (!treffer && schalter.dataset.auto) {
+          // Hinweis wieder weggetippt — nur das selbst gesetzte Häkchen weg.
+          schalter.checked = false;
+          delete schalter.dataset.auto;
+        }
+      }
+      let text = '';
+      if (treffer && schalter.checked && schalter.dataset.auto) {
+        text = `Regie erkannt: «${treffer}» — abwählen, falls es keine Regie ist.`;
+      } else if (treffer && !schalter.checked) {
+        text = gesperrt
+          ? `Regie-Hinweis «${treffer}» — Rapport ist bereits unterschrieben, `
+            + 'Häkchen nicht automatisch gesetzt. Bitte separat prüfen (Nachtrag).'
+          : `Regie-Hinweis «${treffer}» — Regie von Hand ausgeschaltet.`;
+      } else if (!treffer && !schalter.checked) {
+        // Schaden allein kann Unternehmerverschulden sein: nur fragen.
+        const schaden = schadenTreffer(blockTexte(block));
+        if (schaden) {
+          text = `Leitungsschaden («${schaden}») – Regie prüfen? War die Leitung `
+            + 'nicht ersichtlich/nicht im Plan, «Regie» antippen.';
+        }
+      }
+      notiz.textContent = text;
+      notiz.hidden = !text;
+      notiz.classList.toggle('regie-aus', !!treffer && !schalter.checked && !gesperrt);
+      return neuGesetzt;
+    }
+
+    // Bemerkungen gehören keiner Arbeit — dort wird nichts angekreuzt,
+    // nur deutlich darauf hingewiesen, solange keine Arbeit Regie ist.
+    function pruefeBemerkungen() {
+      const hinweis = formular.querySelector('[data-rolle="bemerkung-regie"]');
+      const treffer = regieTreffer(formular.elements.bemerkungen.value);
+      const regieDa = [...arbeitenElement.querySelectorAll('[data-feld="regie"]')]
+        .some((s) => s.checked);
+      hinweis.textContent = treffer && !regieDa
+        ? `Regie-Hinweis in den Bemerkungen: «${treffer}» — bitte bei der `
+          + 'betreffenden Arbeit «Regie» antippen.'
+        : '';
+      const schaden = !treffer && !regieDa && schadenTreffer(formular.elements.bemerkungen.value);
+      if (schaden) {
+        hinweis.textContent = `Leitungsschaden («${schaden}») in den Bemerkungen – Regie prüfen? `
+          + 'War die Leitung nicht ersichtlich/nicht im Plan, bei der Arbeit «Regie» antippen.';
+      }
+      hinweis.hidden = !hinweis.textContent;
+      return treffer && !regieDa ? treffer : '';
+    }
+
+    function pruefeAlles() {
+      const neu = [...arbeitenElement.querySelectorAll('[data-rolle="arbeit"]')]
+        .map((block, i) => (pruefeArbeit(block) ? i + 1 : 0)).filter(Boolean);
+      const bemerkung = pruefeBemerkungen();
+      return { neu, bemerkung };
+    }
+
+    function zeigePruefung(punkte) {
+      const box = formular.querySelector('[data-rolle="regie-pruefung"]');
+      box.innerHTML = punkte.length ? `
+        <strong>Regie prüfen, bevor gespeichert wird</strong>
+        <ul>${punkte.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+        <div class="knopfzeile">
+          <button type="button" class="knopf knopf-primaer" data-aktion="regie-so-speichern">
+            So speichern</button>
+        </div>` : '';
+      box.hidden = !punkte.length;
+      if (punkte.length) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
     async function fuelleFormular(rapport) {
       inBearbeitung = rapport;
       await ladeStaemme();
@@ -449,6 +561,11 @@ export default {
         ? `${anzahlFotos} Foto${anzahlFotos > 1 ? 's' : ''} am Rapport — neue kommen dazu.`
         : 'Noch kein Foto gewählt.';
       nummeriereArbeiten();
+      pruefungUebersprungen = false;
+      zeigePruefung([]);
+      // Bestehender Rapport: Erkennung auch ohne Tippen (z. B. alte oder
+      // importierte Rapporte, die noch ohne Erkennung erfasst wurden).
+      pruefeAlles();
       zeigeTotale();
       meldung.textContent = '';
     }
@@ -531,6 +648,7 @@ export default {
               ${arbeit.fremdleistungen?.length ? `<p class="hinweis">Fremdleistungen: ${gruppenText(arbeit.fremdleistungen, true)}</p>` : ''}
             </div>`).join('')}
           ${r.bemerkungen ? `<p class="hinweis">Bemerkungen: ${esc(r.bemerkungen)}</p>` : ''}
+          ${regieWarnungHtml(r)}
           ${r.absenzen?.length ? `<p class="hinweis">Absenzen: ${r.absenzen
             .map((a) => `${esc(a.name)} · ${esc(a.art)} ${zahl(a.stunden)} h`).join(', ')}</p>` : ''}
           ${r.reisezeiten?.length ? `<p class="hinweis">Reisezeit: ${r.reisezeiten
@@ -545,6 +663,21 @@ export default {
             <p class="hinweis verknuepfung">↳ Zugeordnet: Nachtrag ${zugeordnet.map(esc).join(', ')}</p>` : ''}
           ${mitRegie ? regieStatusHtml(r, rechnungen, nachtraege) : ''}
         </article>`;
+    }
+
+    // Regie-Hinweis im Text, aber nicht als Regie verbucht — z. B. alte,
+    // importierte oder übergebene Rapporte. Die Liste ändert nichts am
+    // Dokument; «Prüfen» öffnet den Rapport, dort greift die Erkennung
+    // (bei unterschriebenen Rapporten nur als Hinweis).
+    function regieWarnungHtml(r) {
+      const hinweise = regieHinweiseRapport(r);
+      if (!hinweise.length) return '';
+      return `
+        <p class="regie-erkannt regie-warnung">⚠ Regie-Hinweis nicht verbucht: ${hinweise
+          .map((h) => `${esc(h.ort)} «${esc(h.treffer)}»`).join(', ')}${
+          istUnterschrieben(r) ? ' — Rapport ist unterschrieben, bitte separat prüfen (Nachtrag).' : ''}
+          <button type="button" class="knopf eintrag-loeschen" data-aktion="bearbeiten"
+            data-id="${esc(r._id)}">Prüfen</button></p>`;
     }
 
     // Status-Pipeline des Regierapports mit datiertem Verlauf und
@@ -807,14 +940,20 @@ export default {
           arbeitenElement.innerHTML = arbeitHtml();
         }
         nummeriereArbeiten();
+        pruefeBemerkungen();
         zeigeTotale();
+      } else if (aktion === 'regie-so-speichern') {
+        pruefungUebersprungen = true;
+        formular.requestSubmit();
       } else if (aktion === 'zeile-hinzu') {
         const gruppe = GRUPPEN.find((g) => g.schluessel === knopf.dataset.gruppe);
         knopf.closest('.gruppe').querySelector('[data-rolle="zeilen"]')
           .insertAdjacentHTML('beforeend', zeileHtml(gruppe));
       } else if (aktion === 'zeile-entfernen') {
         const zeilen = knopf.closest('[data-rolle="zeilen"]');
+        const block = knopf.closest('[data-rolle="arbeit"]');
         knopf.closest('[data-rolle="zeile"]').remove();
+        pruefeArbeit(block);
         // Nur Material behält immer eine leere Zeile; Maschinen- und
         // Fremdleistungs-Zeilen dürfen ganz verschwinden (Matrix reicht).
         if (zeilen.dataset.gruppeZeilen === 'material'
@@ -839,17 +978,21 @@ export default {
 
     formular.addEventListener('input', (eingabe) => {
       const ziel = eingabe.target;
+      const block = ziel.closest('[data-rolle="arbeit"]');
       if (ziel.matches('[data-feld="regie"]')) {
         // Von Hand gesetzt oder entfernt — die Automatik mischt sich
-        // bei dieser Arbeit nicht mehr ein.
+        // bei dieser Arbeit nicht mehr ein (auch nach dem Speichern).
         ziel.dataset.manuell = '1';
-      } else if (ziel.matches('[data-feld="text"]')) {
-        // Deutet der Arbeitstext auf Regie hin, wird das Häkchen vorgeschlagen.
-        const schalter = ziel.closest('[data-rolle="arbeit"]')
-          .querySelector('[data-feld="regie"]');
-        if (REGIE_MUSTER.test(ziel.value) && !schalter.dataset.manuell && !schalter.checked) {
-          schalter.checked = true;
-        }
+        delete ziel.dataset.auto;
+        pruefeArbeit(block);
+        pruefeBemerkungen();
+      } else if (block && ziel.matches('[data-feld="text"], [data-feld="name"]')) {
+        // Beschreibung oder Textzeile deutet auf Regie hin → Häkchen
+        // vorschlagen, mit sichtbarer Begründung.
+        pruefeArbeit(block);
+        pruefeBemerkungen();
+      } else if (ziel.name === 'bemerkungen') {
+        pruefeBemerkungen();
       }
       zeigeTotale();
     });
@@ -973,11 +1116,47 @@ export default {
 
     formular.addEventListener('submit', async (abschicken) => {
       abschicken.preventDefault();
+      // Schlusskontrolle: Texte können auch ohne Tippen ins Formular
+      // gekommen sein (Autofill, Wiederherstellen, Einfügen per Diktat) —
+      // darum hier nochmals prüfen. Neu Erkanntes und offene Hinweise
+      // werden gezeigt, gespeichert wird erst nach «So speichern».
+      const { neu, bemerkung } = pruefeAlles();
       const arbeiten = sammleArbeiten();
       if (!arbeiten.length) {
         meldung.textContent = 'Mindestens eine Arbeit erfassen.';
         return;
       }
+      const ignoriert = inBearbeitung?.regieHinweisIgnoriert === bemerkung;
+      if (!pruefungUebersprungen) {
+        const punkte = [];
+        if (neu.length) {
+          punkte.push(`Regie automatisch angekreuzt bei Arbeit ${neu.join(', ')} — `
+            + 'Begründung steht bei der Arbeit. Falls keine Regie: Häkchen dort abwählen.');
+        }
+        if (bemerkung && !ignoriert) {
+          punkte.push(`In den Bemerkungen steht «${bemerkung}», aber keine Arbeit ist als `
+            + 'Regie markiert. Bei der betreffenden Arbeit «Regie» antippen — oder ohne Regie speichern.');
+        }
+        if (istUnterschrieben(inBearbeitung)) {
+          regieHinweiseRapport({ ...inBearbeitung, arbeiten, bemerkungen: '' })
+            .forEach((h) => punkte.push(`${h.ort}: «${h.treffer}» — Rapport ist unterschrieben, `
+              + 'nicht automatisch als Regie verbucht. Bitte separat prüfen (Nachtrag).'));
+        }
+        [...arbeitenElement.querySelectorAll('[data-rolle="arbeit"]')].forEach((block, i) => {
+          if (!block.querySelector('[data-feld="regie"]').checked) return;
+          if (!totale([arbeitAusBlock(block)]).regie) {
+            punkte.push(`Arbeit ${i + 1} ist Regie, hat aber keine Stunden — `
+              + 'so wird keine Regie verbucht. Stunden bei dieser Arbeit eintragen.');
+          }
+        });
+        if (punkte.length) {
+          zeigePruefung(punkte);
+          meldung.textContent = 'Bitte die Regie-Hinweise oben prüfen.';
+          return;
+        }
+      }
+      pruefungUebersprungen = false;
+      zeigePruefung([]);
       try {
         const basis = inBearbeitung
           ? { ...inBearbeitung }
@@ -990,6 +1169,9 @@ export default {
           wetter: formular.elements.wetter.value.trim(),
           davonRegie: totale(arbeiten).regie, // aus den Regie-Arbeiten gerechnet
           bemerkungen: formular.elements.bemerkungen.value.trim(),
+          // «Ohne Regie speichern» trotz Hinweis in den Bemerkungen: merken,
+          // damit derselbe Hinweis nicht bei jedem Öffnen wieder kommt.
+          regieHinweisIgnoriert: bemerkung || undefined,
           arbeiten,
           absenzen: sammleAbsenzen(),
           reisezeiten: sammleReisezeiten(),

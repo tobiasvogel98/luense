@@ -869,6 +869,50 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   font-weight: 700;
 }
 
+/* Regie-Erkennung: kurze Begründung neben dem Häkchen, Hinweise in
+   Bemerkungen/Journal und die Schlusskontrolle vor dem Speichern. */
+.regie-erkannt {
+  margin: 0 0 var(--abstand-2);
+  padding: var(--abstand-1) var(--abstand-2);
+  border-left: 4px solid var(--farbe-akzent);
+  border-radius: 4px;
+  background: var(--farbe-flaeche);
+  color: var(--farbe-text);
+  font-size: var(--schrift-klein);
+}
+
+.regie-erkannt.regie-aus {
+  border-left-color: var(--farbe-linie);
+  color: var(--farbe-text-gedaempft);
+}
+
+.regie-pruefung {
+  margin: var(--abstand-3) 0;
+  padding: var(--abstand-3);
+  border: 2px solid var(--farbe-akzent);
+  border-radius: var(--radius);
+  background: var(--farbe-flaeche);
+}
+
+.regie-pruefung ul {
+  margin: var(--abstand-2) 0;
+  padding-left: 1.2rem;
+}
+
+.regie-pruefung .knopfzeile,
+.regie-vorschlag .knopfzeile {
+  margin-top: var(--abstand-2);
+}
+
+.regie-warnung {
+  margin: var(--abstand-2) 0 0;
+}
+
+.regie-warnung .knopf {
+  margin-left: var(--abstand-2);
+  font-weight: 400;
+}
+
 .rapport-totale .regie-total span:last-child {
   color: var(--farbe-akzent);
 }
