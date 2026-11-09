@@ -190,13 +190,37 @@
     });
 
     // Ein Modul (z. B. das Dossier) bittet um den Wechsel zu einem Modul.
+    // Optional detail.fokusId: die Shell sucht danach im neu gezeichneten
+    // Modul ein Element mit diesem data-id und hebt dessen Karte hervor —
+    // generisch, ohne dass ein Modul das andere kennt.
     document.addEventListener('luense:modulWechseln', (ereignis) => {
       const index = MODULE.findIndex((m) => m.name === ereignis.detail?.name);
       if (index < 0) return;
       aktivesModul = index;
       localStorage.setItem(MODUL_MERKER, MODULE[index].name);
+      window.scrollTo(0, 0);
       zeigeModul();
+      if (ereignis.detail?.fokusId) fokussiere(ereignis.detail.fokusId);
     });
+
+    function fokussiere(id) {
+      const auswahlText = `[data-id="${CSS.escape(id)}"]`;
+      const finde = () => {
+        const treffer = modulbereich.querySelector(auswahlText);
+        if (!treffer) return false;
+        const karte = treffer.closest('.karte') || treffer;
+        karte.scrollIntoView({ block: 'center' });
+        karte.classList.add('fokus-karte');
+        setTimeout(() => karte.classList.remove('fokus-karte'), 2500);
+        return true;
+      };
+      // Module zeichnen asynchron (Datenbank) — kurz auf die Karte warten.
+      const beobachter = new MutationObserver(() => {
+        if (finde()) beobachter.disconnect();
+      });
+      beobachter.observe(modulbereich, { childList: true, subtree: true });
+      setTimeout(() => beobachter.disconnect(), 3000);
+    }
 
     modulNav.addEventListener('click', (klick) => {
       const knopf = klick.target.closest('[data-index]');
