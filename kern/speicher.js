@@ -63,6 +63,7 @@ export async function importiereDokumente(dokumente) {
   const vorhandene = new Set((await db.allDocs()).rows.map((zeile) => zeile.id));
   let neu = 0;
   let uebersprungen = 0;
+  const neuIds = [];
   for (const doc of dokumente) {
     if (!doc || !doc._id || vorhandene.has(doc._id)) {
       uebersprungen++;
@@ -71,9 +72,10 @@ export async function importiereDokumente(dokumente) {
     const { _rev, ...ohneRev } = doc;
     await db.put(ohneRev);
     vorhandene.add(doc._id);
+    neuIds.push(doc._id);
     neu++;
   }
-  return { neu, uebersprungen };
+  return { neu, uebersprungen, neuIds };
 }
 
 // Persistenter Index über [typ, baustelleId, datum] — abfrage() liest

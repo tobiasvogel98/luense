@@ -7,7 +7,7 @@ import {
   exportiereAlles, importiereDokumente, put, abfrage, entferneDokument,
 } from './speicher.js';
 import { alleBaustellen } from './stamm.js';
-import { esc, REGIE_MUSTER } from './ui.js';
+import { esc, REGIE_MUSTER, regieHinweiseRapport } from './ui.js';
 
 const MERKER = 'luense.letzterExport'; // nur UI-Zustand (Datum), keine Daten
 const ERINNERUNG_TAGE = 7;
@@ -92,7 +92,14 @@ export async function importiereBackup(datei) {
   if (!Array.isArray(dokumente)) {
     throw new Error('Die Datei ist kein gültiges Lünse-Backup.');
   }
-  return importiereDokumente(dokumente);
+  const ergebnis = await importiereDokumente(dokumente);
+  // Übergebene/importierte Rapporte werden nicht verändert (könnten
+  // unterschrieben sein) — nur gezählt, wenn ein Regie-Hinweis nicht als
+  // Regie verbucht ist; die Rapport-Liste zeigt sie mit «Prüfen».
+  const neuIds = new Set(ergebnis.neuIds);
+  ergebnis.regieHinweise = dokumente.filter((d) => d?.typ === 'rapport'
+    && neuIds.has(d._id) && regieHinweiseRapport(d).length).length;
+  return ergebnis;
 }
 
 // ---------- Import aus der alten Pendenzenliste-App ----------
@@ -470,7 +477,11 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
       } else {
         const ergebnis = await importiereBackup(datei);
         letzteImportMeldung =
-          `Import: ${ergebnis.neu} neu, ${ergebnis.uebersprungen} schon vorhanden.`;
+          `Import: ${ergebnis.neu} neu, ${ergebnis.uebersprungen} schon vorhanden.${
+            ergebnis.regieHinweise
+              ? ` ⚠ ${ergebnis.regieHinweise} Rapport${ergebnis.regieHinweise > 1 ? 'e' : ''} mit `
+                + 'Regie-Hinweis ohne Regie-Häkchen — unter Rapporte prüfen.'
+              : ''}`;
         status.textContent = letzteImportMeldung;
         nachImport();
       }
