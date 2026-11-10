@@ -1,0 +1,11 @@
+// Cloudflare Worker «luense»: liefert nur die App-Dateien aus dist/ aus.
+// dist/ entsteht vor dem Deploy mit «sh werkzeuge/bereitstellen.sh»
+// (in Cloudflare unter Einstellungen → Build → Build-Befehl eingetragen).
+{
+  "name": "luense",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}

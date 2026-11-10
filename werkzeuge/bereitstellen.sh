@@ -1,8 +1,8 @@
 #!/bin/sh
-# Stellt für Cloudflare Pages nur die App-Dateien in dist/ zusammen.
+# Stellt für Cloudflare nur die App-Dateien in dist/ zusammen.
 # Baupläne, Anleitungen, CLAUDE.md und Werkzeuge bleiben so unveröffentlicht.
-# Cloudflare Pages: Build-Befehl «sh werkzeuge/bereitstellen.sh»,
-# Ausgabeverzeichnis «dist».
+# Cloudflare Worker: Build-Befehl «sh werkzeuge/bereitstellen.sh»,
+# Deploy-Befehl «npx wrangler deploy» (liest wrangler.jsonc).
 set -e
 rm -rf dist
 mkdir dist

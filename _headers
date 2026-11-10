@@ -1,4 +1,4 @@
-# Cloudflare Pages: HTTP-Header für die App.
+# Cloudflare: HTTP-Header für die App (gilt auch für Worker mit statischen Dateien).
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: same-origin
