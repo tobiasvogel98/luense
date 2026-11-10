@@ -2816,3 +2816,13 @@ details.katalog-wahl > summary {
   min-height: var(--touch-ziel);
   margin-top: 0;
 }
+
+/* Lizenzhinweise unten in der Seitenleiste (Lizenzvertrag § 18) */
+.nav-lizenz {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch-ziel);
+  padding: 0 var(--abstand-3);
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+}
