@@ -15,7 +15,7 @@
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { speichereBaustelle } from '../kern/stamm.js';
 import { zeigeOffertDruck } from '../kern/pdf.js';
-import { chf, esc } from '../kern/ui.js';
+import { chf, esc, naechsteNummer } from '../kern/ui.js';
 
 const KATALOG_ID = 'katalog';
 const OFFERT_ID = 'offertwesen';
@@ -450,7 +450,7 @@ export default {
       neuZeile.hidden = true;
       const offerten = await ladeOfferten();
       const jahr = new Date().getFullYear();
-      const nummer = offerte?.nummer || `O-${jahr}-${String(offerten.length + 1).padStart(2, '0')}`;
+      const nummer = offerte?.nummer || naechsteNummer(offerten.map((o) => o.nummer), `O-${jahr}-`);
       const gliederung = offerte ? gliederungVon(offerte) : [{ art: 'position' }];
       formularBereich.innerHTML = `
         <form class="karte formular" data-rolle="offert-formular">

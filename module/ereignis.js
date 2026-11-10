@@ -11,7 +11,7 @@ import { verkleinereFoto } from '../kern/kamera.js';
 import { oeffneHandnotiz } from '../kern/handschrift.js';
 import { oeffneBericht } from '../kern/pdf.js';
 import {
-  esc, formatDatumZeit, regieTreffer, schadenTreffer, zeigeBildVollbild,
+  esc, formatDatumZeit, naechsteNummer, regieTreffer, schadenTreffer, zeigeBildVollbild,
 } from '../kern/ui.js';
 
 const TAGS = ['Vorzustand', 'Fortschritt', 'Mangel', 'Regie', 'Abnahme'];
@@ -626,7 +626,7 @@ export default {
           && !nachtraege.some((n) => n.beweise?.ereignisIds?.includes(doc._id))));
         let nummer = '';
         if (neuRegie) {
-          nummer = `N-${String(nachtraege.length + 1).padStart(2, '0')}`;
+          nummer = naechsteNummer(nachtraege.map((n) => n.nummer), 'N-');
           const nachtrag = await put({
             typ: 'nachtrag',
             baustelleId: baustelle.baustelleId,

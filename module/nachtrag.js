@@ -8,7 +8,7 @@ import { put, abfrage, entferneDokument, holeAnhang } from '../kern/speicher.js'
 import { erstelleRechnung, rapportDirektVerrechnet } from '../kern/rechnung.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
-import { chf, esc, formatDatumZeit } from '../kern/ui.js';
+import { chf, esc, formatDatumZeit, naechsteNummer } from '../kern/ui.js';
 
 export const NACHTRAG_STATUS = ['erkannt', 'gemeldet', 'offeriert', 'genehmigt', 'verrechnet'];
 
@@ -130,7 +130,7 @@ export default {
         abfrage({ typ: 'ausmass', baustelleId: baustelle.baustelleId }),
       ]);
       const nummer = nachtrag?.nummer
-        || `N-${String(nachtraege.length + 1).padStart(2, '0')}`;
+        || naechsteNummer(nachtraege.map((n) => n.nummer), 'N-');
       const beweise = nachtrag?.beweise || {};
       formularBereich.innerHTML = `
         <form class="karte formular" data-rolle="nachtrag-formular">

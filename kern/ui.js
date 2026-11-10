@@ -185,3 +185,16 @@ export function chf(n) {
 export function chfGanz(n) {
   return `CHF ${Math.round(Number(n) || 0).toLocaleString('de-CH')}`;
 }
+
+// Nächste freie Laufnummer wie «N-07» oder «O-2026-03»: höchste vorhandene
+// Nummer mit diesem Präfix plus eins. Zählen statt Maximum vergäbe nach dem
+// Löschen eines Eintrags eine bereits benutzte Nummer. Genutzt von Offerten,
+// Nachträgen und dem Journal (Nachtrag aus Regie-Eintrag).
+export function naechsteNummer(nummern, praefix, stellen = 2) {
+  const muster = new RegExp(`^${praefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`);
+  const hoechste = nummern.reduce((max, nummer) => {
+    const treffer = muster.exec(String(nummer ?? '').trim());
+    return treffer ? Math.max(max, Number(treffer[1])) : max;
+  }, 0);
+  return `${praefix}${String(hoechste + 1).padStart(stellen, '0')}`;
+}
