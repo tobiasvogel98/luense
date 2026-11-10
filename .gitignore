@@ -6,3 +6,4 @@ desktop.ini
 
 # Kopien der Alt-Tools (koennen echte Daten enthalten — nie committen)
 altbestand/
+dist/
