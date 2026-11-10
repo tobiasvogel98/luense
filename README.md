@@ -46,3 +46,11 @@ luense/
 ├── icons/             App-Icons
 └── lib/               pouchdb.min.js (v9, lokal — einzige Bibliothek)
 ```
+
+## Bereitstellung
+
+Die App wird zusätzlich über einen Cloudflare Worker ausgeliefert. Bei jedem
+Push auf `master` baut Cloudflare mit `sh werkzeuge/bereitstellen.sh` den
+Ordner `dist/` (nur App-Dateien) und veröffentlicht ihn mit
+`npx wrangler deploy` gemäss `wrangler.jsonc`. Baupläne, Anleitungen und
+`CLAUDE.md` werden dabei nicht mitveröffentlicht.
