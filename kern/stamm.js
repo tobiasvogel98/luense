@@ -1,8 +1,9 @@
 // kern/stamm.js — Baustellen-Stamm: Daten (anlegen/bearbeiten/archivieren,
 // JSON-Import) und die Stamm-Ansicht für den Modulbereich.
 
-import { put, abfrage, neueId } from './speicher.js';
+import { put, get, abfrage, neueId } from './speicher.js';
 import { esc } from './ui.js';
+import { istGueltigeIban, istQrIban, formatIban, kompakt } from './zahlung.js';
 
 // ---------- Daten ----------
 
@@ -65,6 +66,38 @@ export async function importiereBaustellen(jsonText) {
   return { neu, uebersprungen };
 }
 
+// ---------- Firmendaten ----------
+// Ein Dokument für die eigene Firma: Absender der Rechnungen und
+// Zahlungsempfänger im QR-Zahlteil (Adresse strukturiert, IBAN).
+
+const FIRMA_ID = 'firma:stamm';
+const FIRMA_FELDER = ['name', 'strasse', 'hausnummer', 'plz', 'ort', 'land', 'iban',
+  'telefon', 'email', 'mwstNr'];
+
+export async function ladeFirma() {
+  try {
+    return await get(FIRMA_ID);
+  } catch {
+    return null;
+  }
+}
+
+export async function speichereFirma(felder) {
+  const vorhanden = await ladeFirma();
+  const doc = vorhanden
+    ? { ...vorhanden }
+    : { _id: FIRMA_ID, typ: 'firma', baustelleId: 'firma' };
+  for (const feld of FIRMA_FELDER) doc[feld] = String(felder[feld] ?? '').trim();
+  doc.land = (doc.land || 'CH').toUpperCase().slice(0, 2);
+  doc.iban = kompakt(doc.iban);
+  doc.datum = new Date().toISOString();
+  if (!doc.name) throw new Error('Firmenname ist ein Pflichtfeld.');
+  if (doc.iban && !istGueltigeIban(doc.iban)) {
+    throw new Error('IBAN ungültig — Prüfziffer stimmt nicht. Bitte genau abschreiben.');
+  }
+  return put(doc);
+}
+
 // ---------- Ansicht ----------
 
 // Zeichnet die Stamm-Ansicht in den Container. onAenderung wird nach jeder
@@ -90,6 +123,38 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
       </form>
 
       <div data-rolle="liste"></div>
+
+      <details class="karte import" data-rolle="firma-bereich">
+        <summary>Firmendaten (Rechnungen, QR-Zahlteil)</summary>
+        <form class="formular" data-rolle="firma-formular">
+          <p class="hinweis">Absender der Rechnungen und Zahlungsempfänger im
+            QR-Zahlteil. Die IBAN wird mit der Prüfziffer kontrolliert — normale
+            IBAN des Geschäftskontos, keine QR-IBAN.</p>
+          <label>Firmenname *<input name="name" required autocomplete="organization"></label>
+          <div class="feld-reihe">
+            <label class="feld-breit">Strasse<input name="strasse" autocomplete="address-line1"></label>
+            <label class="feld-schmal">Nr.<input name="hausnummer" autocomplete="off"></label>
+          </div>
+          <div class="feld-reihe">
+            <label class="feld-schmal">PLZ<input name="plz" inputmode="numeric" autocomplete="postal-code"></label>
+            <label class="feld-breit">Ort<input name="ort" autocomplete="address-level2"></label>
+            <label class="feld-schmal">Land<input name="land" maxlength="2" placeholder="CH"
+              autocomplete="country"></label>
+          </div>
+          <label>IBAN<input name="iban" autocomplete="off" spellcheck="false"
+            placeholder="CH00 0000 0000 0000 0000 0"></label>
+          <p class="hinweis" data-rolle="iban-pruefung"></p>
+          <div class="feld-reihe">
+            <label>Telefon<input name="telefon" type="tel" autocomplete="tel"></label>
+            <label>E-Mail<input name="email" type="email" autocomplete="email"></label>
+          </div>
+          <label>MWST-Nr.<input name="mwstNr" autocomplete="off" placeholder="CHE-123.456.789 MWST"></label>
+          <div class="knopfzeile">
+            <button type="submit" class="knopf knopf-primaer">Firmendaten speichern</button>
+          </div>
+          <p class="meldung" role="status"></p>
+        </form>
+      </details>
 
       <details class="karte import">
         <summary>Baustellenliste aus JSON importieren</summary>
@@ -121,7 +186,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
   const formularMeldung = formular.querySelector('.meldung');
   const listeElement = container.querySelector('[data-rolle="liste"]');
   const importDatei = container.querySelector('[data-rolle="import-datei"]');
-  const importMeldung = container.querySelector('.import .meldung');
+  const importMeldung = importDatei.closest('.import').querySelector('.meldung');
 
   let inBearbeitung = null; // Baustellen-Dokument, das gerade im Formular steht
 
@@ -239,6 +304,42 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
       localStorage.setItem(MODUS_MERKER, 'polier');
     }
     location.reload();
+  });
+
+  // Firmendaten: laden, IBAN beim Tippen prüfen, speichern.
+  const firmaFormular = container.querySelector('[data-rolle="firma-formular"]');
+  const ibanPruefung = firmaFormular.querySelector('[data-rolle="iban-pruefung"]');
+  const pruefeIban = () => {
+    const iban = kompakt(firmaFormular.elements.iban.value);
+    if (!iban) {
+      ibanPruefung.textContent = 'Ohne IBAN entsteht kein QR-Zahlteil.';
+    } else if (!istGueltigeIban(iban)) {
+      ibanPruefung.textContent = '✗ IBAN ungültig (Prüfziffer oder Länge).';
+    } else if (istQrIban(iban)) {
+      ibanPruefung.textContent = '⚠ Das ist eine QR-IBAN — für SCOR-Referenzen die normale IBAN eintragen.';
+    } else {
+      ibanPruefung.textContent = `✓ IBAN gültig: ${formatIban(iban)}`;
+    }
+  };
+  ladeFirma().then((firma) => {
+    for (const feld of FIRMA_FELDER) {
+      firmaFormular.elements[feld].value = feld === 'iban'
+        ? formatIban(firma?.iban || '') : (firma?.[feld] ?? '');
+    }
+    if (!firma) firmaFormular.elements.land.value = 'CH';
+    pruefeIban();
+  });
+  firmaFormular.elements.iban.addEventListener('input', pruefeIban);
+  firmaFormular.addEventListener('submit', async (ereignis) => {
+    ereignis.preventDefault();
+    const meldung = firmaFormular.querySelector('.meldung');
+    try {
+      await speichereFirma(Object.fromEntries(new FormData(firmaFormular)));
+      meldung.textContent = 'Firmendaten gespeichert.';
+      pruefeIban();
+    } catch (fehler) {
+      meldung.textContent = fehler.message;
+    }
   });
 
   zeigeModus();

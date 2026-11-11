@@ -5,8 +5,13 @@
 // Skonto-Fristen-Überwachung (nie mehr Skonto verpassen), Fälligkeits-
 // warnung, Doppelerfassungs-Schutz (Lieferant + Rechnungs-Nr.),
 // Beleg als Foto oder PDF am Dokument, Excel-Export.
-// Die Kostenart entspricht den Selbstkosten-Gruppen des Controllings —
-// die Verknüpfung dorthin folgt in Abend 9.3.
+// Die Kostenart entspricht den Selbstkosten-Gruppen des Controllings.
+//
+// Bank-Verknüpfung: IBAN und Zahlungsreferenz (QRR/SCOR, aus dem QR-Scan
+// oder getippt) sind sichtbare Felder. Zahlungen kommen per Kontoauszug
+// (camt.053/054, kern/bank.js) oder von Hand — mit Teilzahlung und Skonto.
+// Dazu die Übersicht offener Kreditoren über alle Baustellen, sortiert
+// nach der nächsten Frist (Skonto oder Fälligkeit).
 
 import {
   put, abfrage, entferneDokument, haengeAnhangAn, holeAnhang, entferneAnhang,
@@ -14,34 +19,30 @@ import {
 import { verkleinereFoto } from '../kern/kamera.js';
 import { exportiereCsv } from '../kern/export.js';
 import { chf, esc, zeigeBildVollbild } from '../kern/ui.js';
+import {
+  zahl, heuteTag, formatTag, plusTage, kreditorWerte, zahlungen, bezahltSumme,
+  offenerBetrag, kompakt, istGueltigeIban, formatIban, referenzArt, formatReferenz,
+  ZAHLUNGSFRIST_TAGE,
+} from '../kern/zahlung.js';
+import { oeffneKontoauszug, zeigeZahlungen } from '../kern/bank.js';
+import { alleBaustellen } from '../kern/stamm.js';
 
+// Ablauf von Hand; «teilbezahlt» entsteht nur aus Zahlungen.
 const KREDITOR_STATUS = ['offen', 'visiert', 'bezahlt'];
 const KOSTENARTEN = ['Material', 'Fremdleistung', 'Inventar/Miete', 'Entsorgung', 'Diverses'];
-const ZAHLUNGSFRIST_TAGE = 30;
+const ANSICHT_MERKER = 'luense.kreditorAnsicht'; // nur UI-Zustand
 
-function zahl(wert) {
-  const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+function naechsterStatus(k) {
+  if (k.status === 'teilbezahlt') return 'bezahlt';
+  return KREDITOR_STATUS[KREDITOR_STATUS.indexOf(k.status) + 1] || '';
 }
 
-function heuteTag() {
-  const jetzt = new Date();
-  return new Date(jetzt.getTime() - jetzt.getTimezoneOffset() * 60000)
-    .toISOString().slice(0, 10);
-}
-
-function formatTag(tagIso) {
-  if (!tagIso) return '';
-  const [j, m, t] = String(tagIso).slice(0, 10).split('-');
-  return t && m && j ? `${t}.${m}.${j}` : tagIso;
-}
-
-function plusTage(tagIso, tage) {
-  const start = new Date(`${tagIso}T12:00:00`);
-  if (Number.isNaN(start.getTime())) return '';
-  start.setDate(start.getDate() + tage);
-  return new Date(start.getTime() - start.getTimezoneOffset() * 60000)
-    .toISOString().slice(0, 10);
+function vorherigerStatus(k) {
+  if (k.status === 'teilbezahlt') return '';
+  if (k.status === 'bezahlt' && zahlungen(k).length) {
+    return offenerBetrag({ ...k, status: 'teilbezahlt' }) > 0 ? 'teilbezahlt' : '';
+  }
+  return KREDITOR_STATUS[KREDITOR_STATUS.indexOf(k.status) - 1] || '';
 }
 
 function mitHistorie(kreditor, neuerStatus) {
@@ -98,25 +99,9 @@ export function parseSwissQr(text) {
   return daten;
 }
 
-// Abgeleitete Termine und Beträge eines Kreditors.
-export function kreditorWerte(k) {
-  const betrag = zahl(k.betrag);
-  const faelligTag = k.tag ? plusTage(k.tag, k.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE) : '';
-  const skontoProzent = zahl(k.skontoProzent);
-  const skontoTage = parseInt(k.skontoTage, 10) || 0;
-  const skontoTag = skontoProzent > 0 && skontoTage > 0 && k.tag
-    ? plusTage(k.tag, skontoTage) : '';
-  const skontoBetrag = skontoTag ? betrag * skontoProzent / 100 : 0;
-  const heute = heuteTag();
-  return {
-    betrag,
-    faelligTag,
-    ueberfaellig: k.status !== 'bezahlt' && faelligTag && faelligTag < heute,
-    skontoTag,
-    skontoBetrag,
-    skontoNutzbar: k.status !== 'bezahlt' && skontoTag && skontoTag >= heute,
-  };
-}
+// Abgeleitete Termine und Beträge: kern/zahlung.js (kreditorWerte), weil
+// auch der Kontoauszug-Abgleich Skonto und Restbetrag braucht.
+export { kreditorWerte };
 
 export default {
   name: 'Kreditoren',
@@ -130,10 +115,20 @@ export default {
 
   render(container, baustelle) {
     let inBearbeitung = null;
+    let ansicht = 'baustelle';
+    try {
+      ansicht = localStorage.getItem(ANSICHT_MERKER) === 'alle' ? 'alle' : 'baustelle';
+    } catch { /* ohne Speicher: Standardansicht */ }
+    let filterBaustelle = '';
 
     container.innerHTML = `
       <section class="kreditoren">
         <h2>Kreditoren · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h2>
+
+        <div class="chips ansicht-wahl" role="tablist">
+          <button type="button" class="chip chip-knopf" data-ansicht="baustelle" role="tab">Diese Baustelle</button>
+          <button type="button" class="chip chip-knopf" data-ansicht="alle" role="tab">Offene Posten alle Baustellen</button>
+        </div>
 
         <div class="kachel-reihe" data-rolle="kacheln"></div>
         <p class="hinweis skonto-chance" data-rolle="skonto-hinweis" hidden></p>
@@ -142,18 +137,21 @@ export default {
           <button type="button" class="knopf knopf-primaer" data-aktion="neu">
             Neue Lieferantenrechnung
           </button>
+          <button type="button" class="knopf" data-aktion="kontoauszug"
+            title="camt.053 / camt.054 aus dem E-Banking">Kontoauszug einlesen</button>
           <button type="button" class="knopf" data-aktion="export"
             title="Öffnet direkt in Excel">Excel-Export</button>
         </div>
 
         <div data-rolle="formular-bereich"></div>
-        <div data-rolle="tabelle"></div>
         <p class="meldung" data-rolle="meldung" role="status"></p>
+        <div data-rolle="tabelle"></div>
       </section>`;
 
     const kachelnElement = container.querySelector('[data-rolle="kacheln"]');
     const skontoHinweis = container.querySelector('[data-rolle="skonto-hinweis"]');
     const neuZeile = container.querySelector('[data-rolle="neu-zeile"]');
+    const neuKnopf = container.querySelector('[data-aktion="neu"]');
     const formularBereich = container.querySelector('[data-rolle="formular-bereich"]');
     const tabelleElement = container.querySelector('[data-rolle="tabelle"]');
     const meldungElement = container.querySelector('[data-rolle="meldung"]');
@@ -167,15 +165,23 @@ export default {
       return liste.reduce((s, k) => s + zahl(k.betrag), 0);
     }
 
+    function summeOffen(liste) {
+      return liste.reduce((s, k) => s + offenerBetrag(k), 0);
+    }
+
     function zeichneKacheln(kreditoren) {
-      kachelnElement.innerHTML = KREDITOR_STATUS.map((status) => {
-        const eigene = kreditoren.filter((k) => k.status === status);
-        return `
-          <div class="karte kachel${status === 'bezahlt' ? ' kachel-gruen' : ''}">
-            <span class="kachel-titel">${status} (${eigene.length})</span>
-            <span class="kachel-wert">${chf(summe(eigene))}</span>
-          </div>`;
-      }).join('');
+      const teil = kreditoren.filter((k) => k.status === 'teilbezahlt');
+      const kacheln = [
+        { titel: 'offen', liste: kreditoren.filter((k) => k.status === 'offen'), wert: summe },
+        { titel: 'visiert', liste: kreditoren.filter((k) => k.status === 'visiert'), wert: summe },
+        ...(teil.length ? [{ titel: 'teilbezahlt — Rest', liste: teil, wert: summeOffen }] : []),
+        { titel: 'bezahlt', liste: kreditoren.filter((k) => k.status === 'bezahlt'), wert: summe, gruen: true },
+      ];
+      kachelnElement.innerHTML = kacheln.map((k) => `
+          <div class="karte kachel${k.gruen ? ' kachel-gruen' : ''}">
+            <span class="kachel-titel">${k.titel} (${k.liste.length})</span>
+            <span class="kachel-wert">${chf(k.wert(k.liste))}</span>
+          </div>`).join('');
       // Skonto-Überwachung: laufende Fristen und mögliche Ersparnis.
       const nutzbar = kreditoren
         .map((k) => ({ k, w: kreditorWerte(k) }))
@@ -196,7 +202,7 @@ export default {
       return Object.keys(k._attachments || {}).length;
     }
 
-    async function zeichneTabelle() {
+    async function zeichneBaustelle() {
       const kreditoren = await ladeKreditoren();
       zeichneKacheln(kreditoren);
       if (!kreditoren.length) {
@@ -211,14 +217,15 @@ export default {
           <table class="uebersicht-tabelle">
             <thead><tr>
               <th>Lieferant · Rg.-Nr.</th><th>Datum</th><th>Kostenart</th>
-              <th class="zahl">Betrag</th><th>Skonto bis</th><th>Fällig</th>
+              <th class="zahl">Betrag</th><th class="zahl">Offen</th><th>Skonto bis</th><th>Fällig</th>
               <th>Status</th><th></th>
             </tr></thead>
             <tbody>
               ${kreditoren.map((k) => {
                 const w = kreditorWerte(k);
-                const index = KREDITOR_STATUS.indexOf(k.status);
-                const naechster = KREDITOR_STATUS[index + 1];
+                const naechster = naechsterStatus(k);
+                const vorheriger = vorherigerStatus(k);
+                const anzahlZahlungen = zahlungen(k).length;
                 return `
                   <tr>
                     <td class="kein-umbruch"><b>${esc(k.lieferant)}</b><br>
@@ -226,6 +233,7 @@ export default {
                     <td class="kein-umbruch">${formatTag(k.tag)}</td>
                     <td class="kein-umbruch">${esc(k.kostenart)}</td>
                     <td class="zahl">${chf(w.betrag)}</td>
+                    <td class="zahl">${k.status === 'bezahlt' ? '—' : chf(w.rest)}</td>
                     <td class="kein-umbruch">${w.skontoTag
                       ? `${formatTag(w.skontoTag)}${w.skontoNutzbar
                           ? `<br><small class="skonto-chance">− ${chf(w.skontoBetrag)}</small>`
@@ -247,9 +255,11 @@ export default {
                       ${naechster ? `
                         <button type="button" class="knopf eintrag-loeschen" data-aktion="weiter"
                           data-id="${esc(k._id)}">→ ${naechster}</button>` : ''}
-                      ${index > 0 ? `
+                      ${vorheriger ? `
                         <button type="button" class="knopf eintrag-loeschen" data-aktion="zurueck"
                           data-id="${esc(k._id)}">← zurück</button>` : ''}
+                      <button type="button" class="knopf eintrag-loeschen" data-aktion="zahlungen"
+                        data-id="${esc(k._id)}">Zahlungen${anzahlZahlungen ? ` (${anzahlZahlungen})` : ''}</button>
                       <button type="button" class="knopf eintrag-loeschen" data-aktion="oeffnen"
                         data-id="${esc(k._id)}">Bearbeiten</button>
                       <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
@@ -260,12 +270,107 @@ export default {
               <tr class="summen-zeile">
                 <td colspan="3"><b>Total (${kreditoren.length})</b></td>
                 <td class="zahl"><b>${chf(summe(kreditoren))}</b></td>
-                <td colspan="4">davon bezahlt ${chf(summe(kreditoren.filter((k) => k.status === 'bezahlt')))}
-                  · offen ${chf(summe(kreditoren.filter((k) => k.status !== 'bezahlt')))}</td>
+                <td class="zahl"><b>${chf(summeOffen(kreditoren))}</b></td>
+                <td colspan="4">davon bezahlt ${chf(summe(kreditoren.filter((k) => k.status === 'bezahlt'))
+                  + kreditoren.filter((k) => k.status !== 'bezahlt').reduce((s, k) => s + bezahltSumme(k), 0))}</td>
               </tr>
             </tbody>
           </table>
         </div>`;
+    }
+
+    // ---------- Offene Kreditoren über alle Baustellen ----------
+    // Sortiert nach der nächsten Frist: laufende Skontofrist vor Fälligkeit.
+    async function zeichneAlle() {
+      const [alle, baustellen] = await Promise.all([
+        abfrage({ typ: 'kreditor' }), alleBaustellen({ mitArchivierten: true }),
+      ]);
+      const ktr = new Map(baustellen.map((b) => [b.baustelleId, b]));
+      const heute = heuteTag();
+      const offene = alle
+        .filter((k) => k.status !== 'bezahlt')
+        .filter((k) => !filterBaustelle || k.baustelleId === filterBaustelle)
+        .map((k) => {
+          const w = kreditorWerte(k);
+          return { k, w, frist: w.skontoNutzbar ? w.skontoTag : w.faelligTag };
+        })
+        .sort((a, b) => (a.frist || '9999').localeCompare(b.frist || '9999'));
+      const total = offene.reduce((s, o) => s + o.w.rest, 0);
+      const skonto = offene.filter((o) => o.w.skontoNutzbar);
+      const ueber = offene.filter((o) => o.w.ueberfaellig);
+      const mitKreditoren = baustellen.filter((b) => alle.some((k) => k.baustelleId === b.baustelleId));
+      kachelnElement.innerHTML = `
+        <div class="karte kachel">
+          <span class="kachel-titel">Offene Kreditoren (${offene.length})</span>
+          <span class="kachel-wert">${chf(total)}</span>
+        </div>
+        <div class="karte kachel">
+          <span class="kachel-titel">Skonto möglich (${skonto.length})</span>
+          <span class="kachel-wert skonto-chance">${chf(skonto.reduce((s, o) => s + o.w.skontoBetrag, 0))}</span>
+        </div>
+        <div class="karte kachel">
+          <span class="kachel-titel">überfällig (${ueber.length})</span>
+          <span class="kachel-wert ${ueber.length ? 'verlust' : ''}">${chf(ueber.reduce((s, o) => s + o.w.rest, 0))}</span>
+        </div>`;
+      skontoHinweis.hidden = true;
+      tabelleElement.innerHTML = `
+        <label class="filter-baustelle">Baustelle
+          <select data-rolle="filter-baustelle">
+            <option value="">Alle Baustellen</option>
+            ${mitKreditoren.map((b) => `<option value="${esc(b.baustelleId)}"
+              ${b.baustelleId === filterBaustelle ? 'selected' : ''}>${esc(b.ktr)} · ${esc(b.name)}</option>`).join('')}
+          </select>
+        </label>
+        ${offene.length ? `
+        <div class="tabellen-scroll">
+          <table class="uebersicht-tabelle">
+            <thead><tr>
+              <th>Nächste Frist</th><th>Baustelle</th><th>Lieferant · Rg.-Nr.</th>
+              <th class="zahl">Offen</th><th>Skonto bis</th><th>Fällig</th><th>Status</th><th>Zahlung an</th><th></th>
+            </tr></thead>
+            <tbody>
+              ${offene.map(({ k, w, frist }) => {
+                const b = ktr.get(k.baustelleId);
+                return `
+                  <tr class="${w.ueberfaellig ? 'zeile-ueberfaellig' : ''}">
+                    <td class="kein-umbruch"><b>${formatTag(frist) || '—'}</b>${w.skontoNutzbar
+                      ? '<br><small class="skonto-chance">Skonto</small>'
+                      : (w.ueberfaellig ? '<br><span class="ueberfaellig">überfällig</span>' : '')}</td>
+                    <td class="kein-umbruch">${esc(b?.ktr || '—')}<br><small class="hinweis">${esc(b?.name || '')}</small></td>
+                    <td class="kein-umbruch"><b>${esc(k.lieferant)}</b><br><small class="hinweis">${esc(k.rechnungsNr)}</small></td>
+                    <td class="zahl"><b>${chf(w.rest)}</b>${w.skontoNutzbar
+                      ? `<br><small class="skonto-chance">mit Skonto ${chf(w.rest - w.skontoBetrag)}</small>` : ''}</td>
+                    <td class="kein-umbruch">${w.skontoTag ? formatTag(w.skontoTag) : '—'}</td>
+                    <td class="kein-umbruch">${formatTag(w.faelligTag)}</td>
+                    <td class="kein-umbruch">${esc(k.status)}</td>
+                    <td class="kein-umbruch"><small>${k.iban ? esc(formatIban(k.iban)) : '<span class="hinweis">IBAN fehlt</span>'}${
+                      k.referenz ? `<br>${esc(formatReferenz(k.referenz))}` : ''}</small></td>
+                    <td class="zahl"><button type="button" class="knopf eintrag-loeschen"
+                      data-aktion="zur-baustelle" data-baustelle="${esc(k.baustelleId)}">Öffnen</button></td>
+                  </tr>`;
+              }).join('')}
+              <tr class="summen-zeile">
+                <td colspan="3"><b>Total offen (${offene.length})</b></td>
+                <td class="zahl"><b>${chf(total)}</b></td>
+                <td colspan="5"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>` : '<p class="hinweis">Keine offenen Kreditoren — alles bezahlt.</p>'}`;
+    }
+
+    async function zeichneTabelle() {
+      container.querySelectorAll('[data-ansicht]').forEach((knopf) => {
+        knopf.classList.toggle('aktiv', knopf.dataset.ansicht === ansicht);
+        knopf.setAttribute('aria-selected', String(knopf.dataset.ansicht === ansicht));
+      });
+      neuKnopf.hidden = ansicht === 'alle';
+      if (ansicht === 'alle') {
+        schliesseFormular();
+        await zeichneAlle();
+      } else {
+        await zeichneBaustelle();
+      }
     }
 
     // ---------- Formular ----------
@@ -286,8 +391,6 @@ export default {
             </button>
           </div>
           <p class="hinweis" data-rolle="qr-info" hidden></p>
-          <input type="hidden" name="iban" value="${esc(kreditor?.iban ?? '')}">
-          <input type="hidden" name="referenz" value="${esc(kreditor?.referenz ?? '')}">
           <div class="feld-reihe">
             <label>Lieferant / Firma *<input name="lieferant" required autocomplete="off"
               list="lieferanten-liste" value="${esc(kreditor?.lieferant ?? '')}"
@@ -316,6 +419,13 @@ export default {
               inputmode="numeric" min="0" step="1"
               value="${esc(kreditor?.skontoTage ?? '')}" placeholder="z. B. 10"></label>
           </div>
+          <p class="hinweis" data-rolle="termine"></p>
+          <p class="gruppen-label">Zahlung an (für den Kontoauszug-Abgleich)</p>
+          <label>IBAN Lieferant<input name="iban" autocomplete="off" spellcheck="false"
+            value="${esc(formatIban(kreditor?.iban ?? ''))}" placeholder="CH00 0000 0000 0000 0000 0"></label>
+          <label>Zahlungsreferenz (QR-Referenz oder RF…)<input name="referenz" autocomplete="off"
+            spellcheck="false" value="${esc(formatReferenz(kreditor?.referenz ?? ''))}"></label>
+          <p class="hinweis" data-rolle="bank-pruefung"></p>
           <p class="gruppen-label">Kostenart (fürs Controlling)</p>
           <div class="chips">
             ${KOSTENARTEN.map((art) => `
@@ -343,6 +453,9 @@ export default {
           </div>
           <p class="meldung" role="status"></p>
         </form>`;
+      const formular = formularBereich.querySelector('form');
+      formular.addEventListener('input', () => pruefeFormular(formular));
+      pruefeFormular(formular);
       const belegEingabe = formularBereich.querySelector('[data-rolle="beleg-eingabe"]');
       belegEingabe.addEventListener('change', () => {
         formularBereich.querySelector('[data-rolle="beleg-hinweis"]').textContent =
@@ -351,6 +464,27 @@ export default {
             : 'Noch kein Beleg gewählt.';
       });
       formularBereich.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Live-Hinweise: Fälligkeit/Skontofrist als Datum, IBAN und Referenz geprüft.
+    function pruefeFormular(formular) {
+      const el = formular.elements;
+      const tag = el.tag.value;
+      const frist = parseInt(el.zahlungsfrist.value, 10);
+      const skontoTage = parseInt(el.skontoTage.value, 10);
+      formular.querySelector('[data-rolle="termine"]').textContent = tag ? [
+        `Fällig am ${formatTag(plusTage(tag, Number.isFinite(frist) ? frist : ZAHLUNGSFRIST_TAGE))}`,
+        zahl(el.skontoProzent.value) > 0 && skontoTage > 0
+          ? `Skonto ${zahl(el.skontoProzent.value)} % bis ${formatTag(plusTage(tag, skontoTage))}` : '',
+      ].filter(Boolean).join(' · ') : '';
+      const iban = kompakt(el.iban.value);
+      const ref = kompakt(el.referenz.value);
+      const art = referenzArt(ref);
+      formular.querySelector('[data-rolle="bank-pruefung"]').textContent = [
+        iban ? (istGueltigeIban(iban) ? '✓ IBAN gültig' : '✗ IBAN ungültig — bitte prüfen') : '',
+        ref ? ({ QRR: '✓ QR-Referenz gültig', SCOR: '✓ SCOR-Referenz gültig' }[art]
+          || '⚠ Referenz ohne gültige Prüfziffer — wird als Text abgeglichen') : '',
+      ].filter(Boolean).join(' · ');
     }
 
     function schliesseFormular() {
@@ -374,6 +508,7 @@ export default {
       setze('zahlungsfrist', daten.zahlungsfristTage);
       setze('iban', daten.iban);
       setze('referenz', daten.referenz);
+      pruefeFormular(formular);
       if (daten.mitteilung && !formular.elements.notiz.value) {
         formular.elements.notiz.value = daten.mitteilung;
       }
@@ -526,8 +661,8 @@ export default {
           skontoTage: formular.elements.skontoTage.value.trim(),
           kostenart: formular.elements.kostenart.value,
           notiz: formular.elements.notiz.value.trim(),
-          iban: formular.elements.iban.value.trim(),
-          referenz: formular.elements.referenz.value.trim(),
+          iban: kompakt(formular.elements.iban.value),
+          referenz: kompakt(formular.elements.referenz.value),
         });
         // Belege anhängen: Fotos verkleinert, PDF unverändert.
         const dateien = [...formular.querySelector('[data-rolle="beleg-eingabe"]').files];
@@ -663,22 +798,52 @@ export default {
     }
 
     // ---------- Aktionen ----------
-    container.querySelector('[data-aktion="neu"]')
-      .addEventListener('click', () => oeffneFormular(null));
+    neuKnopf.addEventListener('click', () => oeffneFormular(null));
+
+    container.querySelector('.ansicht-wahl').addEventListener('click', (klick) => {
+      const knopf = klick.target.closest('[data-ansicht]');
+      if (!knopf) return;
+      ansicht = knopf.dataset.ansicht;
+      try { localStorage.setItem(ANSICHT_MERKER, ansicht); } catch { /* egal */ }
+      meldungElement.textContent = '';
+      zeichneTabelle();
+    });
+
+    container.querySelector('[data-aktion="kontoauszug"]').addEventListener('click', () => {
+      oeffneKontoauszug({
+        richtung: 'DBIT',
+        nachBuchung: async (text) => {
+          await zeichneTabelle();
+          meldungElement.textContent = text;
+        },
+      });
+    });
+
+    tabelleElement.addEventListener('change', (wechsel) => {
+      if (wechsel.target.matches('[data-rolle="filter-baustelle"]')) {
+        filterBaustelle = wechsel.target.value;
+        zeichneTabelle();
+      }
+    });
 
     container.querySelector('[data-aktion="export"]')
       .addEventListener('click', async () => {
-        const kreditoren = await ladeKreditoren();
+        const kreditoren = ansicht === 'alle'
+          ? (await abfrage({ typ: 'kreditor' })).filter((k) => k.status !== 'bezahlt')
+          : await ladeKreditoren();
+        const ktrVon = new Map((await alleBaustellen({ mitArchivierten: true }))
+          .map((b) => [b.baustelleId, b.ktr]));
         exportiereCsv(
-          `luense-kreditoren-${baustelle.ktr}.csv`,
-          ['Lieferant', 'Rechnungs-Nr.', 'Datum', 'Kostenart', 'Betrag CHF',
+          ansicht === 'alle' ? 'luense-offene-kreditoren.csv' : `luense-kreditoren-${baustelle.ktr}.csv`,
+          ['KTR', 'Lieferant', 'Rechnungs-Nr.', 'Datum', 'Kostenart', 'Betrag CHF',
+            'Bezahlt CHF', 'Offen CHF',
             'Skonto %', 'Skonto bis', 'Skonto CHF', 'Fällig', 'Status',
             'Bezahlt am', 'Skonto genutzt', 'IBAN', 'Referenz',
             'Visum-Bemerkung', 'Notiz', 'Statusverlauf'],
           kreditoren.slice().reverse().map((k) => {
             const w = kreditorWerte(k);
-            return [k.lieferant, k.rechnungsNr, formatTag(k.tag), k.kostenart,
-              w.betrag, zahl(k.skontoProzent) || '', formatTag(w.skontoTag),
+            return [ktrVon.get(k.baustelleId) || '', k.lieferant, k.rechnungsNr, formatTag(k.tag),
+              k.kostenart, w.betrag, w.bezahlt, w.rest, zahl(k.skontoProzent) || '', formatTag(w.skontoTag),
               w.skontoBetrag || '', formatTag(w.faelligTag), k.status,
               formatTag(k.bezahltAm), k.skontoGenutzt ? 'ja' : '',
               k.iban || '', k.referenz || '',
@@ -691,6 +856,13 @@ export default {
     tabelleElement.addEventListener('click', async (klick) => {
       const knopf = klick.target.closest('[data-aktion]');
       if (!knopf) return;
+      if (knopf.dataset.aktion === 'zur-baustelle') {
+        ansicht = 'baustelle';
+        try { localStorage.setItem(ANSICHT_MERKER, ansicht); } catch { /* egal */ }
+        document.dispatchEvent(new CustomEvent('luense:baustelleWechseln',
+          { detail: { baustelleId: knopf.dataset.baustelle } }));
+        return;
+      }
       const kreditoren = await ladeKreditoren();
       const kreditor = kreditoren.find((k) => k._id === knopf.dataset.id);
       if (!kreditor) return;
@@ -699,9 +871,16 @@ export default {
         oeffneFormular(kreditor);
       } else if (aktion === 'beleg') {
         zeigeBelege(kreditor);
+      } else if (aktion === 'zahlungen') {
+        zeigeZahlungen(kreditor._id, {
+          titel: `Zahlungen · ${kreditor.lieferant} ${kreditor.rechnungsNr}`,
+          nachAenderung: zeichneTabelle,
+        });
       } else if (aktion === 'weiter') {
-        const naechster = KREDITOR_STATUS[KREDITOR_STATUS.indexOf(kreditor.status) + 1];
+        const naechster = naechsterStatus(kreditor);
         if (!naechster) return;
+        if (naechster === 'bezahlt' && kreditor.status === 'teilbezahlt'
+          && !confirm(`Noch offen: ${chf(offenerBetrag(kreditor))}. Trotzdem als bezahlt abschliessen?`)) return;
         if (naechster === 'visiert') {
           // Visum im Dialog mit Lieferschein-Abgleich (Abend 9.4).
           oeffneVisumDialog(kreditor);
@@ -723,12 +902,12 @@ export default {
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneTabelle();
       } else if (aktion === 'zurueck') {
-        const vorheriger = KREDITOR_STATUS[KREDITOR_STATUS.indexOf(kreditor.status) - 1];
+        const vorheriger = vorherigerStatus(kreditor);
         if (!vorheriger) return;
         const doc = mitHistorie(kreditor, vorheriger);
         if (kreditor.status === 'bezahlt') {
           delete doc.bezahltAm;
-          delete doc.skontoGenutzt;
+          if (!zahlungen(kreditor).some((z) => zahl(z.skonto) > 0)) delete doc.skontoGenutzt;
         }
         if (vorheriger === 'offen') doc.visumNotiz = '';
         await put(doc);

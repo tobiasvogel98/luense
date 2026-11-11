@@ -342,10 +342,18 @@ export function zeigeProtokollDruck(baustelle, optionen) {
         </div>
       </section>` : ''}
 
+    ${optionen.unterschriften?.length === 0 ? '' : `
     <div class="unterschriften">
       ${(optionen.unterschriften || ['Unterschrift', 'Unterschrift'])
         .map((u) => `<div>${esc(u)}</div>`).join('')}
-    </div>`);
+    </div>`}
+
+    ${optionen.zahlteilSvg ? `
+      <section class="zahlteil-seite">
+        <p class="zahlteil-hinweis">${esc(optionen.zahlteilHinweis || '')}</p>
+        <p class="zahlteil-abtrennen">Vor der Einzahlung abzutrennen</p>
+        <div class="zahlteil">${optionen.zahlteilSvg}</div>
+      </section>` : ''}`);
 }
 
 // Wochenübersicht: eine Zeile je Rapport, Summenzeile, Unterschrift.

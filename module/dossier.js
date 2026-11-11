@@ -9,6 +9,7 @@ import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { berechneAbschluss } from '../kern/fo.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { chf, chfGanz, esc, formatDatumZeit } from '../kern/ui.js';
+import { offenerBetrag } from '../kern/zahlung.js';
 
 function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
@@ -75,10 +76,11 @@ export default {
           .map((m) => ({ ...m, datum: p.werte?.datum })));
       const regieOhneNachtrag = d.rapporte.filter((r) => zahl(r.davonRegie) > 0
         && !d.nachtraege.some((n) => n.beweise?.rapportIds?.includes(r._id)));
-      const gestellteRechnungen = d.rechnungen.filter((r) => r.status === 'gestellt');
-      const gestellteSumme = gestellteRechnungen.reduce((s, r) => s + zahl(r.betrag), 0);
+      // Offene Beträge nach Zahlungen (Kontoauszug/Teilzahlung): Restbetrag.
+      const gestellteRechnungen = d.rechnungen.filter((r) => ['gestellt', 'teilbezahlt'].includes(r.status));
+      const gestellteSumme = gestellteRechnungen.reduce((s, r) => s + offenerBetrag(r), 0);
       const kreditorenOffen = d.kreditoren.filter((k) => k.status !== 'bezahlt');
-      const kreditorenOffenSumme = kreditorenOffen.reduce((s, k) => s + zahl(k.betrag), 0);
+      const kreditorenOffenSumme = kreditorenOffen.reduce((s, k) => s + offenerBetrag(k), 0);
       const kreditorenUeberfaellig = kreditorenOffen.filter((k) => {
         const frist = new Date(`${k.tag}T12:00:00`);
         if (Number.isNaN(frist.getTime())) return false;
@@ -248,7 +250,7 @@ export default {
             kreditorenUeberfaellig.length ? { art: 'tabelle', titel: 'Kreditoren überfällig',
               spalten: ['Lieferant', 'Rechnungs-Nr.', 'Status', 'Betrag'],
               zeilen: kreditorenUeberfaellig.map((k) => [k.lieferant, k.rechnungsNr,
-                k.status, chf(zahl(k.betrag))]) } : null,
+                k.status, chf(offenerBetrag(k))]) } : null,
             meilensteine.length ? { art: 'tabelle', titel: 'Meilensteine',
               spalten: ['Meilenstein', 'Termin', 'Status'],
               zeilen: meilensteine.map((m) => [m.titel, formatTag(m.termin) || '—', m.erledigt ? 'erledigt' : 'offen']) } : null,

@@ -6,7 +6,10 @@
 // (Nachtrag genehmigt) — Rule of two erfüllt.
 
 import { put, abfrage } from './speicher.js';
+import { scorAusNummer } from './zahlung.js';
 
+// Ablauf von Hand. Dazu kommt «teilbezahlt» — entsteht nur aus Zahlungen
+// (Kontoauszug oder von Hand erfasst), siehe kern/zahlung.js.
 export const RECHNUNG_STATUS = ['offen', 'gestellt', 'bezahlt'];
 export const ZAHLUNGSFRIST_TAGE = 30;
 
@@ -31,10 +34,12 @@ export async function naechsteRechnungsnummer() {
 // Legt eine Rechnung mit Status «offen» an. basis verlinkt auf die
 // Grundlage: { art: 'regierapport' | 'nachtrag' | 'manuell', id, label }.
 export async function erstelleRechnung({ baustelleId, titel, betrag, basis }) {
+  const nummer = await naechsteRechnungsnummer();
   return put({
     typ: 'rechnung',
     baustelleId,
-    nummer: await naechsteRechnungsnummer(),
+    nummer,
+    referenz: scorAusNummer(nummer), // SCOR-Zahlungsreferenz (ISO 11649)
     tag: heuteTag(),
     titel: String(titel || '').trim() || '(ohne Titel)',
     betrag: String(betrag ?? '').trim(),

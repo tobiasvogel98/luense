@@ -3014,3 +3014,226 @@ details.katalog-wahl > summary {
 .umzug-hinweis ol { margin: 0.5rem 0 0.5rem 1.25rem; }
 .umzug-knoepfe { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
 .umzug-knoepfe .knopf { min-height: var(--touch-ziel); display: inline-flex; align-items: center; text-decoration: none; }
+/* Firmendaten / Rechnungsadresse: schmale Felder (Nr., PLZ, Land) */
+.feld-reihe label.feld-schmal {
+  flex: 0 1 6rem;
+}
+
+.feld-reihe label.feld-breit {
+  flex: 3 1 12rem;
+}
+
+/* QR-Rechnung: Zahlteil mit Empfangsschein (210 × 105 mm, SVG in mm).
+   Am Bildschirm skaliert, im Druck auf eigener Seite ohne Rand exakt
+   am unteren Blattrand (SIX Style Guide QR-Rechnung). */
+.zahlteil-seite {
+  margin-top: var(--abstand-5);
+  break-inside: avoid;
+}
+
+.zahlteil-hinweis,
+.zahlteil-abtrennen {
+  font-size: 9pt;
+  color: #555;
+  margin-bottom: var(--abstand-2);
+}
+
+.zahlteil-abtrennen {
+  text-align: center;
+}
+
+.zahlteil {
+  max-width: 210mm;
+  border: 1px solid #ccc;
+}
+
+.zahlteil-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+@media print {
+  @page zahlteil {
+    size: A4;
+    margin: 0;
+  }
+
+  .zahlteil-seite {
+    page: zahlteil;
+    break-before: page;
+    position: relative;
+    height: 296mm;
+    margin: 0;
+  }
+
+  .zahlteil-hinweis {
+    padding: 15mm 15mm 0;
+  }
+
+  .zahlteil-abtrennen {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 106mm;
+    margin: 0;
+  }
+
+  .zahlteil {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 210mm;
+    max-width: none;
+    border: none;
+  }
+
+  .zahlteil-svg {
+    width: 210mm;
+    height: 105mm;
+  }
+}
+
+/* Debitoren/Kreditoren: Ansichtswahl, Baustellen-Filter, überfällige Zeilen */
+.filter-baustelle {
+  display: block;
+  max-width: 28rem;
+  margin-bottom: var(--abstand-3);
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--farbe-text-gedaempft);
+}
+
+.filter-baustelle select,
+.bank-zuweisen select {
+  display: block;
+  width: 100%;
+  min-height: var(--touch-ziel);
+  margin-top: var(--abstand-1);
+  padding: 0 var(--abstand-2);
+  font: inherit;
+  font-weight: 400;
+  color: var(--farbe-text);
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+}
+
+.uebersicht-tabelle tr.zeile-ueberfaellig td:first-child {
+  box-shadow: inset 4px 0 0 var(--farbe-akzent);
+}
+
+.adress-block {
+  margin: var(--abstand-2) 0;
+}
+
+.adress-block summary {
+  min-height: var(--touch-ziel);
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Kontoauszug-Dialog */
+.bank-dialog {
+  width: min(44rem, 100%);
+}
+
+.datei-knopf {
+  display: inline-flex;
+  align-items: center;
+  margin: var(--abstand-2) 0;
+}
+
+.bank-gruppe {
+  margin: var(--abstand-3) 0;
+}
+
+.bank-gruppe > summary {
+  min-height: var(--touch-ziel);
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+  border-bottom: 1px solid var(--farbe-linie);
+}
+
+.bank-posten {
+  padding: var(--abstand-2) 0 var(--abstand-2) var(--abstand-3);
+  border-bottom: 1px solid var(--farbe-linie);
+  border-left: 4px solid var(--farbe-linie);
+  margin-top: var(--abstand-2);
+}
+
+.bank-posten.bank-gutschrift {
+  border-left-color: #16a34a;
+}
+
+.bank-posten.bank-belastung {
+  border-left-color: var(--farbe-akzent);
+}
+
+.bank-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--abstand-3);
+  align-items: baseline;
+}
+
+.bank-betrag {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bank-datum {
+  font-variant-numeric: tabular-nums;
+  color: var(--farbe-text-gedaempft);
+}
+
+.bank-partei {
+  font-weight: 600;
+}
+
+.bank-zeile {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+
+.bank-wahl {
+  display: flex;
+  gap: var(--abstand-3);
+  align-items: flex-start;
+  min-height: var(--touch-ziel);
+  padding-top: var(--abstand-2);
+  cursor: pointer;
+}
+
+.bank-wahl input {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  margin-top: 2px;
+  accent-color: var(--farbe-akzent);
+}
+
+.bank-zuweisen {
+  display: block;
+  margin-top: var(--abstand-2);
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+}
+
+.bank-fuss {
+  position: sticky;
+  bottom: calc(-1 * var(--abstand-4));
+  padding: var(--abstand-2) 0;
+  background: var(--farbe-flaeche);
+}
+
+@media (prefers-color-scheme: dark) {
+  .bank-posten.bank-gutschrift {
+    border-left-color: #4ade80;
+  }
+}

@@ -2,7 +2,7 @@
 // VERSION bei jeder Aenderung an App-Dateien hochzaehlen — alte Caches werden
 // beim Aktivieren geloescht, danach laedt die Seite die neuen Dateien.
 
-const VERSION = 'luense-v55';
+const VERSION = 'luense-v56';
 
 const DATEIEN = [
   './',
@@ -25,6 +25,10 @@ const DATEIEN = [
   './kern/ui.js',
   './kern/katalog.js',
   './kern/umzug.js',
+  './kern/qr.js',
+  './kern/zahlung.js',
+  './kern/qrrechnung.js',
+  './kern/bank.js',
   './module/ereignis.js',
   './module/pendenzen.js',
   './module/rapport.js',
