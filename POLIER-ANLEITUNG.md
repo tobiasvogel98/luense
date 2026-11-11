@@ -9,7 +9,9 @@ deinem Handy, bis du sie übergibst.
 
 ## Einmalige Einrichtung (macht der Bauführer mit dir, ~5 Minuten)
 
-1. Auf dem Handy **tobiasvogel98.github.io/luense** öffnen.
+1. Auf dem Handy **app.luense.ch** öffnen. Es erscheint die Anmeldung:
+   deine E-Mail-Adresse eingeben (der Bauführer hat sie freigegeben),
+   dann den Code aus der E-Mail eintippen.
 2. Im Browser-Menü **«App installieren»** (oder «Zum Startbildschirm
    hinzufügen») — danach gibt es ein Lünse-Symbol wie eine normale App.
 3. Der Bauführer schickt dir seine **Backup-Datei** (WhatsApp/Mail).

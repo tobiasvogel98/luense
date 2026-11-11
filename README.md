@@ -4,7 +4,7 @@ Die Stamm-App: ein Programm für den Bauführer-Alltag — Baustellen, Foto-Jour
 und Schritt für Schritt alle weiteren Module. Offline-first PWA, Vanilla JS,
 Daten bleiben auf dem eigenen Gerät.
 
-**Live:** https://tobiasvogel98.github.io/luense/
+**Live:** https://app.luense.ch (Anmeldung mit freigegebener E-Mail-Adresse und Einmal-Code)
 
 ## Nutzung
 
