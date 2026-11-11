@@ -328,7 +328,9 @@ export function qrPfad(matrix) {
       if (!zeile[x]) { x++; continue; }
       const start = x;
       while (x < zeile.length && zeile[x]) x++;
-      teile.push(`M${start} ${y}h${x - start}v1h${start - x}z`);
+      // 0.05 Modul Überlappung nach unten: keine hellen Haarlinien zwischen
+      // den Zeilen beim Skalieren am Bildschirm.
+      teile.push(`M${start} ${y}h${x - start}v1.05h${start - x}z`);
     }
   });
   return teile.join('');

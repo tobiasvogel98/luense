@@ -17,7 +17,8 @@ import {
 const ERLAUBT = /[\x20-\x7E\xA0-\xFFĀ-ſȘșȚț€]/u;
 
 function sauber(text, max) {
-  return [...String(text ?? '').replace(/[\r\n\t]+/g, ' ').trim()]
+  return [...String(text ?? '').replace(/[\r\n\t]+/g, ' ').replace(/[–—]/g, '-')
+    .replace(/[„“”«»]/g, '"').replace(/[‘’‚]/g, "'").trim()]
     .map((z) => (ERLAUBT.test(z) ? z : '.')).join('').slice(0, max).trim();
 }
 
@@ -213,8 +214,9 @@ export function zahlteilSvg(angaben) {
     aria-label="QR-Rechnung: Zahlteil und Empfangsschein">
     <rect x="0" y="0" width="210" height="105" fill="#fff"/>
     <path d="M0 0.2H210 M62 0V105" stroke="#000" stroke-width="0.2" stroke-dasharray="1 0.8"/>
-    <text x="4" y="1.4" font-size="3.4">✂</text>
-    <text x="61.1" y="5" font-size="3.4" transform="rotate(90 62.3 4)">✂</text>
+    <text x="8" y="1.5" font-size="4" text-anchor="middle" dominant-baseline="middle">✂</text>
+    <text x="62" y="10" font-size="4" text-anchor="middle" dominant-baseline="middle"
+      transform="rotate(90 62 10)">✂</text>
 
     <text x="5" y="${(5 + 11 * PT).toFixed(2)}" font-size="${11 * PT}" font-weight="700">Empfangsschein</text>
     ${block(5, 12, empfang, { titelPt: 6, wertPt: 8, zeilenPt: 9, breite: 52 })}
@@ -227,7 +229,7 @@ export function zahlteilSvg(angaben) {
     <text x="67" y="${(5 + 11 * PT).toFixed(2)}" font-size="${11 * PT}" font-weight="700">Zahlteil</text>
     <rect x="${qrX - 1}" y="${qrY - 1}" width="48" height="48" fill="#fff"/>
     <g transform="translate(${qrX} ${qrY}) scale(${modul})">
-      <path d="${qrPfad(qr)}" shape-rendering="crispEdges"/>
+      <path d="${qrPfad(qr)}"/>
     </g>
     ${schweizerkreuz(qrX + 23, qrY + 23)}
     <text x="67" y="${(68 + 8 * PT).toFixed(2)}" font-size="${8 * PT}" font-weight="700">Währung</text>

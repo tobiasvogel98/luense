@@ -610,7 +610,7 @@ export function zeigeZahlungen(docId, { titel = 'Zahlungen', nachAenderung = () 
           <label>Betrag [CHF]<input name="betrag" type="number" inputmode="decimal" step="any"
             min="0.01" required value="${offenerBetrag(doc) || ''}"></label>
         </div>
-        ${w?.skontoTag ? `<label class="checkbox-zeile"><input type="checkbox" name="skonto">
+        ${w?.skontoTag ? `<label class="bank-wahl"><input type="checkbox" name="skonto">
           Skonto ${chf(w.skontoBetrag)} abgezogen</label>` : ''}
         <div class="knopfzeile">
           <button type="submit" class="knopf knopf-primaer">Zahlung erfassen</button>
