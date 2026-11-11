@@ -194,10 +194,21 @@
     // Ein Modul (z. B. das Dossier) bittet um den Wechsel zu einem Modul.
     // Optional detail.fokusId: die Shell sucht danach im neu gezeichneten
     // Modul ein Element mit diesem data-id und hebt dessen Karte hervor —
-    // generisch, ohne dass ein Modul das andere kennt.
-    document.addEventListener('luense:modulWechseln', (ereignis) => {
+    // generisch, ohne dass ein Modul das andere kennt. Optional
+    // detail.baustelleId: vorher auf diese Baustelle wechseln (z. B. von
+    // der Offerte ins Ausmass der daraus erstellten Baustelle).
+    document.addEventListener('luense:modulWechseln', async (ereignis) => {
       const index = MODULE.findIndex((m) => m.name === ereignis.detail?.name);
       if (index < 0) return;
+      const zielBaustelle = ereignis.detail?.baustelleId;
+      if (zielBaustelle && zielBaustelle !== auswahl.value) {
+        const baustellen = await aktualisiereAuswahl();
+        if (baustellen.some((b) => b.baustelleId === zielBaustelle)) {
+          auswahl.value = zielBaustelle;
+          localStorage.setItem(MERKER, zielBaustelle);
+          zeigeBeispielHinweis();
+        }
+      }
       aktivesModul = index;
       localStorage.setItem(MODUL_MERKER, MODULE[index].name);
       window.scrollTo(0, 0);
