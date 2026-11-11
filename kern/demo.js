@@ -389,12 +389,13 @@ export async function ladeBeispielbaustelle() {
   aushubPos.ausmass = [
     { bez: 'Wassergraben KS 1 – KS 8', anzahl: '1', laenge: '620', breite: '0.8', hoehe: '1.5' },
     { bez: 'Hausanschlüsse', anzahl: '12', laenge: '8', breite: '0.8', hoehe: '1.5' },
-    { bez: 'Zuschlag Kabelgraben', anzahl: '1', laenge: '', breite: '', hoehe: '389.8' },
+    { bez: 'Zuschlag Kabelgraben', anzahl: '1', laenge: '', breite: '', hoehe: '390.8' },
   ];
   await speichere({
     typ: 'offerte', baustelleId: OFFERT_ID, nummer: 'O-DEMO-01',
     kunde: 'Gemeinde Musterhausen', objekt: 'Werkleitungen Musterweg (Beispiel)',
-    status: 'angenommen', baustelleErstellt: true, rabatt: '3', skonto: '2',
+    status: 'angenommen', baustelleErstellt: true, zielBaustelleId: B,
+    rabatt: '3', skonto: '2',
     gliederung: [
       { art: 'kapitel', nr: '113', titel: 'Baustelleneinrichtung' }, lvPos('113.111'),
       { art: 'kapitel', nr: '151', titel: 'Abbrüche' }, lvPos('151.111'),
