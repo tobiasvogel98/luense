@@ -590,14 +590,14 @@ body:has(.modul-nav[hidden]) .nav-knopf {
 }
 
 /* Ausmass-Fenster: Zeilen Bezeichnung + 4 Faktoren + Wert */
-.ausmass-dialog {
+.dialog.ausmass-dialog {
   width: min(44rem, 100%);
 }
 
 .ausmass-editor-kopf,
 .ausmass-editor-zeile {
   display: grid;
-  grid-template-columns: minmax(6rem, 1.6fr) repeat(4, minmax(3.2rem, 1fr)) 4.5rem var(--touch-ziel);
+  grid-template-columns: minmax(8rem, 3fr) repeat(4, minmax(3.5rem, 1fr)) 4.5rem var(--touch-ziel);
   gap: var(--abstand-1);
   align-items: center;
 }
@@ -690,6 +690,10 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   display: flex;
   flex-direction: column;
   gap: var(--abstand-2);
+}
+
+.ausmass-menge label {
+  margin-bottom: 0;
 }
 
 .formular .ausmass-hand {
