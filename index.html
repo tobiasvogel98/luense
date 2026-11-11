@@ -62,6 +62,7 @@
     import { alleBaustellen, renderStammAnsicht } from './kern/stamm.js';
     import { renderBackupZeile } from './kern/export.js';
     import { renderBeispielBereich } from './kern/demo.js';
+    import { zeigeUmzugHinweis } from './kern/umzug.js';
     import ereignisModul from './module/ereignis.js';
     import pendenzenModul from './module/pendenzen.js';
     import rapportModul from './module/rapport.js';
@@ -298,6 +299,7 @@
       zeigeModul();
     }
 
+    zeigeUmzugHinweis();
     renderBackupZeile(document.getElementById('nav-fuss'), {
       nachImport: nachDatenImport,
     });

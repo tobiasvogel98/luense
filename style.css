@@ -2826,3 +2826,17 @@ details.katalog-wahl > summary {
   font-size: var(--schrift-klein);
   color: var(--farbe-text-gedaempft);
 }
+
+/* Hinweis auf der alten Adresse: Lünse ist nach app.luense.ch umgezogen */
+.umzug-hinweis {
+  margin: var(--abstand-3);
+  padding: var(--abstand-4, 1rem);
+  border: 3px solid var(--farbe-akzent);
+  border-radius: 10px;
+  background: var(--farbe-flaeche);
+  color: var(--farbe-text);
+}
+.umzug-hinweis h2 { margin: 0 0 0.5rem; }
+.umzug-hinweis ol { margin: 0.5rem 0 0.5rem 1.25rem; }
+.umzug-knoepfe { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.umzug-knoepfe .knopf { min-height: var(--touch-ziel); display: inline-flex; align-items: center; text-decoration: none; }
