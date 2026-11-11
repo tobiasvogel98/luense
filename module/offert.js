@@ -4,7 +4,8 @@
 // rechts, Zwischentotal je Kapitel. Je Position beliebig viele
 // Ausmasszeilen (Bezeichnung, Anzahl × Länge × Breite × Höhe) als
 // Kalkulationsgrundlage — sie bleiben in der Offerte gespeichert und
-// sind hinter der Menge versteckt (Antippen öffnet sie im Fenster).
+// sind hinter der Menge versteckt (Antippen öffnet sie im Fenster, dort
+// erfassen und direkt in die Menge speichern).
 // Zusammenzug wie das Alt-Tool: Total → −Rabatt → −Skonto → +MwSt.
 // «angenommen» erzeugt per Klick eine Baustelle; die Positionen gehen
 // als KOPIE ins Ausmass (dort wird gemessen, die Offerte bleibt unberührt).
@@ -58,7 +59,8 @@ function ausmassFormel(zeile) {
 // offerte.gliederung: geordnete LV-Zeilen —
 //   { art: 'kapitel', nr, titel }
 //   { art: 'unternummer', nr, titel }
-//   { art: 'position', nr, text, einheit, ep, menge, ausmass: [zeilen] }
+//   { art: 'position', nr, text, einheit, ep, menge, ausmass: [zeilen],
+//     mengeVonHand?: true }  (Menge bewusst abweichend vom Ausmass)
 // Alte Offerten (flache positionen-Liste) werden beim Lesen abgebildet.
 export function gliederungVon(offerte) {
   if (offerte.gliederung?.length) return offerte.gliederung;
@@ -100,7 +102,8 @@ function rundungText(rundung) {
 }
 
 // LV-Tabellenzeilen (Ansicht und Druck teilen dieselbe Darstellung).
-// interaktiv: Menge wird zum Knopf, wenn Ausmasszeilen dahinterliegen.
+// interaktiv: jede Menge wird zum Knopf — Antippen öffnet ihr Ausmass
+// (bearbeiten und direkt in die Menge speichern). Der Druck bleibt schlicht.
 export function lvZeilenHtml(gliederung, { interaktiv = false } = {}) {
   const zeilen = [];
   let kapitelSumme = 0;
@@ -127,10 +130,8 @@ export function lvZeilenHtml(gliederung, { interaktiv = false } = {}) {
       const betrag = zahl(z.menge) * zahl(z.ep);
       kapitelSumme += betrag;
       gesamt += betrag;
-      const mitAusmass = z.ausmass?.length > 0;
-      const mengeHtml = interaktiv && mitAusmass
-        ? `<button type="button" class="lv-menge-knopf" data-ausmass-zeige="${index}"
-             title="Ausmass anzeigen">${mengeText(zahl(z.menge))}</button>`
+      const mengeHtml = interaktiv
+        ? mengeKnopfHtml(z, `data-ausmass-zeige="${index}"`)
         : mengeText(zahl(z.menge));
       zeilen.push(`<tr class="lv-position"><td class="lv-nr">${esc(z.nr)}</td>
         <td>${esc(z.text)}</td>
@@ -172,98 +173,261 @@ function zusammenzugZeilen(offerte) {
   ];
 }
 
+// ---------- Menge und Ausmass einer Position ----------
+// Eine Position trägt ihre Menge entweder von Hand (ohne Ausmasszeilen)
+// oder abgeleitet aus dem Ausmass (Menge = Summe der Zeilen). Wer trotz
+// Ausmass eine andere Menge will, setzt «mengeVonHand» — die Abweichung
+// wird dann überall sichtbar markiert. Alte Positionen ohne das Feld:
+// Menge ≠ Summe gilt ebenfalls als Abweichung.
+export function mengeHerkunft(position) {
+  if (!position.ausmass?.length) return 'hand';
+  const summe = ausmassSumme(position.ausmass);
+  return Math.abs(zahl(position.menge) - summe) > 0.0005 ? 'abweichend' : 'ausmass';
+}
+
+const HERKUNFT_MARKE = {
+  ausmass: '<span class="lv-menge-marke">aus Ausmass</span>',
+  abweichend: '<span class="lv-menge-marke lv-menge-abweichend">≠ Ausmass</span>',
+  hand: '',
+};
+
+// Knopf für die Menge (LV-Ansicht und Editor teilen ihn): Wert gross,
+// darunter klein die Herkunft — Antippen öffnet das Ausmass-Fenster.
+function mengeKnopfHtml(position, attribut) {
+  const herkunft = mengeHerkunft(position);
+  const leer = String(position.menge ?? '').trim() === '';
+  return `<button type="button" class="lv-menge-knopf" ${attribut}
+      title="Menge und Ausmass bearbeiten"
+      aria-label="Menge ${leer ? 'erfassen' : mengeText(zahl(position.menge))}${herkunft === 'ausmass' ? ' (aus Ausmass)' : ''}${herkunft === 'abweichend' ? ' (weicht vom Ausmass ab)' : ''} — Ausmass öffnen">
+      <span class="lv-menge-wert">${leer ? 'Menge …' : mengeText(zahl(position.menge))}</span>
+      ${HERKUNFT_MARKE[herkunft]}
+    </button>`;
+}
+
 // ---------- Ausmass-Fenster ----------
-// Editierbar im Editor, nur lesend aus der LV-Ansicht (hinter der Menge).
-function oeffneAusmassFenster({ titel, einheit, zeilen, editierbar, onUebernehmen }) {
+// Ein Fenster für beide Wege (LV-Ansicht und Editor): Ausmasszeilen
+// erfassen, Summe live, die Summe wird zur Menge — oder ohne Zeilen
+// die Menge von Hand. onSpeichern({ ausmass, menge, mengeVonHand }).
+// baustelle: optionales Promise auf { menge, einheit, onOeffnen } —
+// zeigt die auf der Baustelle ausgemessene Menge mit Sprung ins Ausmass.
+function oeffneAusmassFenster({
+  titel, einheit, ep, zeilen, menge, mengeVonHand, speichernText = 'Speichern',
+  baustelle = null, onSpeichern,
+}) {
   const dialog = document.createElement('div');
   dialog.className = 'vollbild dialog-hintergrund';
+  const eh = einheit ? ` ${einheit}` : '';
   const zeileHtml = (z = {}) => `
     <div class="ausmass-editor-zeile" data-rolle="az">
       <input data-az="bez" placeholder="Bezeichnung" autocomplete="off"
-        value="${esc(z.bez ?? '')}" ${editierbar ? '' : 'readonly'}>
+        aria-label="Bezeichnung" value="${esc(z.bez ?? '')}">
       <input data-az="anzahl" type="number" inputmode="decimal" step="any"
-        placeholder="Anz." value="${esc(z.anzahl ?? '')}" ${editierbar ? '' : 'readonly'}>
+        placeholder="Anz." aria-label="Anzahl" value="${esc(z.anzahl ?? '')}">
       <input data-az="laenge" type="number" inputmode="decimal" step="any"
-        placeholder="Länge" value="${esc(z.laenge ?? '')}" ${editierbar ? '' : 'readonly'}>
+        placeholder="Länge" aria-label="Länge" value="${esc(z.laenge ?? '')}">
       <input data-az="breite" type="number" inputmode="decimal" step="any"
-        placeholder="Breite" value="${esc(z.breite ?? '')}" ${editierbar ? '' : 'readonly'}>
+        placeholder="Breite" aria-label="Breite" value="${esc(z.breite ?? '')}">
       <input data-az="hoehe" type="number" inputmode="decimal" step="any"
-        placeholder="Höhe" value="${esc(z.hoehe ?? '')}" ${editierbar ? '' : 'readonly'}>
+        placeholder="Höhe" aria-label="Höhe" value="${esc(z.hoehe ?? '')}">
       <span class="ausmass-wert" data-rolle="az-wert"></span>
-      ${editierbar ? `<button type="button" class="knopf zeile-weg"
-        data-aktion="az-weg" aria-label="Zeile entfernen">×</button>` : ''}
+      <button type="button" class="knopf zeile-weg"
+        data-aktion="az-weg" aria-label="Zeile entfernen">×</button>
     </div>`;
+  const startZeilen = zeilen?.length ? zeilen : [{}];
+  const startSumme = ausmassSumme(zeilen);
+  const startVonHand = Boolean(zeilen?.length)
+    && (Boolean(mengeVonHand) || Math.abs(zahl(menge) - startSumme) > 0.0005);
   dialog.innerHTML = `
-    <form class="karte formular dialog ausmass-dialog" data-rolle="ausmass-fenster">
+    <form class="karte formular dialog ausmass-dialog" data-rolle="ausmass-fenster"
+      aria-label="Ausmass ${esc(titel)}">
       <h3>Ausmass · ${esc(titel)}</h3>
       <p class="hinweis">Anzahl × Länge × Breite × Höhe — leere Felder zählen
         nicht mit. Die Summe wird zur Menge${einheit ? ` [${esc(einheit)}]` : ''}.</p>
-      <div class="ausmass-editor-kopf">
-        <span>Bezeichnung</span><span>Anz.</span><span>Länge</span>
+      <div class="ausmass-editor-kopf" aria-hidden="true">
+        <span class="az-kopf-bez">Bezeichnung</span><span>Anz.</span><span>Länge</span>
         <span>Breite</span><span>Höhe</span><span>=</span><span></span>
       </div>
-      <div data-rolle="az-liste">
-        ${(zeilen?.length ? zeilen : (editierbar ? [{}] : [])).map(zeileHtml).join('')}
-      </div>
-      ${editierbar ? `<button type="button" class="knopf zeile-hinzu"
-        data-aktion="az-neu">+ Ausmasszeile</button>` : ''}
-      <div class="rapport-totale">
-        <div class="regie-total"><span>Summe (Menge)</span>
+      <div data-rolle="az-liste">${startZeilen.map(zeileHtml).join('')}</div>
+      <button type="button" class="knopf zeile-hinzu" data-aktion="az-neu">+ Ausmasszeile</button>
+
+      <div class="ausmass-menge">
+        <div class="ausmass-ergebnis summe" data-rolle="summe-zeile"><span>Summe Ausmass</span>
           <span data-rolle="az-summe"></span></div>
+        <label class="ausmass-hand" data-rolle="hand-schalter">
+          <input type="checkbox" data-rolle="von-hand"${startVonHand ? ' checked' : ''}>
+          Menge von Hand übersteuern</label>
+        <label data-rolle="menge-feld">Menge${einheit ? ` [${esc(einheit)}]` : ''}
+          <input data-rolle="menge-eingabe" type="number" inputmode="decimal" step="any"
+            value="${esc(menge ?? '')}" placeholder="0"></label>
+        <p class="ausmass-abweichung" data-rolle="abweichung" role="status" hidden></p>
+        <div class="ausmass-ergebnis"><span>Menge</span><strong data-rolle="menge-ergebnis"></strong></div>
+        <div class="ausmass-ergebnis"><span>Betrag (× EP ${chf(zahl(ep))})</span>
+          <strong data-rolle="betrag"></strong></div>
       </div>
+      <div data-rolle="baustelle-link"></div>
+
       <div class="knopfzeile">
-        ${editierbar ? `<button type="submit" class="knopf knopf-primaer">
-          Übernehmen</button>` : ''}
-        <button type="button" class="knopf" data-aktion="zu">Schliessen</button>
+        <button type="submit" class="knopf knopf-primaer">${esc(speichernText)}</button>
+        <button type="button" class="knopf" data-aktion="zu">Abbrechen</button>
       </div>
     </form>`;
   document.body.append(dialog);
   const formular = dialog.querySelector('form');
   const liste = dialog.querySelector('[data-rolle="az-liste"]');
+  const feld = (rolle) => dialog.querySelector(`[data-rolle="${rolle}"]`);
+  const vonHand = feld('von-hand');
+  const mengeEingabe = feld('menge-eingabe');
+  let geaendert = false;
 
   function sammle() {
     return [...liste.querySelectorAll('[data-rolle="az"]')].map((block) => {
-      const wert = (feld) => block.querySelector(`[data-az="${feld}"]`).value.trim();
+      const wert = (name) => block.querySelector(`[data-az="${name}"]`).value.trim();
       return { bez: wert('bez'), anzahl: wert('anzahl'), laenge: wert('laenge'),
         breite: wert('breite'), hoehe: wert('hoehe') };
     }).filter((z) => z.bez || z.anzahl || z.laenge || z.breite || z.hoehe);
   }
 
+  // Ergebnis des Fensters: was beim Speichern in die Position geht.
+  function ergebnis() {
+    const ausmass = sammle();
+    const summe = ausmassSumme(ausmass);
+    const mitZeilen = ausmass.length > 0;
+    const hand = !mitZeilen || vonHand.checked;
+    const wert = hand ? mengeEingabe.value.trim() : String(summe);
+    return { ausmass, summe, mitZeilen, hand, menge: wert,
+      mengeVonHand: mitZeilen && vonHand.checked };
+  }
+
   function rechne() {
     liste.querySelectorAll('[data-rolle="az"]').forEach((block) => {
-      const wert = (feld) => block.querySelector(`[data-az="${feld}"]`).value;
+      const wert = (name) => block.querySelector(`[data-az="${name}"]`).value;
       const einzel = ausmassZeileWert({ anzahl: wert('anzahl'), laenge: wert('laenge'),
         breite: wert('breite'), hoehe: wert('hoehe') });
       block.querySelector('[data-rolle="az-wert"]').textContent =
         einzel ? mengeText(Math.round(einzel * 1000) / 1000) : '—';
     });
-    dialog.querySelector('[data-rolle="az-summe"]').textContent =
-      `${mengeText(ausmassSumme(sammle()))}${einheit ? ` ${einheit}` : ''}`;
+    const e = ergebnis();
+    feld('az-summe').textContent = `${mengeText(e.summe)}${eh}`;
+    feld('summe-zeile').hidden = !e.mitZeilen;
+    feld('hand-schalter').hidden = !e.mitZeilen;
+    feld('menge-feld').hidden = !e.hand;
+    const abweichung = feld('abweichung');
+    const weichtAb = e.mitZeilen && e.hand && Math.abs(zahl(e.menge) - e.summe) > 0.0005;
+    abweichung.hidden = !weichtAb;
+    abweichung.textContent = weichtAb
+      ? `⚠ Menge weicht vom Ausmass ab (Summe ${mengeText(e.summe)}${eh}) — in der Offerte als «≠ Ausmass» markiert.`
+      : '';
+    feld('menge-ergebnis').textContent = `${mengeText(zahl(e.menge))}${eh}`
+      + (e.mitZeilen && !e.hand ? ' · aus Ausmass' : '');
+    feld('betrag').textContent = chf(zahl(e.menge) * zahl(ep));
   }
 
-  formular.addEventListener('input', rechne);
+  const schliesse = () => {
+    document.removeEventListener('keydown', taste);
+    dialog.remove();
+  };
+  const abbrechen = () => {
+    if (geaendert && !confirm('Änderungen am Ausmass verwerfen?')) return;
+    schliesse();
+  };
+  function taste(ereignis) {
+    if (ereignis.key === 'Escape') abbrechen();
+  }
+  document.addEventListener('keydown', taste);
+
+  vonHand.addEventListener('change', () => {
+    // Übersteuern beginnt bei der aktuellen Summe, nicht bei einem alten Wert.
+    if (vonHand.checked && !startVonHand) mengeEingabe.value = String(ausmassSumme(sammle()));
+  });
+  formular.addEventListener('input', () => { geaendert = true; rechne(); });
   formular.addEventListener('click', (klick) => {
     const knopf = klick.target.closest('[data-aktion]');
     if (!knopf) return;
     if (knopf.dataset.aktion === 'zu') {
-      dialog.remove();
+      abbrechen();
     } else if (knopf.dataset.aktion === 'az-neu') {
       liste.insertAdjacentHTML('beforeend', zeileHtml());
+      liste.lastElementChild.querySelector('input').focus();
+      rechne();
     } else if (knopf.dataset.aktion === 'az-weg') {
       knopf.closest('[data-rolle="az"]').remove();
+      geaendert = true;
       rechne();
+    } else if (knopf.dataset.aktion === 'zur-baustelle') {
+      schliesse();
     }
   });
   dialog.addEventListener('click', (klick) => {
-    if (klick.target === dialog) dialog.remove();
+    if (klick.target === dialog) abbrechen();
   });
-  formular.addEventListener('submit', (abschicken) => {
+  formular.addEventListener('submit', async (abschicken) => {
     abschicken.preventDefault();
-    const daten = sammle();
-    onUebernehmen?.(daten, ausmassSumme(daten));
-    dialog.remove();
+    const e = ergebnis();
+    const knopf = formular.querySelector('[type="submit"]');
+    knopf.disabled = true;
+    try {
+      await onSpeichern?.({ ausmass: e.ausmass, menge: e.menge, mengeVonHand: e.mengeVonHand });
+      schliesse();
+    } catch (fehler) {
+      knopf.disabled = false;
+      alert(`Speichern fehlgeschlagen: ${fehler.message}`);
+    }
   });
   rechne();
+
+  // Verknüpfte Baustelle: dort ausgemessene Menge, Sprung ins Ausmass.
+  baustelle?.then((treffer) => {
+    if (!treffer || !dialog.isConnected) return;
+    const ziel = feld('baustelle-link');
+    ziel.innerHTML = `
+      <div class="ausmass-baustelle">
+        <span>Ausgemessene Menge auf der Baustelle${treffer.ktr ? ` ${esc(treffer.ktr)}` : ''}:
+          <strong>${mengeText(zahl(treffer.menge))}${esc(treffer.einheit ? ` ${treffer.einheit}` : '')}</strong></span>
+        <button type="button" class="knopf" data-aktion="zur-baustelle">zum Baustellen-Ausmass →</button>
+      </div>`;
+    ziel.querySelector('[data-aktion="zur-baustelle"]')
+      .addEventListener('click', () => treffer.onOeffnen());
+  }).catch(() => {});
+}
+
+// ---------- Verknüpfung Offerte → Baustelle ----------
+// Liest nur Dokumente (kein Code aus dem Ausmass-Modul): die Ausmass-
+// Position der Baustelle, die aus dieser Offert-Position entstanden ist.
+// Neue Baustellen tragen offertId/offertPosNr, die Offerte zielBaustelleId;
+// ältere Verknüpfungen (nur «baustelleErstellt») finden die Baustelle über
+// das Objekt und die Position über die NPK-Nummer.
+async function baustellenPosition(offerte, position) {
+  if (!offerte?.zielBaustelleId && !offerte?.baustelleErstellt) return null;
+  const nr = String(position.nr ?? '').trim();
+  if (!nr) return null;
+  const baustellen = await abfrage({ typ: 'baustelle' });
+  let kandidaten;
+  if (offerte.zielBaustelleId) {
+    kandidaten = await abfrage({ typ: 'ausmass', baustelleId: offerte.zielBaustelleId });
+  } else {
+    const alle = await abfrage({ typ: 'ausmass' });
+    kandidaten = alle.filter((d) => d.offertId === offerte._id);
+    if (!kandidaten.length) {
+      const passend = baustellen.filter((b) => b.name === offerte.objekt);
+      const baustelle = passend.find((b) => String(b.werkvertrag || '')
+        .includes(`Offerte ${offerte.nummer}`)) || passend[0];
+      if (!baustelle) return null;
+      kandidaten = alle.filter((d) => d.baustelleId === baustelle.baustelleId);
+    }
+  }
+  const treffer = kandidaten.find((d) => d.offertId === offerte._id && d.offertPosNr === nr)
+    || kandidaten.find((d) => String(d.pos ?? '').trim() === nr);
+  if (!treffer) return null;
+  const baustelle = baustellen.find((b) => b.baustelleId === treffer.baustelleId);
+  if (!baustelle) return null;
+  return {
+    menge: treffer.menge, einheit: treffer.einheit, ktr: baustelle.ktr,
+    onOeffnen: baustelle.archiviert ? null : () => {
+      document.dispatchEvent(new CustomEvent('luense:modulWechseln', {
+        detail: { name: 'Ausmass', fokusId: treffer._id, baustelleId: treffer.baustelleId },
+      }));
+    },
+  };
 }
 
 export default {
@@ -364,10 +528,10 @@ export default {
             </div>
           </div>`;
       }
-      const anzahl = z.ausmass?.length || 0;
       return `
         <div class="tab-block lv-block" data-rolle="lv-zeile" data-art="position"
-          data-ausmass="${esc(JSON.stringify(z.ausmass || []))}">
+          data-ausmass="${esc(JSON.stringify(z.ausmass || []))}"
+          data-menge-von-hand="${z.mengeVonHand ? '1' : ''}">
           <div class="tab-block-kopf">
             <strong data-rolle="tab-nr"></strong>
             <button type="button" class="knopf zeile-weg" data-aktion="zeile-weg"
@@ -381,12 +545,13 @@ export default {
           </div>
           <label>Text<input data-o="text" value="${esc(z.text ?? '')}" autocomplete="off"></label>
           <div class="feld-reihe">
-            <label>Menge<input data-o="menge" type="number" inputmode="decimal" step="any"
-              value="${esc(z.menge ?? '')}"></label>
+            <div class="lv-menge-feld">
+              <span class="lv-menge-label">Menge · Ausmass</span>
+              <input type="hidden" data-o="menge" value="${esc(z.menge ?? '')}">
+              ${mengeKnopfHtml(z, 'data-aktion="ausmass"')}
+            </div>
             <label>EP [CHF]<input data-o="ep" type="number" inputmode="decimal" step="any"
               value="${esc(z.ep ?? '')}"></label>
-            <button type="button" class="knopf zeile-hinzu" data-aktion="ausmass">
-              Ausmass (${anzahl})</button>
           </div>
         </div>`;
     }
@@ -408,6 +573,7 @@ export default {
             art: 'position', nr: wert('nr'), text: wert('text'),
             einheit: wert('einheit'), menge: wert('menge'), ep: wert('ep'),
             ausmass: JSON.parse(block.dataset.ausmass || '[]'),
+            ...(block.dataset.mengeVonHand ? { mengeVonHand: true } : {}),
           };
         }).filter((z) => z.nr || z.titel || z.text
           || (z.art === 'position' && (zahl(z.menge) || zahl(z.ep)))),
@@ -537,20 +703,27 @@ export default {
         knopf.closest('[data-rolle="lv-zeile"]').remove();
         aktualisiereZusammenzug();
       } else if (aktion === 'ausmass') {
-        // Ausmasszeilen dieser Position bearbeiten — die Summe wird zur
-        // Menge (nachträglich von Hand übersteuerbar).
+        // Menge und Ausmass dieser Position — dasselbe Fenster wie in der
+        // LV-Ansicht; «Übernehmen» schreibt ins Formular (gespeichert wird
+        // mit «Offerte speichern»).
         const block = knopf.closest('[data-rolle="lv-zeile"]');
         const wert = (feld) => block.querySelector(`[data-o="${feld}"]`)?.value.trim() ?? '';
         oeffneAusmassFenster({
           titel: [wert('nr'), wert('text')].filter(Boolean).join(' · ') || 'Position',
           einheit: wert('einheit'),
+          ep: wert('ep'),
           zeilen: JSON.parse(block.dataset.ausmass || '[]'),
-          editierbar: true,
-          onUebernehmen: (daten, summe) => {
-            block.dataset.ausmass = JSON.stringify(daten);
-            block.querySelector('[data-o="menge"]').value = daten.length ? summe : wert('menge');
-            knopf.textContent = `Ausmass (${daten.length})`;
+          menge: wert('menge'),
+          mengeVonHand: Boolean(block.dataset.mengeVonHand),
+          speichernText: 'Übernehmen',
+          baustelle: inBearbeitung ? baustellenPosition(inBearbeitung, { nr: wert('nr') }) : null,
+          onSpeichern: ({ ausmass, menge, mengeVonHand }) => {
+            block.dataset.ausmass = JSON.stringify(ausmass);
+            block.dataset.mengeVonHand = mengeVonHand ? '1' : '';
+            block.querySelector('[data-o="menge"]').value = menge;
+            knopf.outerHTML = mengeKnopfHtml({ ausmass, menge, mengeVonHand }, 'data-aktion="ausmass"');
             aktualisiereZusammenzug();
+            block.querySelector('[data-aktion="ausmass"]').focus();
           },
         });
       }
@@ -574,7 +747,7 @@ export default {
     });
 
     // ---------- Offerten-Liste (LV-Ansicht) ----------
-    async function zeichneListe() {
+    async function zeichneListe({ offenId = null } = {}) {
       const offerten = await ladeOfferten();
       listeElement.innerHTML = offerten.length
         ? offerten.map((o) => {
@@ -599,10 +772,11 @@ export default {
                 </div>
                 <p class="hinweis">${esc(o.kunde)} · ${anzahl} Positionen
                   · ${chf(z.inklMwst)} inkl. MwSt.</p>
-                <details class="lv-details">
+                <details class="lv-details"${o._id === offenId ? ' open' : ''}>
                   <summary>Leistungsverzeichnis anzeigen</summary>
                   <div class="tabellen-scroll">${lvTabelleHtml(gliederung, { interaktiv: true })}</div>
-                  <p class="hinweis">Menge antippen zeigt das Ausmass dahinter.</p>
+                  <p class="hinweis">Menge antippen öffnet das Ausmass der Position —
+                    dort erfassen und direkt in die Menge speichern.</p>
                 </details>
                 <div class="knopfzeile">
                   ${naechster ? `<button type="button" class="knopf" data-aktion="weiter"
@@ -618,19 +792,39 @@ export default {
     }
 
     listeElement.addEventListener('click', async (klick) => {
-      // Menge mit Ausmass dahinter: Antippen öffnet das Fenster (nur lesend).
+      // Menge antippen: Ausmass dieser Position öffnen, bearbeiten und
+      // direkt speichern — Menge, Betrag und Zusammenzug rechnen nach.
       const mengeKnopf = klick.target.closest('[data-ausmass-zeige]');
       if (mengeKnopf) {
-        const karte = mengeKnopf.closest('[data-offerte]');
-        const offerten = await ladeOfferten();
-        const offerte = offerten.find((o) => o._id === karte.dataset.offerte);
-        const zeile = gliederungVon(offerte)[Number(mengeKnopf.dataset.ausmassZeige)];
-        if (zeile) {
-          oeffneAusmassFenster({
-            titel: [zeile.nr, zeile.text].filter(Boolean).join(' · '),
-            einheit: zeile.einheit, zeilen: zeile.ausmass, editierbar: false,
-          });
-        }
+        const offertId = mengeKnopf.closest('[data-offerte]').dataset.offerte;
+        const index = Number(mengeKnopf.dataset.ausmassZeige);
+        const offerte = (await ladeOfferten()).find((o) => o._id === offertId);
+        const zeile = offerte && gliederungVon(offerte)[index];
+        if (!zeile || zeile.art !== 'position') return;
+        oeffneAusmassFenster({
+          titel: [zeile.nr, zeile.text].filter(Boolean).join(' · ') || 'Position',
+          einheit: zeile.einheit, ep: zeile.ep, zeilen: zeile.ausmass,
+          menge: zeile.menge, mengeVonHand: zeile.mengeVonHand,
+          baustelle: baustellenPosition(offerte, zeile),
+          onSpeichern: async ({ ausmass, menge, mengeVonHand }) => {
+            // Frisch lesen: die Offerte kann inzwischen bearbeitet worden sein.
+            const aktuell = (await ladeOfferten()).find((o) => o._id === offertId);
+            const gliederung = gliederungVon(aktuell).map((g) => ({ ...g }));
+            const ziel = gliederung[index];
+            if (!ziel || ziel.art !== 'position' || ziel.nr !== zeile.nr) {
+              throw new Error('Die Offerte wurde inzwischen geändert — bitte neu öffnen.');
+            }
+            ziel.ausmass = ausmass;
+            ziel.menge = menge;
+            if (mengeVonHand) ziel.mengeVonHand = true; else delete ziel.mengeVonHand;
+            const neu = { ...aktuell, gliederung };
+            delete neu.positionen; // altes flaches Format wird abgelöst
+            await put(neu);
+            await zeichneListe({ offenId: offertId });
+            listeElement.querySelector(`[data-offerte="${CSS.escape(offertId)}"] `
+              + `[data-ausmass-zeige="${index}"]`)?.focus();
+          },
+        });
         return;
       }
       const knopf = klick.target.closest('[data-aktion]');
@@ -679,9 +873,11 @@ export default {
             pos: p.nr, text: p.text, einheit: p.einheit,
             vertragsmenge: p.menge, menge: '', ep: p.ep,
             offertAusmass: p.ausmass || [], // Kopie der Kalkulationsgrundlage
+            offertId: offerte._id, offertPosNr: String(p.nr ?? '').trim(),
           });
         }
-        await put({ ...offerte, baustelleErstellt: true });
+        await put({ ...offerte, baustelleErstellt: true,
+          zielBaustelleId: neueBaustelle.baustelleId });
         document.dispatchEvent(new CustomEvent('luense:daten'));
         alert(`Baustelle ${ktr.trim()} erstellt — ${positionen.length} `
           + 'Positionen als Ausmass-Kopie übernommen. Die Offerte bleibt unverändert.');

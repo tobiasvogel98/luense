@@ -516,16 +516,70 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   padding: 6px;
 }
 
-/* Menge mit Ausmass dahinter: als Knopf, Antippen öffnet das Fenster */
+/* Menge als Knopf (LV-Ansicht und Editor): Antippen öffnet das Ausmass
+   der Position. Touch-Ziel ≥ 44 px, darunter klein die Herkunft. */
 .lv-menge-knopf {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: var(--touch-ziel);
+  min-width: var(--touch-ziel);
+  padding: 2px var(--abstand-2);
   font: inherit;
   font-variant-numeric: tabular-nums;
   color: var(--farbe-akzent);
-  background: none;
-  border: none;
-  border-bottom: 1px dotted var(--farbe-akzent);
-  padding: 0;
+  background: var(--farbe-flaeche);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
   cursor: pointer;
+  line-height: 1.15;
+}
+
+.lv-menge-knopf:hover,
+.lv-menge-knopf:focus-visible {
+  border-color: var(--farbe-akzent);
+}
+
+.lv-menge-wert {
+  font-weight: 600;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.lv-menge-marke {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--farbe-text-gedaempft);
+  white-space: nowrap;
+}
+
+.lv-menge-abweichend {
+  color: var(--tag-mangel);
+}
+
+.lv-tabelle td.lv-zahl:has(.lv-menge-knopf) {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+/* Editor: Menge-Knopf füllt die Feldbreite wie ein Eingabefeld */
+.lv-menge-feld {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 8rem;
+  gap: var(--abstand-1);
+}
+
+.lv-menge-label {
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+}
+
+.lv-menge-feld .lv-menge-knopf {
+  align-items: flex-start;
+  width: 100%;
+  font-size: var(--schrift-basis);
 }
 
 .lv-details summary {
@@ -537,13 +591,13 @@ body:has(.modul-nav[hidden]) .nav-knopf {
 
 /* Ausmass-Fenster: Zeilen Bezeichnung + 4 Faktoren + Wert */
 .ausmass-dialog {
-  max-width: 44rem;
+  width: min(44rem, 100%);
 }
 
 .ausmass-editor-kopf,
 .ausmass-editor-zeile {
   display: grid;
-  grid-template-columns: minmax(6rem, 1.6fr) repeat(4, minmax(3.2rem, 1fr)) 4.5rem auto;
+  grid-template-columns: minmax(6rem, 1.6fr) repeat(4, minmax(3.2rem, 1fr)) 4.5rem var(--touch-ziel);
   gap: var(--abstand-1);
   align-items: center;
 }
@@ -556,13 +610,45 @@ body:has(.modul-nav[hidden]) .nav-knopf {
 }
 
 .ausmass-editor-zeile {
-  margin-bottom: var(--abstand-1);
+  margin-bottom: var(--abstand-2);
 }
 
 .ausmass-editor-zeile input {
   min-width: 0;
+  min-height: var(--touch-ziel);
   padding: var(--abstand-1) var(--abstand-2);
-  font-size: var(--schrift-klein);
+  font-size: var(--schrift-basis);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Zahlenfelder ohne Pfeile — auf dem Handy zählt jede Ziffer */
+.ausmass-editor-zeile input[type="number"],
+.ausmass-menge input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.ausmass-editor-zeile input[type="number"]::-webkit-inner-spin-button,
+.ausmass-editor-zeile input[type="number"]::-webkit-outer-spin-button,
+.ausmass-menge input[type="number"]::-webkit-inner-spin-button,
+.ausmass-menge input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Speichern/Abbrechen bleiben beim Scrollen im Fenster sichtbar */
+.ausmass-dialog > .knopfzeile {
+  position: sticky;
+  bottom: calc(-1 * var(--abstand-4));
+  margin-bottom: calc(-1 * var(--abstand-4));
+  padding: var(--abstand-2) 0 var(--abstand-4);
+  background: var(--farbe-flaeche);
+  border-top: 1px solid var(--farbe-linie);
+}
+
+.ausmass-editor-zeile .zeile-weg {
+  padding: 0;
+  min-width: var(--touch-ziel);
 }
 
 .ausmass-wert {
@@ -570,6 +656,90 @@ body:has(.modul-nav[hidden]) .nav-knopf {
   font-variant-numeric: tabular-nums;
   font-size: var(--schrift-klein);
   color: var(--farbe-text-gedaempft);
+}
+
+/* Handy: Bezeichnung auf eigener Zeile, darunter die Faktoren */
+@media (max-width: 40rem) {
+  .ausmass-editor-kopf,
+  .ausmass-editor-zeile {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) 3.6rem var(--touch-ziel);
+  }
+
+  .ausmass-editor-zeile [data-az="bez"],
+  .ausmass-editor-kopf .az-kopf-bez {
+    grid-column: 1 / -1;
+  }
+
+  .ausmass-editor-kopf .az-kopf-bez {
+    display: none;
+  }
+
+  .ausmass-editor-zeile {
+    padding-bottom: var(--abstand-2);
+    border-bottom: 1px solid var(--farbe-linie);
+  }
+
+  .ausmass-editor-zeile input[type="number"] {
+    padding: var(--abstand-1);
+    text-align: right;
+  }
+}
+
+.ausmass-menge {
+  margin-top: var(--abstand-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--abstand-2);
+}
+
+.formular .ausmass-hand {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-2);
+  min-height: var(--touch-ziel);
+}
+
+.formular .ausmass-hand input {
+  width: 1.4rem;
+  height: 1.4rem;
+  min-height: 0;
+}
+
+.ausmass-ergebnis {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--abstand-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ausmass-abweichung {
+  margin: 0;
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--tag-mangel);
+}
+
+.ausmass-dialog [hidden] {
+  display: none !important;
+}
+
+.ausmass-ergebnis strong,
+.ausmass-ergebnis.summe span:last-child {
+  color: var(--farbe-akzent);
+}
+
+.ausmass-baustelle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--abstand-2);
+  margin-top: var(--abstand-3);
+  padding: var(--abstand-2) var(--abstand-3);
+  border: 1px solid var(--farbe-linie);
+  border-left: 3px solid var(--farbe-akzent);
+  border-radius: var(--radius);
+  font-size: var(--schrift-klein);
 }
 
 .lv-block-kapitel {
