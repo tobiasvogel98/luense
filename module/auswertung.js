@@ -19,6 +19,7 @@ import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { berechneAbschluss } from '../kern/fo.js';
 import { alleBaustellen } from '../kern/stamm.js';
 import { chfGanz, esc } from '../kern/ui.js';
+import { zahlungen } from '../kern/zahlung.js';
 
 const W_ZEILEN = [
   ['w1', 'W1', 'ursprüngliche Werkvertragssumme'],
@@ -408,12 +409,20 @@ export default {
       ]);
       const bisStichtag = (liste2) => liste2.filter((d) => (d.tag || '') <= stichtag);
       const summe = (liste2) => liste2.reduce((s, d) => s + zahl(d.betrag), 0);
-      // Debitoren: gestellt oder bezahlt zählt als fakturiert.
-      const fakturiert = bisStichtag(rechnungen.filter((r) => ['gestellt', 'bezahlt'].includes(r.status)));
+      // Debitoren: gestellt, teilbezahlt oder bezahlt zählt als fakturiert.
+      const fakturiert = bisStichtag(rechnungen.filter((r) => ['gestellt', 'teilbezahlt', 'bezahlt'].includes(r.status)));
       const b1V = summe(fakturiert.filter((r) => r.basis?.art !== 'regierapport'));
       const b2V = summe(fakturiert.filter((r) => r.basis?.art === 'regierapport'));
-      // Kreditoren: visiert oder bezahlt = anerkannte Fremdkosten.
-      const anerkannt = bisStichtag(kreditoren.filter((k) => ['visiert', 'bezahlt'].includes(k.status)));
+      // Kreditoren: visiert, teilbezahlt oder bezahlt = anerkannte Fremdkosten.
+      const anerkannt = bisStichtag(kreditoren.filter((k) => ['visiert', 'teilbezahlt', 'bezahlt'].includes(k.status)));
+      // Zahlungsflüsse bis Stichtag (Kontoauszug oder von Hand erfasst) —
+      // nur zur Information, keine Controlling-Zeile.
+      const flussBis = (liste, feld) => liste.flatMap(zahlungen)
+        .filter((z) => (z.datum || '') <= stichtag)
+        .reduce((s, z) => s + zahl(z[feld]), 0);
+      const eingang = flussBis(rechnungen, 'betrag');
+      const ausgang = flussBis(kreditoren, 'betrag');
+      const skontoErtrag = flussBis(kreditoren, 'skonto');
       const kreditorenTotal = summe(anerkannt);
       const jeKostenart = [...new Set(anerkannt.map((k) => k.kostenart))]
         .map((art) => ({ art, betrag: summe(anerkannt.filter((k) => k.kostenart === art)) }));
@@ -438,7 +447,12 @@ export default {
           `${fakturiert.filter((r) => r.basis?.art === 'regierapport').length} Rechnungen`)}
         ${zeile('S1 — Kreditoren visiert/bezahlt', kreditorenTotal, 's1',
           `${anerkannt.length} Lieferantenrechnungen`)}
-        ${jeKostenart.map((k) => zeile(`&nbsp;&nbsp;davon ${esc(k.art)}`, k.betrag, '')).join('')}`;
+        ${jeKostenart.map((k) => zeile(`&nbsp;&nbsp;davon ${esc(k.art)}`, k.betrag, '')).join('')}
+        ${eingang || ausgang ? `
+          <p class="hinweis">Erfasste Zahlungen bis Stichtag (Kontoauszug/von Hand), nur zur Information:</p>
+          ${zeile('Zahlungseingang Debitoren', eingang, '')}
+          ${zeile('Zahlungsausgang Kreditoren', ausgang, '',
+            skontoErtrag ? `Skonto genutzt ${chfGanz(skontoErtrag)}` : '')}` : ''}`;
     }
 
     formularBereich.addEventListener('click', (klick) => {
