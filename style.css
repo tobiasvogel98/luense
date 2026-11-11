@@ -2826,3 +2826,12 @@ details.katalog-wahl > summary {
   font-size: var(--schrift-klein);
   color: var(--farbe-text-gedaempft);
 }
+
+/* Firmendaten / Rechnungsadresse: schmale Felder (Nr., PLZ, Land) */
+.feld-reihe label.feld-schmal {
+  flex: 0 1 6rem;
+}
+
+.feld-reihe label.feld-breit {
+  flex: 3 1 12rem;
+}

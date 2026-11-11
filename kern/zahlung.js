@@ -1,0 +1,196 @@
+// kern/zahlung.js — Zahlungs-Grunddienste für Debitoren (Rechnungen) und
+// Kreditoren: IBAN-Prüfung, Zahlungsreferenzen (SCOR nach ISO 11649 und
+// QR-Referenz), Zahlungen am Dokument (Teilzahlung, Restbetrag, Skonto)
+// und der daraus folgende Status.
+// Gebraucht von module/rechnung.js, module/kreditor.js, module/dossier.js,
+// module/auswertung.js, kern/stamm.js (Firmendaten) und kern/bank.js
+// (Kontoauszug) — Rule of two erfüllt.
+//
+// Zahlungen liegen als Liste am jeweiligen Dokument:
+//   zahlungen: [{ datum, valuta, betrag, quelle: 'Kontoauszug' | 'manuell',
+//     bankRef, referenz, gegenpartei, skonto }]
+// Ältere Dokumente ohne Liste gelten als ohne erfasste Zahlungen.
+
+export const ZAHLUNGSFRIST_TAGE = 30;
+// Rappen-Toleranz beim Vergleich von Beträgen (Rundung 5 Rappen).
+export const TOLERANZ = 0.05;
+
+export function zahl(wert) {
+  const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function runde(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+export function heuteTag() {
+  const jetzt = new Date();
+  return new Date(jetzt.getTime() - jetzt.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 10);
+}
+
+export function plusTage(tagIso, tage) {
+  const start = new Date(`${tagIso}T12:00:00`);
+  if (Number.isNaN(start.getTime())) return '';
+  start.setDate(start.getDate() + tage);
+  return new Date(start.getTime() - start.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 10);
+}
+
+export function formatTag(tagIso) {
+  if (!tagIso) return '';
+  const [j, m, t] = String(tagIso).slice(0, 10).split('-');
+  return t && m && j ? `${t}.${m}.${j}` : tagIso;
+}
+
+// ---------- Modulo 97 (IBAN, SCOR) ----------
+function mod97(ziffern) {
+  let rest = 0;
+  for (const z of ziffern) rest = (rest * 10 + Number(z)) % 97;
+  return rest;
+}
+
+function buchstabenAlsZahlen(text) {
+  return text.replace(/[A-Z]/g, (b) => String(b.charCodeAt(0) - 55));
+}
+
+export function kompakt(text) {
+  return String(text ?? '').replace(/\s+/g, '').toUpperCase();
+}
+
+// ---------- IBAN ----------
+export function istGueltigeIban(iban) {
+  const i = kompakt(iban);
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(i)) return false;
+  if ((i.startsWith('CH') || i.startsWith('LI')) && i.length !== 21) return false;
+  return mod97(buchstabenAlsZahlen(i.slice(4) + i.slice(0, 4))) === 1;
+}
+
+// QR-IBAN: Institut-Identifikation 30000–31999 (nur mit QR-Referenz).
+export function istQrIban(iban) {
+  const i = kompakt(iban);
+  const iid = Number(i.slice(4, 9));
+  return /^(CH|LI)/.test(i) && iid >= 30000 && iid <= 31999;
+}
+
+export function formatIban(iban) {
+  return kompakt(iban).replace(/(.{4})/g, '$1 ').trim();
+}
+
+// ---------- SCOR (ISO 11649, «RF…») ----------
+// Aus der Rechnungsnummer abgeleitet, z. B. R-2026-001 → RF67R2026001:
+// gleiche Nummer ergibt immer dieselbe Referenz. Funktioniert mit einer
+// normalen IBAN (QR-Referenz bräuchte QR-IBAN und Bankvertrag).
+export function scorAusNummer(nummer) {
+  const kern = kompakt(nummer).replace(/[^A-Z0-9]/g, '').slice(0, 21);
+  if (!kern) return '';
+  const pruef = 98 - mod97(buchstabenAlsZahlen(`${kern}RF00`));
+  return `RF${String(pruef).padStart(2, '0')}${kern}`;
+}
+
+export function istGueltigeScor(ref) {
+  const r = kompakt(ref);
+  if (!/^RF\d{2}[A-Z0-9]{1,21}$/.test(r)) return false;
+  return mod97(buchstabenAlsZahlen(r.slice(4) + r.slice(0, 4))) === 1;
+}
+
+// ---------- QR-Referenz (27 Ziffern, Modulo 10 rekursiv) ----------
+const MOD10_TABELLE = [0, 9, 4, 6, 8, 2, 7, 1, 3, 5];
+function mod10Pruefziffer(ziffern) {
+  let uebertrag = 0;
+  for (const z of ziffern) uebertrag = MOD10_TABELLE[(uebertrag + Number(z)) % 10];
+  return (10 - uebertrag) % 10;
+}
+
+export function istGueltigeQrr(ref) {
+  const r = kompakt(ref);
+  return /^\d{27}$/.test(r) && mod10Pruefziffer(r.slice(0, 26)) === Number(r[26]);
+}
+
+// Art der Referenz: 'QRR', 'SCOR', '' (keine) oder 'ungueltig'.
+export function referenzArt(ref) {
+  const r = kompakt(ref);
+  if (!r) return '';
+  if (istGueltigeQrr(r)) return 'QRR';
+  if (istGueltigeScor(r)) return 'SCOR';
+  return 'ungueltig';
+}
+
+export function formatReferenz(ref) {
+  const r = kompakt(ref);
+  if (/^\d{27}$/.test(r)) {
+    // QR-Referenz: 2 Ziffern, dann Fünfergruppen
+    return `${r.slice(0, 2)} ${r.slice(2).replace(/(.{5})/g, '$1 ').trim()}`;
+  }
+  return r.replace(/(.{4})/g, '$1 ').trim();
+}
+
+// Referenzen vergleichbar machen: Leerzeichen weg, Grossbuchstaben,
+// bei QR-Referenzen führende Nullen ignorieren.
+export function gleicheReferenz(a, b) {
+  const x = kompakt(a);
+  const y = kompakt(b);
+  if (!x || !y) return false;
+  if (/^\d+$/.test(x) && /^\d+$/.test(y)) return x.replace(/^0+/, '') === y.replace(/^0+/, '');
+  return x === y;
+}
+
+// ---------- Zahlungen am Dokument ----------
+export function zahlungen(doc) {
+  return Array.isArray(doc?.zahlungen) ? doc.zahlungen : [];
+}
+
+export function bezahltSumme(doc) {
+  return runde(zahlungen(doc).reduce((s, z) => s + zahl(z.betrag), 0));
+}
+
+export function skontoSumme(doc) {
+  return runde(zahlungen(doc).reduce((s, z) => s + zahl(z.skonto), 0));
+}
+
+// Restbetrag: Betrag minus Zahlungen minus abgezogener Skonto.
+// Ein von Hand auf «bezahlt» gesetztes Dokument hat keinen Rest.
+export function offenerBetrag(doc) {
+  if (doc?.status === 'bezahlt') return 0;
+  return Math.max(0, runde(zahl(doc?.betrag) - bezahltSumme(doc) - skontoSumme(doc)));
+}
+
+// Fälligkeit einer Debitoren-Rechnung (Rechnungsdatum + Zahlungsfrist).
+export function rechnungFaellig(rechnung) {
+  return rechnung?.tag
+    ? plusTage(rechnung.tag, rechnung.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE) : '';
+}
+
+// Abgeleitete Termine und Beträge eines Kreditors (Skonto, Fälligkeit, Rest).
+export function kreditorWerte(k, heute = heuteTag()) {
+  const betrag = zahl(k.betrag);
+  const faelligTag = k.tag ? plusTage(k.tag, k.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE) : '';
+  const skontoProzent = zahl(k.skontoProzent);
+  const skontoTage = parseInt(k.skontoTage, 10) || 0;
+  const skontoTag = skontoProzent > 0 && skontoTage > 0 && k.tag
+    ? plusTage(k.tag, skontoTage) : '';
+  const skontoBetrag = skontoTag ? runde(betrag * skontoProzent / 100) : 0;
+  const offen = k.status !== 'bezahlt';
+  return {
+    betrag,
+    faelligTag,
+    ueberfaellig: offen && !!faelligTag && faelligTag < heute,
+    skontoTag,
+    skontoBetrag,
+    // Skonto nur auf die ganze Rechnung, solange noch nichts bezahlt ist.
+    skontoNutzbar: offen && !!skontoTag && skontoTag >= heute && !zahlungen(k).length,
+    bezahlt: bezahltSumme(k),
+    rest: offenerBetrag(k),
+  };
+}
+
+// Status nach einer Änderung der Zahlungen. «vorher» ist der Status vor
+// der ersten Zahlung (gestellt bzw. visiert), damit beim Entfernen einer
+// Zahlung der Ablauf korrekt zurückspringt.
+export function statusNachZahlungen(doc) {
+  const summe = bezahltSumme(doc) + skontoSumme(doc);
+  if (!zahlungen(doc).length) return doc.statusVorZahlung || doc.status;
+  if (summe >= zahl(doc.betrag) - 0.005) return 'bezahlt';
+  return 'teilbezahlt';
+}
