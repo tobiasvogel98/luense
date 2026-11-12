@@ -24,8 +24,21 @@ Voraussetzung vor Schritt 4: schriftliche Vereinbarung mit dem Pilotkunden
     Datum der jeweiligen Mahnung, Tage effektiv / 365, kaufmännisch auf den
     Rappen (nie auf 5 Rappen). Zahlungserinnerung ohne Zins; 1. und
     2. Mahnung mit eigener Zinszeile, im QR-Betrag enthalten.
-  - Der Zins verändert weder den offenen Betrag noch den Status der
-    Rechnung (eine Zahlung des offenen Betrags schliesst sie).
+  - Bezahlt ist eine Rechnung erst, wenn Kapital UND verrechneter
+    Verzugszins bezahlt sind. Verrechnet ist der Zins der LETZTEN Mahnung
+    (jede rechnet ab der Zahlungserinnerung bis zu ihrem Datum, nie
+    zusammenzählen). Geschuldet = Total inkl. MWST + dieser Zins; offen =
+    geschuldet − Zahlungen (kern/zahlung.js). Zahlungen tilgen zuerst das
+    Kapital: wer nur das Kapital zahlt, bleibt «teilbezahlt» mit dem Zins
+    als Rest («davon Verzugszins»). Zurücknehmen der Mahnung nimmt den Zins
+    wieder weg. Der Zins ist kein Werkvertrags-Ertrag: Controlling B1/B2
+    bleibt bei den Netto-Rechnungsbeträgen.
+  - Zins der nächsten Mahnung auf dem offenen Kapital am Mahndatum (ohne
+    bereits verrechneten Zins); er fällt nie unter den schon verrechneten.
+    Ist nur noch Zins offen, wird keine weitere Stufe fällig.
+  - Nach der 2. Mahnung: Vermerk «Betreibung eingeleitet» (Datum,
+    Betreibungs-Nr., Notiz) an der Rechnung, zurücknehmbar, ändert keine
+    Beträge. Tage effektiv / 365; Mahndatum = heute.
   - Texte je Stufe sachlich und höflich (Erinnerung: «möglicherweise
     übersehen»; 1. Mahnung bestimmt mit Hinweis auf Art. 102/104 OR;
     2. Mahnung bestimmt, weitere Schritte, insbesondere Betreibung,
@@ -39,6 +52,10 @@ Voraussetzung vor Schritt 4: schriftliche Vereinbarung mit dem Pilotkunden
   inkl. MWST, bereits bezahlt, offen), Verzugszins, neue Zahlungsfrist
   10 Tage, QR-Zahlteil auf eigener Seite mit derselben SCOR-Referenz.
   Die letzte Stufe lässt sich zurücknehmen; ihr PDF jederzeit neu öffnen.
+  Marke und Hauptaktion («Mahnung erstellen», «Betreibung eingeleitet»)
+  stehen in der ersten Tabellenspalte — auf dem Handy ohne seitliches
+  Scrollen. Excel-Export mit Verzugszins, Mahnstufe, fälliger Stufe und
+  Betreibung.
 - Fällig nur für gestellte bzw. teilbezahlte Rechnungen mit offenem Betrag.
   Die nächste Stufe wird erst fällig, wenn auch die 10-Tage-Frist der
   vorherigen Stufe abgelaufen ist (greift nur, wenn spät gemahnt wurde).
