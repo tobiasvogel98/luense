@@ -3519,3 +3519,41 @@ details.katalog-wahl > summary {
   color: var(--farbe-flaeche);
   background: var(--farbe-text);
 }
+
+/* Mahnwesen: Hinweis «Heute fällig: …» (Start und Rechnungen) */
+.mahn-hinweis {
+  display: flex;
+  gap: var(--abstand-2);
+  align-items: stretch;
+  margin-bottom: var(--abstand-4);
+}
+
+.knopf.mahn-hinweis-knopf {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--abstand-1) var(--abstand-3);
+  padding: var(--abstand-2) var(--abstand-3);
+  text-align: left;
+  color: var(--mahn-text);
+  background: var(--mahn-flaeche);
+  border-color: var(--mahn-flaeche);
+}
+
+.mahn-hinweis-text {
+  font-weight: 700;
+}
+
+.mahn-hinweis-ziel {
+  font-size: var(--schrift-klein);
+  text-decoration: underline;
+}
+
+.knopf.mahn-hinweis-zu {
+  min-width: var(--touch-ziel);
+  padding: 0;
+  font-size: 1.4rem;
+}

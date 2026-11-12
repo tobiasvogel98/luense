@@ -53,6 +53,10 @@ import {
   alleBaustellen, ladeFirma, mwstSatzFirma, mwstNrWarnung, mahnFristenFirma,
 } from '../kern/stamm.js';
 import { exportiereCsv } from '../kern/export.js';
+import {
+  MAHN_ZAHLUNGSFRIST_TAGE, stufenName, tageZwischen, mahnungenVon, mahnStand,
+  zeichneMahnHinweis,
+} from '../kern/mahnung.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { chf, esc } from '../kern/ui.js';
 
@@ -124,9 +128,8 @@ function tageUeberfaellig(faellig, heute) {
 }
 
 // ---------- Mahnwesen ----------
-// Stufen in fester Reihenfolge; keine darf übersprungen werden.
-const MAHN_STUFEN = ['Zahlungserinnerung', '1. Mahnung', '2. Mahnung'];
-const MAHN_ZAHLUNGSFRIST_TAGE = 10;
+// Stufen, Mahnstand und fällige Stufen: kern/mahnung.js (auch die Shell
+// braucht sie für den Hinweis «Heute fällig»).
 const VERZUGSZINS_PROZENT = 5; // Art. 104 Abs. 1 OR
 
 // Standardtexte je Stufe — hier anpassen. Platzhalter in geschweiften
@@ -175,17 +178,8 @@ const MAHN_TEXTE = {
   ],
 };
 
-function stufenName(stufe) {
-  return MAHN_STUFEN[stufe - 1] || '';
-}
-
-function tageZwischen(vonIso, bisIso) {
-  return Math.round((new Date(`${bisIso}T12:00:00`) - new Date(`${vonIso}T12:00:00`)) / 86400000);
-}
-
-export function mahnungenVon(rechnung) {
-  return Array.isArray(rechnung?.mahnungen) ? rechnung.mahnungen : [];
-}
+// Für bestehende Tests und Werkzeuge weiterhin hier erreichbar.
+export { mahnStand, mahnungenVon };
 
 // Verzugszins in Rappen: offen × Prozent × Tage / (100 × 365), exakt
 // (BigInt) und kaufmännisch auf den Rappen gerundet — nie auf 5 Rappen.
@@ -197,40 +191,6 @@ export function verzugszinsRappen(offen, vonIso, bisIso, prozent = VERZUGSZINS_P
   const zaehler = BigInt(offen) * satz * BigInt(tage);
   const nenner = 100n * 10000n * 365n;
   return Number((zaehler * 2n + nenner) / (nenner * 2n));
-}
-
-// Mahnstand einer Rechnung am Tag «heute»: letzte erstellte Stufe und die
-// fällige Stufe (oder null). Fällig nur für gestellte bzw. teilbezahlte
-// Rechnungen mit offenem Betrag, Stufe für Stufe: die nächste Stufe, sobald
-// ihre Frist ab Rechnungsdatum erreicht ist UND die Zahlungsfrist der
-// vorherigen Stufe (10 Tage) abgelaufen ist. Massgebend ist das offene
-// KAPITAL (ohne Verzugszins): ist nur noch Zins offen, wird keine weitere
-// Stufe fällig. Nach der 2. Mahnung keine weitere Stufe — dann lässt sich
-// «Betreibung eingeleitet» vermerken.
-export function mahnStand(rechnung, fristen, heute = heuteTag()) {
-  const liste = mahnungenVon(rechnung);
-  const letzte = liste[liste.length - 1] || null;
-  const naechste = liste.length < MAHN_STUFEN.length ? liste.length + 1 : null;
-  const offen = FORDERUNG.includes(rechnung?.status) && offenRappen(rechnung) > 0;
-  const stand = {
-    letzte,
-    naechste,
-    faellig: null,
-    wartetBis: '',
-    betreibung: rechnung?.betreibung || null,
-    betreibungMoeglich: offen && !naechste && !rechnung?.betreibung,
-  };
-  if (!naechste || !offen || !rechnung.tag || offenAufteilung(rechnung).kapital <= 0) return stand;
-  if (tageZwischen(rechnung.tag, heute) < fristen[naechste - 1]) return stand;
-  if (letzte) {
-    const fristEnde = plusTage(letzte.datum, letzte.fristTage ?? MAHN_ZAHLUNGSFRIST_TAGE);
-    if (heute <= fristEnde) {
-      stand.wartetBis = fristEnde;
-      return stand;
-    }
-  }
-  stand.faellig = naechste;
-  return stand;
 }
 
 // Neuer Eintrag für die fällige Stufe. Zinsbasis = offenes Kapital nach
@@ -322,13 +282,20 @@ export default {
     return alle.filter((r) => r.status !== 'bezahlt').length || null;
   },
 
-  render(container, baustelle) {
+  render(container, baustelle, { ziel = null } = {}) {
     let inBearbeitung = null;
     let ansicht = 'baustelle';
     try {
       ansicht = localStorage.getItem(ANSICHT_MERKER) === 'alle' ? 'alle' : 'baustelle';
     } catch { /* ohne Speicher: Standardansicht */ }
     let filterBaustelle = '';
+    // Offene Posten nur mit fälliger oder noch nicht versendeter Mahnstufe
+    // (Sprung aus dem Hinweis «Heute fällig»).
+    let nurFaellig = false;
+    if (ziel?.ansicht === 'faellig') {
+      ansicht = 'alle';
+      nurFaellig = true;
+    }
 
     container.innerHTML = `
       <section class="rechnungen">
@@ -339,6 +306,7 @@ export default {
           <button type="button" class="chip chip-knopf" data-ansicht="alle" role="tab">Offene Posten alle Baustellen</button>
         </div>
 
+        <div data-rolle="mahn-hinweis" hidden></div>
         <div class="kachel-reihe" data-rolle="kacheln"></div>
         <p class="hinweis" data-rolle="gesamt"></p>
 
@@ -364,6 +332,22 @@ export default {
     const formularBereich = container.querySelector('[data-rolle="formular-bereich"]');
     const tabelleElement = container.querySelector('[data-rolle="tabelle"]');
     const meldungElement = container.querySelector('[data-rolle="meldung"]');
+    const mahnHinweisElement = container.querySelector('[data-rolle="mahn-hinweis"]');
+
+    // Hinweis «Heute fällig: …» über alle Baustellen; Antippen zeigt die
+    // Offenen Posten mit den fälligen Stufen.
+    function zeichneMahnHinweisHier() {
+      return zeichneMahnHinweis(mahnHinweisElement, {
+        mitBeispiel: !!baustelle.demo,
+        onOeffnen: () => {
+          ansicht = 'alle';
+          nurFaellig = true;
+          filterBaustelle = '';
+          try { localStorage.setItem(ANSICHT_MERKER, ansicht); } catch { /* egal */ }
+          zeichneTabelle();
+        },
+      });
+    }
 
     async function ladeRechnungen() {
       const alle = await abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId });
@@ -577,6 +561,7 @@ export default {
           tage: tageUeberfaellig(rechnungFaellig(r), heute),
           stand: mahnStand(r, fristen, heute),
         }))
+        .filter((f) => !nurFaellig || f.stand.faellig || f.stand.nichtVersendet)
         .sort((a, b) => (a.faellig || '').localeCompare(b.faellig || ''));
       const nichtGestellt = alle.filter((r) => r.status === 'offen'
         && (!filterBaustelle || r.baustelleId === filterBaustelle));
@@ -608,6 +593,10 @@ export default {
               ${b.baustelleId === filterBaustelle ? 'selected' : ''}>${esc(b.ktr)} · ${esc(b.name)}</option>`).join('')}
           </select>
         </label>
+        <div class="chips">
+          <button type="button" class="chip chip-knopf${nurFaellig ? ' aktiv' : ''}" data-aktion="nur-faellig"
+            aria-pressed="${nurFaellig}">Nur fällige Mahnstufen</button>
+        </div>
         ${forderungen.length ? `
         <div class="tabellen-scroll">
           <table class="uebersicht-tabelle">
@@ -642,7 +631,8 @@ export default {
             </tbody>
           </table>
         </div>
-        <p class="hinweis">Beträge inkl. MWST.</p>` : '<p class="hinweis">Keine offenen Forderungen, alles bezahlt.</p>'}`;
+        <p class="hinweis">Beträge inkl. MWST.</p>` : `<p class="hinweis">${nurFaellig
+          ? 'Keine fällige Mahnstufe.' : 'Keine offenen Forderungen, alles bezahlt.'}</p>`}`;
     }
 
     async function zeichneTabelle() {
@@ -651,6 +641,7 @@ export default {
         k.setAttribute('aria-selected', String(k.dataset.ansicht === ansicht));
       });
       neuKnopf.hidden = ansicht === 'alle';
+      zeichneMahnHinweisHier();
       if (ansicht === 'alle') {
         schliesseFormular();
         await zeichneAlle();
@@ -968,6 +959,7 @@ export default {
       const knopf = klick.target.closest('[data-ansicht]');
       if (!knopf) return;
       ansicht = knopf.dataset.ansicht;
+      nurFaellig = false;
       try { localStorage.setItem(ANSICHT_MERKER, ansicht); } catch { /* egal */ }
       meldungElement.textContent = '';
       zeichneTabelle();
@@ -1077,6 +1069,11 @@ export default {
     tabelleElement.addEventListener('click', async (klick) => {
       const knopf = klick.target.closest('[data-aktion]');
       if (!knopf) return;
+      if (knopf.dataset.aktion === 'nur-faellig') {
+        nurFaellig = !nurFaellig;
+        zeichneTabelle();
+        return;
+      }
       if (knopf.dataset.aktion === 'zur-baustelle') {
         ansicht = 'baustelle';
         try { localStorage.setItem(ANSICHT_MERKER, ansicht); } catch { /* egal */ }

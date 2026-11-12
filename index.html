@@ -49,10 +49,14 @@
     <a class="nav-lizenz" href="./lib/LIZENZHINWEISE.txt" target="_blank" rel="noopener">Lizenzhinweise</a>
   </nav>
 
-  <main id="modulbereich" class="modulbereich">
-    <div class="leerzustand">
-      <p class="leerzustand-titel">Noch kein Modul geladen</p>
-      <p class="leerzustand-text">Baustelle wählen oder anlegen, um loszulegen.</p>
+  <main class="modulbereich">
+    <!-- Hinweis «Heute fällig: …» (Mahnwesen, über alle Baustellen) -->
+    <div id="start-hinweis" hidden></div>
+    <div id="modul-inhalt">
+      <div class="leerzustand">
+        <p class="leerzustand-titel">Noch kein Modul geladen</p>
+        <p class="leerzustand-text">Baustelle wählen oder anlegen, um loszulegen.</p>
+      </div>
     </div>
   </main>
 
@@ -64,6 +68,7 @@
     import { renderBeispielBereich } from './kern/demo.js';
     import { zeigeUmzugHinweis } from './kern/umzug.js';
     import { fuehreDatenNach } from './kern/migration.js';
+    import { zeichneMahnHinweis } from './kern/mahnung.js';
     import ereignisModul from './module/ereignis.js';
     import pendenzenModul from './module/pendenzen.js';
     import rapportModul from './module/rapport.js';
@@ -88,7 +93,7 @@
         protokolleModul, auswertungModul, offertModul];
 
     const auswahl = document.getElementById('baustellen-auswahl');
-    const modulbereich = document.getElementById('modulbereich');
+    const modulbereich = document.getElementById('modul-inhalt');
     const modulNav = document.getElementById('modul-nav');
     const MERKER = 'luense.aktiveBaustelle'; // nur UI-Zustand, keine Daten
     const MODUL_MERKER = 'luense.aktivesModul';
@@ -125,6 +130,34 @@
     }
 
     let aktuelleBaustelle = null;
+
+    // Hinweis «Heute fällig: 2 Zahlungserinnerungen, 1 Mahnung» beim Öffnen
+    // der App, über alle Baustellen. Die Berechnung liegt im Kern
+    // (kern/mahnung.js); Antippen öffnet die Offenen Posten mit den
+    // fälligen Stufen. Im Modul, das Rechnungen führt, zeigt dieses den
+    // Hinweis selbst. «×» blendet ihn bis zum nächsten Start aus.
+    const startHinweis = document.getElementById('start-hinweis');
+    let startHinweisWeg = false;
+    let startHinweisLauf = 0;
+    function zeichneStartHinweis() {
+      const lauf = ++startHinweisLauf;
+      const modul = MODULE[aktivesModul];
+      if (startHinweisWeg || ansicht !== 'modul' || modul?.dokumentTypen?.includes('rechnung')
+        || !MODULE.some((m) => m.dokumentTypen?.includes('rechnung'))) {
+        startHinweis.hidden = true;
+        return;
+      }
+      zeichneMahnHinweis(startHinweis, {
+        mitBeispiel: !!aktuelleBaustelle?.demo,
+        onOeffnen: () => {
+          const ziel = MODULE.find((m) => m.dokumentTypen?.includes('rechnung'));
+          document.dispatchEvent(new CustomEvent('luense:modulWechseln',
+            { detail: { name: ziel.name, ansicht: 'faellig' } }));
+        },
+        onSchliessen: () => { startHinweisWeg = true; },
+        nochAktuell: () => lauf === startHinweisLauf,
+      });
+    }
 
     // Seitenleiste im Cockpit-Stil: Module in vier Gruppen. Module, die in
     // keiner Gruppe stehen (z. B. neue), landen automatisch unter Verwaltung.
@@ -177,6 +210,7 @@
     // aktualisiert damit die Badges, ohne dass Module sie kennen müssen.
     document.addEventListener('luense:daten', () => {
       if (ansicht === 'modul') zeichneModulNav();
+      zeichneStartHinweis();
     });
 
     // Ein Modul (z. B. die Controlling-Übersicht) bittet um den Wechsel
@@ -260,11 +294,14 @@
       aktuelleBaustelle = baustelle;
       modulNav.hidden = false;
       zeichneModulNav();
+      zeichneStartHinweis();
       MODULE[aktivesModul].render(modulbereich, baustelle, { ziel: optionen.ziel || null });
     }
 
     function zeigeStamm() {
       ansicht = 'stamm';
+      startHinweisLauf++;
+      startHinweis.hidden = true;
       modulNav.hidden = true;
       schalteNav(false);
       renderStammAnsicht(modulbereich, { onAenderung: aktualisiereAuswahl });
