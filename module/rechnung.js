@@ -93,6 +93,14 @@ function basisText(basis) {
     : `Nachtrag ${basis.label || ''}`.trim();
 }
 
+// E-Mail-Adresse des Rechnungsempfängers (für den Mahnversand): bewusst
+// einfache Prüfung, ein @, ein Punkt in der Domain, keine Leerzeichen.
+export function istEmail(text) {
+  return /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[A-Za-z]{2,}$/.test(String(text ?? '').trim());
+}
+
+const EMAIL_FEHLER = 'E-Mail-Adresse ungültig, bitte im Format name@firma.ch eingeben.';
+
 function referenzVon(r) {
   return r.referenz || scorAusNummer(r.nummer);
 }
@@ -396,6 +404,13 @@ export default {
       neuZeile.hidden = true;
       const nummer = rechnung?.nummer || await naechsteRechnungsnummer();
       const deb = rechnung?.debitor || { name: baustelle.bauherr || '' };
+      // Neue Rechnung: E-Mail von der letzten Rechnung dieser Baustelle.
+      if (!rechnung) {
+        const letzte = (await ladeRechnungen())
+          .filter((r) => r.debitor?.email)
+          .sort((a, b) => `${b.tag || ''}${b.nummer || ''}`.localeCompare(`${a.tag || ''}${a.nummer || ''}`))[0];
+        if (letzte) deb.email = letzte.debitor.email;
+      }
       // Neue Rechnung: Satz der Firmendaten; bestehende: ihr eigener Satz.
       const firma = await ladeFirma();
       const satz = rechnung ? rechnungsBetraege(rechnung).satz : mwstSatzFirma(firma);
@@ -425,6 +440,9 @@ export default {
           <details class="adress-block" ${adresseVollstaendig(deb) ? '' : 'open'}>
             <summary>Rechnungsadresse (für PDF und QR-Zahlteil)</summary>
             <label>Name / Firma<input name="debName" autocomplete="off" value="${esc(deb.name ?? '')}"></label>
+            <label>E-Mail (für Zahlungserinnerung und Mahnung)<input name="debEmail" type="text"
+              inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"
+              value="${esc(deb.email ?? '')}" placeholder="z. B. buchhaltung@kunde.ch"></label>
             <div class="feld-reihe">
               <label class="feld-breit">Strasse<input name="debStrasse" autocomplete="off"
                 value="${esc(deb.strasse ?? '')}"></label>
@@ -1034,6 +1052,11 @@ export default {
         const referenz = basis.referenz && basis.nummer === nummer
           ? basis.referenz : scorAusNummer(nummer);
         const feld = (name) => formular.elements[name].value.trim();
+        if (feld('debEmail') && !istEmail(feld('debEmail'))) {
+          formular.querySelector('details.adress-block').open = true;
+          formular.elements.debEmail.focus();
+          throw new Error(EMAIL_FEHLER);
+        }
         // Neue Rechnung: MWST-Satz festhalten. Bestehende behalten ihren
         // (alte ohne Satz bleiben ohne — sie rechnen mit dem Firmensatz).
         if (!inBearbeitung) basis.mwstSatz = mwstSatzFirma(await ladeFirma());
@@ -1049,6 +1072,7 @@ export default {
           debitor: {
             name: feld('debName'), strasse: feld('debStrasse'), hausnummer: feld('debHausnummer'),
             plz: feld('debPlz'), ort: feld('debOrt'), land: 'CH',
+            email: feld('debEmail'),
           },
         });
         schliesseFormular();
