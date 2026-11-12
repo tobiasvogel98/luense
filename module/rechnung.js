@@ -47,15 +47,20 @@ import {
   offenRappen, plusTage, offenAufteilung, zinsSollRappen, statusNachZahlungen,
   bezahltRappen, skontoRappen,
 } from '../kern/zahlung.js';
-import { zahlteilSvg, pruefeZahlteil, adresseVollstaendig } from '../kern/qrrechnung.js';
-import { oeffneKontoauszug, zeigeZahlungen } from '../kern/bank.js';
+import {
+  zahlteilSvg, zahlteilElemente, pruefeZahlteil, adresseVollstaendig,
+} from '../kern/qrrechnung.js';
+import { briefPdf } from '../kern/pdfdatei.js';
+import {
+  oeffneKontoauszug, zeigeZahlungen, kontoauszugStand, AUSZUG_HOECHSTALTER_TAGE,
+} from '../kern/bank.js';
 import {
   alleBaustellen, ladeFirma, mwstSatzFirma, mwstNrWarnung, mahnFristenFirma,
 } from '../kern/stamm.js';
-import { exportiereCsv } from '../kern/export.js';
+import { exportiereCsv, ladeHerunter } from '../kern/export.js';
 import {
   MAHN_ZAHLUNGSFRIST_TAGE, stufenName, tageZwischen, mahnungenVon, mahnStand,
-  zeichneMahnHinweis,
+  zeichneMahnHinweis, nichtVersendet,
 } from '../kern/mahnung.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { chf, esc } from '../kern/ui.js';
@@ -186,6 +191,33 @@ const MAHN_TEXTE = {
   ],
 };
 
+// Mail zur Mahnung (Betreff und kurzer Text, das PDF hängt an). Platzhalter
+// wie oben. Kurz und höflich, je Stufe etwas bestimmter.
+const MAIL_TEXTE = {
+  1: [
+    'Sehr geehrte Damen und Herren',
+    'Unsere Rechnung {rechnung} vom {rechnungsdatum} ist bei uns noch offen. '
+      + 'Im Anhang finden Sie die Zahlungserinnerung mit dem QR-Zahlteil.',
+    'Wir bitten Sie freundlich, den Betrag von {betrag} bis zum {frist} zu überweisen. '
+      + 'Sollte sich Ihre Zahlung mit dieser Nachricht gekreuzt haben, betrachten Sie sie bitte als gegenstandslos.',
+  ],
+  2: [
+    'Sehr geehrte Damen und Herren',
+    'Unsere Rechnung {rechnung} vom {rechnungsdatum} ist trotz unserer Zahlungserinnerung '
+      + 'noch offen. Im Anhang finden Sie unsere 1. Mahnung mit dem QR-Zahlteil.',
+    'Bitte überweisen Sie den Betrag von {betrag} einschliesslich Verzugszins bis zum {frist}. '
+      + 'Sollte sich Ihre Zahlung mit dieser Nachricht gekreuzt haben, betrachten Sie sie bitte als gegenstandslos.',
+  ],
+  3: [
+    'Sehr geehrte Damen und Herren',
+    'Unsere Rechnung {rechnung} vom {rechnungsdatum} ist trotz Zahlungserinnerung und '
+      + '1. Mahnung noch offen. Im Anhang finden Sie unsere 2. Mahnung mit dem QR-Zahlteil.',
+    'Wir bitten Sie letztmals, den Betrag von {betrag} einschliesslich Verzugszins bis zum {frist} '
+      + 'zu überweisen. Geht die Zahlung nicht fristgerecht ein, behalten wir uns die Einleitung '
+      + 'der Betreibung vor.',
+  ],
+};
+
 // Für bestehende Tests und Werkzeuge weiterhin hier erreichbar.
 export { mahnStand, mahnungenVon };
 
@@ -237,11 +269,17 @@ export function neueMahnung(rechnung, stufe, heute = heuteTag()) {
 function mahnErsteSpalte(rechnung, stand) {
   const id = esc(rechnung._id);
   const betreibung = stand.betreibung && FORDERUNG.includes(rechnung.status);
-  return `${stand.faellig ? `<span class="mahn-faellig">${stufenName(stand.faellig)} fällig</span>` : ''}${
+  return `${stand.nichtVersendet ? `
+    <span class="mahn-faellig mahn-unversendet">${stufenName(stand.letzte.stufe)} noch nicht versendet</span>
+    <button type="button" class="knopf mahn-knopf" data-aktion="erneut-senden"
+      data-id="${id}">Erneut senden</button>
+    <button type="button" class="knopf mahn-knopf mahn-knopf-neben" data-aktion="als-versendet"
+      data-id="${id}">Als versendet markieren</button>` : ''}${
+    stand.faellig ? `<span class="mahn-faellig">${stufenName(stand.faellig)} fällig</span>` : ''}${
     betreibung ? `<span class="mahn-faellig mahn-betreibung">Betreibung eingeleitet</span>` : ''}${
     stand.faellig ? `
-    <button type="button" class="knopf mahn-knopf" data-aktion="mahnen"
-      data-id="${id}" title="${stufenName(stand.faellig)} festhalten und PDF erstellen">Mahnung erstellen</button>` : ''}${
+    <button type="button" class="knopf mahn-knopf" data-aktion="senden"
+      data-id="${id}" title="${stufenName(stand.faellig)} festhalten, PDF erstellen und ans Mail-Programm geben">Erstellen und senden</button>` : ''}${
     stand.betreibungMoeglich ? `
     <button type="button" class="knopf mahn-knopf" data-aktion="betreibung"
       data-id="${id}">Betreibung eingeleitet</button>` : ''}`;
@@ -250,7 +288,14 @@ function mahnErsteSpalte(rechnung, stand) {
 // Weitere Mahn-Knöpfe in der Aktionsspalte: PDF erneut, zurücknehmen.
 function mahnKnoepfe(rechnung, stand, { mitZuruecknehmen = true } = {}) {
   const id = esc(rechnung._id);
-  return `${stand.betreibung && mitZuruecknehmen ? `
+  const offen = FORDERUNG.includes(rechnung.status);
+  return `${stand.faellig ? `
+    <button type="button" class="knopf eintrag-loeschen" data-aktion="mahnen" data-id="${id}"
+      title="${stufenName(stand.faellig)} festhalten und Druckansicht öffnen, ohne Mail">Nur erstellen (Druck)</button>` : ''}${
+    stand.letzte && offen && !stand.letzte.versendetAm && !stand.nichtVersendet ? `
+    <button type="button" class="knopf eintrag-loeschen" data-aktion="erneut-senden"
+      data-id="${id}">${stufenName(stand.letzte.stufe)} per Mail</button>` : ''}${
+    stand.betreibung && mitZuruecknehmen ? `
     <button type="button" class="knopf eintrag-loeschen" data-aktion="betreibung-zurueck"
       data-id="${id}">Betreibung zurücknehmen</button>` : ''}${
     stand.letzte ? `
@@ -268,7 +313,8 @@ function mahnText(absaetze, werte) {
 
 // Verlauf für die Statusspalte: erstellte Stufen und Betreibung mit Datum.
 function mahnVerlauf(rechnung) {
-  const teile = mahnungenVon(rechnung).map((m) => `${stufenName(m.stufe)} ${formatTag(m.datum)}`);
+  const teile = mahnungenVon(rechnung).map((m) => `${stufenName(m.stufe)} ${formatTag(m.datum)}${
+    m.versendetAm ? ` (versendet ${formatTag(m.versendetAm)})` : ''}`);
   const b = rechnung.betreibung;
   if (b) teile.push(`Betreibung ${formatTag(b.datum)}${b.nummer ? ` Nr. ${b.nummer}` : ''}`);
   return teile.length ? `<small class="mahn-verlauf">${esc(teile.join(' → '))}</small>` : '';
@@ -711,7 +757,9 @@ export default {
     // ---------- Mahn-PDF: Briefkopf wie die Rechnung, QR-Zahlteil ----------
     // Beträge aus dem festgehaltenen Eintrag (Stand am Mahndatum), damit
     // ein späteres Öffnen dasselbe Dokument ergibt.
-    async function mahnPdf(rechnung, mahnung) {
+    // mahnBrief: gemeinsame Angaben für die Druckansicht (mahnPdf) und die
+    // PDF-Datei für den Mail-Versand (mahnPdfDatei).
+    async function mahnBrief(rechnung, mahnung) {
       const firma = await ladeFirma();
       const bs = await baustelleVon(rechnung);
       const name = stufenName(mahnung.stufe);
@@ -745,14 +793,15 @@ export default {
       };
       const maengel = pruefeZahlteil(angaben);
       let svg = '';
+      let zahlteil = null;
       if (!maengel.length) {
         try {
           svg = zahlteilSvg(angaben);
+          zahlteil = zahlteilElemente(angaben);
         } catch (fehler) {
           maengel.push(fehler.message);
         }
       }
-      meldungElement.textContent = maengel.length ? `PDF ohne QR-Zahlteil: ${maengel.join(' ')}` : '';
 
       const zinsTage = mahnung.zinsVon ? tageZwischen(mahnung.zinsVon, mahnung.zinsBis) : 0;
       const werte = {
@@ -766,10 +815,8 @@ export default {
         firma: firma?.name || '',
       };
 
-      zeigeProtokollDruck(bs, {
+      return { bs, firma, name, maengel, svg, zahlteil, absender, empfaenger,
         titel: `${name} zu Rechnung ${rechnung.nummer}`,
-        untertitel: [absender[0] ? `Von: ${absender.join(', ')}` : '',
-          `Datum: ${formatTag(mahnung.datum)}`].filter(Boolean).join(' · '),
         abschnitte: [
           { art: 'text', titel: name, absaetze: mahnText(MAHN_TEXTE[mahnung.stufe] || [], werte) },
           { art: 'felder', titel: 'Rechnung', zeilen: [
@@ -802,10 +849,40 @@ export default {
           ] },
           { art: 'text', titel: '', absaetze: mahnText([MAHN_GRUSS], werte) },
         ].filter(Boolean),
-        unterschriften: [],
-        zahlteilSvg: svg,
         zahlteilHinweis: `Zahlteil zu ${name} · Rechnung ${rechnung.nummer} · ${bs.ktr} ${bs.name}`,
+      };
+    }
+
+    async function mahnPdf(rechnung, mahnung) {
+      const brief = await mahnBrief(rechnung, mahnung);
+      meldungElement.textContent = brief.maengel.length ? `PDF ohne QR-Zahlteil: ${brief.maengel.join(' ')}` : '';
+      zeigeProtokollDruck(brief.bs, {
+        titel: brief.titel,
+        untertitel: [brief.absender[0] ? `Von: ${brief.absender.join(', ')}` : '',
+          `Datum: ${formatTag(mahnung.datum)}`].filter(Boolean).join(' · '),
+        abschnitte: brief.abschnitte,
+        unterschriften: [],
+        zahlteilSvg: brief.svg,
+        zahlteilHinweis: brief.zahlteilHinweis,
       });
+    }
+
+    // Mahnung als PDF-Datei (Mail-Anhang): Briefkopf, Empfänger im Fenster,
+    // Text und Beträge wie in der Druckansicht, QR-Zahlteil als Vektorgrafik.
+    async function mahnPdfDatei(rechnung, mahnung) {
+      const brief = await mahnBrief(rechnung, mahnung);
+      const blob = briefPdf({
+        titel: brief.titel,
+        absender: brief.absender,
+        empfaenger: brief.empfaenger,
+        ortDatum: [brief.firma?.ort, formatTag(mahnung.datum)].filter(Boolean).join(', '),
+        abschnitte: brief.abschnitte,
+        zahlteil: brief.zahlteil,
+        zahlteilHinweis: brief.zahlteilHinweis,
+      });
+      const dateiname = `${brief.name.replace(/\. /g, '-').replace(/\s+/g, '-')}-${rechnung.nummer}.pdf`
+        .replace(/[^A-Za-z0-9._-]/g, '');
+      return { datei: new File([blob], dateiname, { type: 'application/pdf' }), maengel: brief.maengel, brief };
     }
 
     // ---------- PDF mit QR-Zahlteil ----------
@@ -885,15 +962,255 @@ export default {
       });
     }
 
+    // ---------- Versand per Mail (halbautomatisch) ----------
+    // Die App verschickt selbst nichts (kein Server). «Erstellen und senden»
+    // hält die Stufe fest, erstellt die PDF-Datei und gibt sie ans
+    // Mail-Programm: auf dem Handy über den Teilen-Dialog (Web Share API mit
+    // Datei, Betreff und Text), wo das nicht geht (Laptop) als Download plus
+    // mailto-Link mit Empfänger, Betreff und Text; das PDF dann von Hand
+    // anhängen. Versendet gilt eine Stufe, wenn das Teilen geklappt hat oder
+    // sie von Hand «als versendet markiert» wird (versendetAm).
+
+    function mailVorlage(rechnung, mahnung, firma) {
+      const totalRp = mahnung.offenRappen + (mahnung.zinsRappen || 0) - (mahnung.zinsBezahltRappen || 0);
+      const werte = {
+        rechnung: rechnung.nummer,
+        rechnungsdatum: formatTag(rechnung.tag),
+        betrag: chf(totalRp / 100),
+        frist: formatTag(plusTage(mahnung.datum, mahnung.fristTage ?? MAHN_ZAHLUNGSFRIST_TAGE)),
+        firma: firma?.name || '',
+      };
+      return {
+        betreff: `${stufenName(mahnung.stufe)} Rechnung ${rechnung.nummer}`,
+        text: [...mahnText(MAIL_TEXTE[mahnung.stufe] || MAIL_TEXTE[1], werte),
+          mahnText([MAHN_GRUSS], werte)[0]].join('\n\n').trim(),
+      };
+    }
+
+    function kannDateiTeilen() {
+      try {
+        return !!navigator.canShare?.({ files: [new File(['%PDF'], 'test.pdf', { type: 'application/pdf' })] });
+      } catch {
+        return false;
+      }
+    }
+
+    // Übergabe ans Mail-Programm: 'geteilt' | 'abgebrochen' | 'mailto'.
+    async function uebergebeMail({ datei, email, betreff, text }) {
+      if (navigator.canShare?.({ files: [datei] })) {
+        try {
+          await navigator.share({ files: [datei], title: betreff, text });
+          return 'geteilt';
+        } catch (fehler) {
+          if (fehler?.name === 'AbortError') return 'abgebrochen';
+          // anderer Fehler: wie am Laptop weiter
+        }
+      }
+      ladeHerunter(datei);
+      const link = document.createElement('a');
+      link.href = `mailto:${encodeURIComponent(email).replace(/%40/g, '@')}?subject=${
+        encodeURIComponent(betreff)}&body=${encodeURIComponent(text)}`;
+      link.click();
+      return 'mailto';
+    }
+
+    // Vorschlag für eine fehlende E-Mail: letzte Rechnung derselben Baustelle.
+    async function emailVorschlag(rechnung) {
+      const alle = await abfrage({ typ: 'rechnung', baustelleId: rechnung.baustelleId });
+      return alle.filter((r) => r.debitor?.email && r._id !== rechnung._id)
+        .sort((a, b) => `${b.tag || ''}${b.nummer || ''}`.localeCompare(`${a.tag || ''}${a.nummer || ''}`))[0]
+        ?.debitor.email || '';
+    }
+
+    // Dialog vor dem Senden: Empfänger (Pflicht, wird an der Rechnung
+    // gespeichert), Betreff und Text (anpassbar, nur für diese Mail).
+    // Liefert { email, betreff, text } oder null (abgebrochen).
+    function sendeDialog({ rechnung, mahnung, neu, firma, vorschlag }) {
+      const vorlage = mailVorlage(rechnung, mahnung, firma);
+      const vorhanden = rechnung.debitor?.email || '';
+      const teilen = kannDateiTeilen();
+      const name = stufenName(mahnung.stufe);
+      const totalRp = mahnung.offenRappen + (mahnung.zinsRappen || 0) - (mahnung.zinsBezahltRappen || 0);
+      return new Promise((fertig) => {
+        const dialog = document.createElement('div');
+        dialog.className = 'vollbild dialog-hintergrund';
+        dialog.innerHTML = `
+          <form class="karte formular dialog" data-rolle="senden-formular" novalidate>
+            <h3>${esc(name)} senden · Rechnung ${esc(rechnung.nummer)}</h3>
+            <p class="hinweis">Zu bezahlen ${chf(totalRp / 100)}${mahnung.zinsRappen
+              ? ` (inkl. Verzugszins ${chf(mahnung.zinsRappen / 100)})` : ''}. ${neu
+              ? `Die ${esc(name)} wird an der Rechnung festgehalten, das PDF geht an Ihr Mail-Programm.`
+              : `Die ${esc(name)} vom ${formatTag(mahnung.datum)} ist schon festgehalten, das PDF geht nochmals an Ihr Mail-Programm.`}</p>
+            <label>E-Mail Empfänger *<input name="email" type="text" inputmode="email"
+              autocomplete="off" autocapitalize="off" spellcheck="false"
+              value="${esc(vorhanden || vorschlag)}" placeholder="z. B. buchhaltung@kunde.ch"></label>
+            ${vorhanden ? '' : `<p class="hinweis" data-rolle="email-fehlt">An der Rechnung fehlt die
+              E-Mail-Adresse${vorschlag ? ' (Vorschlag aus der letzten Rechnung dieser Baustelle)' : ''}.
+              Sie wird beim Senden an der Rechnung gespeichert.</p>`}
+            <label>Betreff<input name="betreff" autocomplete="off" value="${esc(vorlage.betreff)}"></label>
+            <label>Text<textarea name="text" rows="9">${esc(vorlage.text)}</textarea></label>
+            <p class="hinweis" data-rolle="versand-weg">${teilen
+              ? 'Das Teilen-Menü öffnet sich: dort das Mail-Programm wählen. Den Empfänger bitte im Mail-Programm eintragen, falls er fehlt.'
+              : 'Dieses Gerät kann das PDF nicht direkt ans Mail-Programm geben: Das PDF wird heruntergeladen und eine neue Mail geöffnet. Bitte das PDF dort von Hand anhängen.'}</p>
+            <div class="knopfzeile">
+              <button type="submit" class="knopf knopf-primaer">${neu ? 'Erstellen und senden' : 'Erneut senden'}</button>
+              <button type="button" class="knopf" data-aktion="abbrechen">Abbrechen</button>
+            </div>
+            <p class="meldung" role="status"></p>
+          </form>`;
+        document.body.append(dialog);
+        const schliesse = (wert) => { dialog.remove(); fertig(wert); };
+        dialog.addEventListener('click', (klick) => {
+          if (klick.target === dialog || klick.target.closest('[data-aktion="abbrechen"]')) schliesse(null);
+        });
+        const formular = dialog.querySelector('form');
+        formular.addEventListener('submit', (abschicken) => {
+          abschicken.preventDefault();
+          const f = formular.elements;
+          const email = f.email.value.trim();
+          if (!istEmail(email)) {
+            formular.querySelector('.meldung').textContent = email
+              ? EMAIL_FEHLER : 'Bitte die E-Mail-Adresse des Rechnungsempfängers eingeben.';
+            f.email.focus();
+            return;
+          }
+          schliesse({ email, betreff: f.betreff.value.trim() || vorlage.betreff, text: f.text.value });
+        });
+        formular.elements.email.focus();
+      });
+    }
+
+    // Auswahl mit mehreren Knöpfen; liefert den Schlüssel oder null.
+    function auswahlDialog({ titel, text, hinweis = '', knoepfe }) {
+      return new Promise((fertig) => {
+        const dialog = document.createElement('div');
+        dialog.className = 'vollbild dialog-hintergrund';
+        dialog.innerHTML = `
+          <div class="karte formular dialog" role="alertdialog" aria-label="${esc(titel)}" data-rolle="auswahl-dialog">
+            <h3>${esc(titel)}</h3>
+            <p class="mwst-warnung">${esc(text)}</p>
+            ${hinweis ? `<p class="hinweis">${esc(hinweis)}</p>` : ''}
+            <div class="knopfzeile">
+              ${knoepfe.map(([wert, beschriftung, primaer]) => `<button type="button"
+                class="knopf${primaer ? ' knopf-primaer' : ''}" data-wahl="${esc(wert)}">${esc(beschriftung)}</button>`).join('')}
+            </div>
+          </div>`;
+        document.body.append(dialog);
+        dialog.addEventListener('click', (klick) => {
+          const knopf = klick.target.closest('[data-wahl]');
+          if (klick.target !== dialog && !knopf) return;
+          dialog.remove();
+          fertig(knopf ? knopf.dataset.wahl : null);
+        });
+        dialog.querySelector('[data-wahl]').focus();
+      });
+    }
+
+    // Prüfung vor dem Mahnen: sind die Zahlungen aktuell verbucht?
+    // true = weiter, false = abbrechen (oder zuerst Kontoauszug einlesen).
+    async function bankStandGeprueft() {
+      const stand = await kontoauszugStand();
+      if (!stand.veraltet) return true;
+      const wahl = await auswahlDialog({
+        titel: 'Zahlungen aktuell?',
+        text: stand.tag
+          ? `Letzter Kontoauszug vom ${formatTag(stand.tag)}. Bitte zuerst einen aktuellen Auszug einlesen, damit niemand gemahnt wird, der schon bezahlt hat.`
+          : 'Noch nie ein Kontoauszug eingelesen. Bitte zuerst einen aktuellen Auszug einlesen, damit niemand gemahnt wird, der schon bezahlt hat.',
+        hinweis: `Massgebend ist der Stand der Bankdaten (Ende des Auszugs), höchstens ${AUSZUG_HOECHSTALTER_TAGE} Tage alt.`,
+        knoepfe: [['einlesen', 'Kontoauszug einlesen', true], ['trotzdem', 'Trotzdem mahnen'], ['abbrechen', 'Abbrechen']],
+      });
+      if (wahl === 'einlesen') {
+        oeffneKontoauszug({
+          richtung: 'CRDT',
+          nachBuchung: async (text) => {
+            await zeichneTabelle();
+            meldungElement.textContent = `${text} Die fälligen Stufen sind neu berechnet, bitte nochmals prüfen.`;
+          },
+        });
+        return false;
+      }
+      return wahl === 'trotzdem';
+    }
+
+    // Letzte Stufe einer Rechnung mit Änderungen speichern (frisch gelesen).
+    async function aendereLetzteStufe(id, aenderung) {
+      const aktuell = (await abfrage({ typ: 'rechnung' })).find((r) => r._id === id);
+      const liste = mahnungenVon(aktuell);
+      if (!liste.length) return aktuell;
+      return put({ ...aktuell, mahnungen: [...liste.slice(0, -1), { ...liste[liste.length - 1], ...aenderung }] });
+    }
+
+    // Senden: neue Stufe (neu = true) oder die letzte Stufe nochmals.
+    async function sende(rechnung, { neu }) {
+      const liste = mahnungenVon(rechnung);
+      let eintrag;
+      if (neu) {
+        const stand = mahnStand(rechnung, mahnFristenFirma(await ladeFirma()));
+        if (!stand.faellig) return;
+        if (!await bankStandGeprueft()) return;
+        eintrag = neueMahnung(rechnung, stand.faellig);
+      } else {
+        eintrag = liste[liste.length - 1];
+        if (!eintrag) return;
+        if (!await bankStandGeprueft()) return;
+      }
+      const name = stufenName(eintrag.stufe);
+      const vorschau = neu ? { ...rechnung, mahnungen: [...liste, eintrag] } : rechnung;
+      const firma = await ladeFirma();
+      // PDF vorher bauen: das Teilen muss gleich nach dem Antippen folgen.
+      const { datei, maengel } = await mahnPdfDatei(vorschau, eintrag);
+      const angaben = await sendeDialog({
+        rechnung, mahnung: eintrag, neu, firma,
+        vorschlag: rechnung.debitor?.email ? '' : await emailVorschlag(rechnung),
+      });
+      if (!angaben) return;
+      const debitor = { ...(rechnung.debitor || {}), email: angaben.email };
+      const versand = { versandAn: angaben.email };
+      let gespeichert;
+      if (neu) {
+        gespeichert = await put(mitZahlungsStatus({ ...rechnung, debitor,
+          mahnungen: [...liste, { ...eintrag, ...versand }] }, rechnung));
+      } else {
+        gespeichert = await put({ ...rechnung, debitor,
+          mahnungen: [...liste.slice(0, -1), { ...eintrag, ...versand }] });
+      }
+      const ergebnis = await uebergebeMail({ datei, ...angaben });
+      if (ergebnis === 'geteilt') {
+        await aendereLetzteStufe(gespeichert._id, { versendetAm: heuteTag(), versandWeg: 'teilen' });
+      } else if (ergebnis === 'mailto') {
+        await aendereLetzteStufe(gespeichert._id, { versandWeg: 'mailto' });
+      }
+      document.dispatchEvent(new CustomEvent('luense:daten'));
+      await zeichneTabelle();
+      const qr = maengel.length ? ` PDF ohne QR-Zahlteil: ${maengel.join(' ')}` : '';
+      meldungElement.textContent = ({
+        geteilt: `${name} zu Rechnung ${rechnung.nummer} ans Mail-Programm übergeben und als versendet vermerkt.`,
+        abgebrochen: `Teilen abgebrochen: ${name} zu Rechnung ${rechnung.nummer} ist festgehalten, aber noch nicht versendet. «Erneut senden» in der Zeile.`,
+        mailto: `${name} zu Rechnung ${rechnung.nummer}: PDF «${datei.name}» heruntergeladen und neue Mail an ${angaben.email} geöffnet. `
+          + 'Bitte das PDF von Hand anhängen und nach dem Senden «Als versendet markieren».',
+      })[ergebnis] + qr;
+    }
+
     // Mahnung erstellen (fällige Stufe festhalten + PDF), PDF der letzten
     // Stufe erneut öffnen, letzte Stufe zurücknehmen (Rückgängig).
     async function mahnAktion(aktion, id) {
       const rechnung = (await abfrage({ typ: 'rechnung' })).find((r) => r._id === id);
       if (!rechnung) return;
       const liste = mahnungenVon(rechnung);
-      if (aktion === 'mahnen') {
+      if (aktion === 'senden' || aktion === 'erneut-senden') {
+        await sende(rechnung, { neu: aktion === 'senden' });
+      } else if (aktion === 'als-versendet') {
+        const letzte = liste[liste.length - 1];
+        if (!letzte || letzte.versendetAm) return;
+        if (!confirm(`${stufenName(letzte.stufe)} zu Rechnung ${rechnung.nummer} als versendet markieren?`)) return;
+        await aendereLetzteStufe(rechnung._id, { versendetAm: heuteTag() });
+        meldungElement.textContent = `${stufenName(letzte.stufe)} zu Rechnung ${rechnung.nummer} als versendet vermerkt.`;
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneTabelle();
+      } else if (aktion === 'mahnen') {
         const stand = mahnStand(rechnung, mahnFristenFirma(await ladeFirma()));
         if (!stand.faellig) return;
+        if (!await bankStandGeprueft()) return;
         const eintrag = neueMahnung(rechnung, stand.faellig);
         const name = stufenName(eintrag.stufe);
         const zins = eintrag.zinsRappen ? `, Verzugszins ${chf(eintrag.zinsRappen / 100)}${
@@ -1105,7 +1422,8 @@ export default {
           { detail: { baustelleId: knopf.dataset.baustelle } }));
         return;
       }
-      if (['mahnen', 'mahn-pdf', 'mahn-zurueck', 'betreibung', 'betreibung-zurueck'].includes(knopf.dataset.aktion)) {
+      if (['mahnen', 'mahn-pdf', 'mahn-zurueck', 'betreibung', 'betreibung-zurueck', 'senden',
+        'erneut-senden', 'als-versendet'].includes(knopf.dataset.aktion)) {
         await mahnAktion(knopf.dataset.aktion, knopf.dataset.id);
         return;
       }
