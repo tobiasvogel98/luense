@@ -23,7 +23,7 @@ import { chf, esc } from './ui.js';
 import {
   zahl, runde, heuteTag, formatTag, kompakt, gleicheReferenz, scorAusNummer,
   istGueltigeScor, istGueltigeQrr, offenerBetrag, kreditorWerte, zahlungen,
-  statusNachZahlungen, formatIban, formatReferenz, TOLERANZ,
+  statusNachZahlungen, formatIban, formatReferenz, rappen, sollRappen, bezahltSumme, skontoSumme,
 } from './zahlung.js';
 
 // ---------- camt lesen ----------
@@ -171,23 +171,30 @@ function buchungsId(p) {
 }
 
 // Bewertet einen Zahlbetrag gegen den (virtuellen) Restbetrag eines Ziels.
-// Liefert { art: 'voll'|'teil'|'ueber', skonto, rest }.
+// Liefert { art: 'voll'|'teil'|'ueber', skonto, rest }. Exakt auf den
+// Rappen, ohne Toleranz: «voll» nur, wenn der Betrag den Rest genau deckt
+// (bei Kreditoren mit Skonto: genau Rechnungsbetrag minus Skonto, innert
+// Frist). 1 Rappen zu wenig bleibt eine Teilzahlung.
 function bewerte(ziel, betrag, datum, rest) {
+  const b = rappen(betrag);
+  const r = rappen(rest);
   if (ziel.art === 'kreditor') {
     const w = kreditorWerte(ziel.doc, datum);
-    const ohneVorZahlung = !zahlungen(ziel.doc).length && rest >= w.betrag - 0.005;
-    if (w.skontoTag && ohneVorZahlung && Math.abs(betrag - (w.betrag - w.skontoBetrag)) <= TOLERANZ) {
-      if (datum <= w.skontoTag) return { art: 'voll', skonto: runde(w.betrag - betrag), rest: 0 };
-      return { art: 'teil', skonto: 0, rest: runde(rest - betrag), skontoVerpasst: true };
+    const voll = rappen(w.betrag);
+    const skonto = rappen(w.skontoBetrag);
+    const ohneVorZahlung = !zahlungen(ziel.doc).length && r >= voll;
+    if (w.skontoTag && skonto > 0 && ohneVorZahlung && b === voll - skonto) {
+      if (datum <= w.skontoTag) return { art: 'voll', skonto: skonto / 100, rest: 0 };
+      return { art: 'teil', skonto: 0, rest: (r - b) / 100, skontoVerpasst: true };
     }
   }
-  if (betrag >= rest - 0.005) return { art: betrag > rest + 0.005 ? 'ueber' : 'voll', skonto: 0, rest: 0 };
-  return { art: 'teil', skonto: 0, rest: runde(rest - betrag) };
+  if (b === r) return { art: 'voll', skonto: 0, rest: 0 };
+  if (b > r) return { art: 'ueber', skonto: 0, rest: 0 };
+  return { art: 'teil', skonto: 0, rest: (r - b) / 100 };
 }
 
 function passtBetrag(ziel, betrag, datum, rest) {
-  const b = bewerte(ziel, betrag, datum, rest);
-  return b.art === 'voll' && Math.abs(betrag + b.skonto - rest) <= TOLERANZ;
+  return bewerte(ziel, betrag, datum, rest).art === 'voll';
 }
 
 // Ordnet alle Posten zu. bestand: { rechnungen, kreditoren, baustellen,
@@ -593,8 +600,9 @@ export function zeigeZahlungen(docId, { titel = 'Zahlungen', nachAenderung = () 
     dialog.innerHTML = `
       <form class="karte formular dialog" data-rolle="zahlung-formular">
         <h3>${esc(titel)}</h3>
-        <p class="hinweis">Betrag ${chf(zahl(doc.betrag))} · bezahlt ${chf(liste.reduce((s, z) => s + zahl(z.betrag), 0))}${
-          liste.some((z) => zahl(z.skonto)) ? ` · Skonto ${chf(liste.reduce((s, z) => s + zahl(z.skonto), 0))}` : ''}
+        <p class="hinweis">${doc.typ === 'rechnung' ? 'Total inkl. MWST' : 'Betrag'} ${chf(sollRappen(doc) / 100)}
+          · bezahlt ${chf(bezahltSumme(doc))}${
+          skontoSumme(doc) ? ` · Skonto ${chf(skontoSumme(doc))}` : ''}
           · offen <b>${chf(offenerBetrag(doc))}</b> · Status ${esc(doc.status)}</p>
         ${liste.length ? liste.map((z, i) => `
           <div class="fo-zeile dossier-zeile">
@@ -642,7 +650,7 @@ export function zeigeZahlungen(docId, { titel = 'Zahlungen', nachAenderung = () 
     const w = doc.typ === 'kreditor' ? kreditorWerte(doc) : null;
     await bucheZahlung(docId, {
       datum: formular.elements.datum.value,
-      betrag: runde(zahl(formular.elements.betrag.value)),
+      betrag: rappen(formular.elements.betrag.value) / 100,
       skonto: formular.elements.skonto?.checked ? w.skontoBetrag : 0,
       quelle: 'von Hand',
       erfasstAm: heuteTag(),

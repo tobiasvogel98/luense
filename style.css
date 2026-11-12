@@ -2267,6 +2267,23 @@ code {
   white-space: nowrap;
 }
 
+/* Zusammenzug einer Rechnung: netto → MWST → Total inkl. MWST (zuletzt). */
+.druck-summen .druck-zeile .druck-wert {
+  font-weight: 400;
+}
+
+.druck-summen .druck-zeile.druck-total {
+  margin-top: 3pt;
+  padding-top: 3pt;
+  border-top: 1.5px solid currentColor;
+  font-size: 11.5pt;
+}
+
+.druck-summen .druck-zeile.druck-total .druck-wert,
+.druck-summen .druck-zeile.druck-total > span:first-child {
+  font-weight: 700;
+}
+
 .rapport-tabelle {
   width: 100%;
   border-collapse: collapse;
@@ -3236,4 +3253,45 @@ details.katalog-wahl > summary {
   .bank-posten.bank-gutschrift {
     border-left-color: #4ade80;
   }
+}
+
+/* ---------- Rechnung: MWST (netto → MWST → Total inkl. MWST) ---------- */
+.mwst-stapel {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mwst-stapel small {
+  color: var(--farbe-text-gedaempft);
+  font-size: 0.78rem;
+}
+
+.mwst-vorschau {
+  display: grid;
+  gap: var(--abstand-1);
+  padding: var(--abstand-3);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  background: var(--farbe-hintergrund);
+  font-variant-numeric: tabular-nums;
+}
+
+.mwst-vorschau > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--abstand-3);
+}
+
+.mwst-vorschau > div > span:last-child {
+  white-space: nowrap;
+}
+
+.mwst-vorschau .mwst-total {
+  margin-top: var(--abstand-1);
+  padding-top: var(--abstand-2);
+  border-top: 1.5px solid var(--farbe-text);
+  font-weight: 700;
 }

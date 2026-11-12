@@ -77,6 +77,8 @@ export default {
       const regieOhneNachtrag = d.rapporte.filter((r) => zahl(r.davonRegie) > 0
         && !d.nachtraege.some((n) => n.beweise?.rapportIds?.includes(r._id)));
       // Offene Beträge nach Zahlungen (Kontoauszug/Teilzahlung): Restbetrag.
+      // Forderung = was der Bauherr schuldet, also inkl. MWST (wie die
+      // offenen Kreditoren). Umsatz-/Ergebniszahlen bleiben netto.
       const gestellteRechnungen = d.rechnungen.filter((r) => ['gestellt', 'teilbezahlt'].includes(r.status));
       const gestellteSumme = gestellteRechnungen.reduce((s, r) => s + offenerBetrag(r), 0);
       const kreditorenOffen = d.kreditoren.filter((k) => k.status !== 'bezahlt');
@@ -133,7 +135,7 @@ export default {
             <div class="karte kachel"><span class="kachel-titel">Pendenzen offen</span>
               <span class="kachel-wert">${pendenzenOffen.length}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Gestellt, nicht bezahlt
-              (${gestellteRechnungen.length})</span>
+              (${gestellteRechnungen.length}) · inkl. MWST</span>
               <span class="kachel-wert">${chfGanz(gestellteSumme)}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Kreditoren offen
               (${kreditorenOffen.length})</span>
@@ -236,7 +238,7 @@ export default {
               { label: 'Restbausumme (K3)', wert: kenn ? chfGanz(kenn.k3) : '—' },
               { label: 'Nachträge offen', wert: `${ntOffen.length} · ${chfGanz(ntOffenSumme)}` },
               { label: 'Pendenzen offen', wert: String(pendenzenOffen.length) },
-              { label: 'Rechnungen gestellt, nicht bezahlt',
+              { label: 'Rechnungen gestellt, nicht bezahlt (inkl. MWST)',
                 wert: `${gestellteRechnungen.length} · ${chfGanz(gestellteSumme)}` },
               { label: 'Kreditoren offen',
                 wert: `${kreditorenOffen.length} · ${chfGanz(kreditorenOffenSumme)}` },

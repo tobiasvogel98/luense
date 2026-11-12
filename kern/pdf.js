@@ -183,8 +183,8 @@ function druckOverlay(inhalt) {
   ansicht.querySelector('[data-aktion="drucken"]').addEventListener('click', () => window.print());
 }
 
-function druckZeile(name, wert) {
-  return `<div class="druck-zeile"><span>${esc(name || '—')}</span>
+function druckZeile(name, wert, klasse = '') {
+  return `<div class="druck-zeile${klasse ? ` ${klasse}` : ''}"><span>${esc(name || '—')}</span>
     <span class="punkte"></span><span class="druck-wert">${esc(wert)}</span></div>`;
 }
 
@@ -305,8 +305,9 @@ export function zeigeOffertDruck(offerte, lv) {
 }
 
 // Protokoll-Druck: neutrales Druckmodell aus der Protokoll-Engine —
-// Felder als Beschriftung/Wert, Tabellen als echte Tabellen, dazu die
-// typ-eigenen Unterschriftszeilen.
+// Felder als Beschriftung/Wert, Tabellen als echte Tabellen, Summen als
+// rechtsbündiger Zusammenzug (letzte Zeile mit «total: true» fett), dazu
+// die typ-eigenen Unterschriftszeilen.
 export function zeigeProtokollDruck(baustelle, optionen) {
   druckOverlay(`
     <header class="bericht-kopf">
@@ -314,7 +315,12 @@ export function zeigeProtokollDruck(baustelle, optionen) {
       ${optionen.untertitel ? `<p>${esc(optionen.untertitel)}</p>` : ''}
     </header>
 
-    ${optionen.abschnitte.map((abschnitt) => abschnitt.art === 'felder'
+    ${optionen.abschnitte.map((abschnitt) => (abschnitt.art === 'summen'
+      ? `<section class="bericht-eintrag druck-summen">
+          <h2>${esc(abschnitt.titel)}</h2>
+          ${abschnitt.zeilen.map((z) => druckZeile(z.label, z.wert, z.total ? 'druck-total' : '')).join('')}
+        </section>`
+      : abschnitt.art === 'felder'
       ? `<section class="bericht-eintrag">
           <h2>${esc(abschnitt.titel)}</h2>
           ${abschnitt.zeilen.map((z) => `
@@ -328,7 +334,7 @@ export function zeigeProtokollDruck(baustelle, optionen) {
             <tbody>${abschnitt.zeilen.map((zeile) => `
               <tr>${zeile.map((w) => `<td class="meta-wert">${esc(w)}</td>`).join('')}</tr>`).join('')}</tbody>
           </table>
-        </section>`).join('')}
+        </section>`)).join('')}
 
     ${optionen.bilder?.length ? `
       <section class="bericht-eintrag">

@@ -839,8 +839,9 @@ export default {
             <label>Regieansatz [CHF/h]<input name="ansatz" type="number"
               inputmode="decimal" step="any" min="0" value="${esc(ansatz)}"></label>
           </div>
-          <label>Betrag [CHF]<input name="betrag" type="number" inputmode="decimal"
+          <label>Betrag netto exkl. MWST [CHF]<input name="betrag" type="number" inputmode="decimal"
             step="any" min="0" value="${esc(Math.round(stunden * ansatz * 100) / 100)}"></label>
+          <p class="hinweis">Die MWST kommt auf der Rechnung dazu (Satz aus den Firmendaten).</p>
           <label>Titel<input name="titel" autocomplete="off"
             value="Regiearbeiten vom ${esc(formatTag(rapport.tag))}"></label>
           <div class="knopfzeile">

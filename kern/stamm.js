@@ -3,7 +3,10 @@
 
 import { put, get, abfrage, neueId } from './speicher.js';
 import { esc } from './ui.js';
-import { istGueltigeIban, istQrIban, formatIban, kompakt } from './zahlung.js';
+import {
+  istGueltigeIban, istQrIban, formatIban, kompakt, mwstSatzAus, setzeStandardMwstSatz,
+  MWST_SATZ_STANDARD,
+} from './zahlung.js';
 
 // ---------- Daten ----------
 
@@ -72,15 +75,29 @@ export async function importiereBaustellen(jsonText) {
 
 const FIRMA_ID = 'firma:stamm';
 const FIRMA_FELDER = ['name', 'strasse', 'hausnummer', 'plz', 'ort', 'land', 'iban',
-  'telefon', 'email', 'mwstNr'];
+  'telefon', 'email', 'mwstNr', 'mwstSatz'];
+
+// MWST-Satz der Firma in Prozent (leer → Standard 8.1 %). Gilt für neue
+// Rechnungen (dort bei Erstellung festgehalten) und für alte Rechnungen
+// ohne eigenen Satz.
+export function mwstSatzFirma(firma) {
+  return mwstSatzAus(firma?.mwstSatz) ?? MWST_SATZ_STANDARD;
+}
 
 export async function ladeFirma() {
+  let firma = null;
   try {
-    return await get(FIRMA_ID);
+    firma = await get(FIRMA_ID);
   } catch {
-    return null;
+    firma = null;
   }
+  setzeStandardMwstSatz(firma?.mwstSatz);
+  return firma;
 }
+
+// Satz einmal beim Start laden, damit Beträge alter Rechnungen ohne
+// eigenen Satz von Anfang an mit dem Firmensatz rechnen.
+await ladeFirma();
 
 export async function speichereFirma(felder) {
   const vorhanden = await ladeFirma();
@@ -92,10 +109,17 @@ export async function speichereFirma(felder) {
   doc.iban = kompakt(doc.iban);
   doc.datum = new Date().toISOString();
   if (!doc.name) throw new Error('Firmenname ist ein Pflichtfeld.');
+  if (doc.mwstSatz) {
+    const satz = mwstSatzAus(doc.mwstSatz);
+    if (satz === null) throw new Error('MWST-Satz ungültig — Prozent zwischen 0 und 99.9, z. B. 8.1.');
+    doc.mwstSatz = String(satz);
+  }
   if (doc.iban && !istGueltigeIban(doc.iban)) {
     throw new Error('IBAN ungültig — Prüfziffer stimmt nicht. Bitte genau abschreiben.');
   }
-  return put(doc);
+  const gespeichert = await put(doc);
+  setzeStandardMwstSatz(gespeichert.mwstSatz);
+  return gespeichert;
 }
 
 // ---------- Ansicht ----------
@@ -148,7 +172,14 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
             <label>Telefon<input name="telefon" type="tel" autocomplete="tel"></label>
             <label>E-Mail<input name="email" type="email" autocomplete="email"></label>
           </div>
-          <label>MWST-Nr.<input name="mwstNr" autocomplete="off" placeholder="CHE-123.456.789 MWST"></label>
+          <div class="feld-reihe">
+            <label class="feld-breit">MWST-Nr.<input name="mwstNr" autocomplete="off" placeholder="CHE-123.456.789 MWST"></label>
+            <label class="feld-schmal">MWST-Satz [%]<input name="mwstSatz" type="number" inputmode="decimal"
+              step="any" min="0" max="99.9" placeholder="${MWST_SATZ_STANDARD}"></label>
+          </div>
+          <p class="hinweis">Der MWST-Satz gilt für neue Rechnungen und wird dort beim
+            Erstellen festgehalten — bestehende Rechnungen behalten ihren Satz.
+            0 = Rechnungen ohne MWST.</p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Firmendaten speichern</button>
           </div>
@@ -325,6 +356,9 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
     for (const feld of FIRMA_FELDER) {
       firmaFormular.elements[feld].value = feld === 'iban'
         ? formatIban(firma?.iban || '') : (firma?.[feld] ?? '');
+    }
+    if (!String(firma?.mwstSatz ?? '').trim()) {
+      firmaFormular.elements.mwstSatz.value = String(MWST_SATZ_STANDARD);
     }
     if (!firma) firmaFormular.elements.land.value = 'CH';
     pruefeIban();

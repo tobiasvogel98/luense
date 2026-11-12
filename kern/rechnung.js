@@ -7,6 +7,7 @@
 
 import { put, abfrage } from './speicher.js';
 import { scorAusNummer } from './zahlung.js';
+import { ladeFirma, mwstSatzFirma } from './stamm.js';
 
 // Ablauf von Hand. Dazu kommt «teilbezahlt» — entsteht nur aus Zahlungen
 // (Kontoauszug oder von Hand erfasst), siehe kern/zahlung.js.
@@ -33,8 +34,13 @@ export async function naechsteRechnungsnummer() {
 
 // Legt eine Rechnung mit Status «offen» an. basis verlinkt auf die
 // Grundlage: { art: 'regierapport' | 'nachtrag' | 'manuell', id, label }.
+// «betrag» ist netto (exkl. MWST). Der MWST-Satz der Firmendaten wird an
+// der Rechnung festgehalten (mwstSatz), damit eine spätere Satzänderung
+// alte Rechnungen nicht verändert. Total inkl. MWST: kern/zahlung.js
+// (rechnungsBetraege).
 export async function erstelleRechnung({ baustelleId, titel, betrag, basis }) {
   const nummer = await naechsteRechnungsnummer();
+  const mwstSatz = mwstSatzFirma(await ladeFirma());
   return put({
     typ: 'rechnung',
     baustelleId,
@@ -43,6 +49,7 @@ export async function erstelleRechnung({ baustelleId, titel, betrag, basis }) {
     tag: heuteTag(),
     titel: String(titel || '').trim() || '(ohne Titel)',
     betrag: String(betrag ?? '').trim(),
+    mwstSatz,
     zahlungsfristTage: ZAHLUNGSFRIST_TAGE,
     basis: basis || { art: 'manuell', id: '', label: '' },
     status: 'offen',

@@ -9,18 +9,25 @@
 // Kontoauszug (camt.053/054, kern/bank.js) oder von Hand; daraus folgen
 // «teilbezahlt» bzw. «bezahlt» mit Datumsstempel. Dazu die Übersicht der
 // offenen Forderungen über alle Baustellen mit Fälligkeit.
+//
+// MWST: «betrag» ist netto (exkl. MWST). Jede neue Rechnung hält den
+// MWST-Satz der Firmendaten fest (mwstSatz). Die Rechnung zeigt zuerst
+// «Total netto exkl. MWST», dann die MWST-Zeile, zuletzt das Total inkl.
+// MWST — dieses ist der geschuldete Betrag (Bildschirm, PDF, QR-Zahlteil,
+// Kontoauszug). Alte Rechnungen ohne mwstSatz rechnen mit dem aktuellen
+// Satz der Firmendaten (markiert mit *). Keine Rundung auf 5 Rappen.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import {
   RECHNUNG_STATUS, ZAHLUNGSFRIST_TAGE, naechsteRechnungsnummer, heuteTag,
 } from '../kern/rechnung.js';
 import {
-  zahl, formatTag, scorAusNummer, formatReferenz, formatIban, offenerBetrag,
-  bezahltSumme, rechnungFaellig, zahlungen,
+  formatTag, scorAusNummer, formatReferenz, formatIban, offenerBetrag,
+  bezahltSumme, rechnungFaellig, zahlungen, rechnungsBetraege, formatSatz,
 } from '../kern/zahlung.js';
 import { zahlteilSvg, pruefeZahlteil, adresseVollstaendig } from '../kern/qrrechnung.js';
 import { oeffneKontoauszug, zeigeZahlungen } from '../kern/bank.js';
-import { alleBaustellen, ladeFirma } from '../kern/stamm.js';
+import { alleBaustellen, ladeFirma, mwstSatzFirma } from '../kern/stamm.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { chf, esc } from '../kern/ui.js';
@@ -58,10 +65,23 @@ function naechsterStatus(r) {
 function vorherigerStatus(r) {
   if (r.status === 'teilbezahlt') return '';
   if (r.status === 'bezahlt' && zahlungen(r).length) {
-    return bezahltSumme(r) < zahl(r.betrag) - 0.005 ? 'teilbezahlt' : '';
+    return offenerBetrag({ ...r, status: 'teilbezahlt' }) > 0 ? 'teilbezahlt' : '';
   }
   return RECHNUNG_STATUS[RECHNUNG_STATUS.indexOf(r.status) - 1] || '';
 }
+
+// Betrag-Zelle: netto, MWST, zuletzt das Total inkl. MWST (fett).
+function betragZelle(r) {
+  const b = rechnungsBetraege(r);
+  return `<span class="mwst-stapel">
+    <small>netto ${chf(b.netto)}</small>
+    ${b.satz > 0 ? `<small>MWST ${formatSatz(b.satz)}${b.satzAusFirma ? '*' : ''} ${chf(b.mwst)}</small>`
+      : '<small>ohne MWST</small>'}
+    <b>${chf(b.brutto)}</b></span>`;
+}
+
+const SATZ_HINWEIS = '* Rechnung ohne festgehaltenen MWST-Satz (vor der MWST-Einführung erfasst) — '
+  + 'gerechnet mit dem aktuellen Satz der Firmendaten.';
 
 function tageUeberfaellig(faellig, heute) {
   if (!faellig || faellig >= heute) return 0;
@@ -126,8 +146,13 @@ export default {
       return alle.sort((a, b) => (b.nummer || '').localeCompare(a.nummer || ''));
     }
 
+    // Summen in Rappen (exakt): Total inkl. MWST bzw. netto.
     function summe(liste) {
-      return liste.reduce((s, r) => s + zahl(r.betrag), 0);
+      return liste.reduce((s, r) => s + rechnungsBetraege(r).bruttoRappen, 0) / 100;
+    }
+
+    function summeNetto(liste) {
+      return liste.reduce((s, r) => s + rechnungsBetraege(r).nettoRappen, 0) / 100;
     }
 
     function summeOffen(liste) {
@@ -152,7 +177,7 @@ export default {
       const forderungen = alleBaustellenRechnungen.filter((r) => FORDERUNG.includes(r.status));
       const heute = heuteTag();
       const ueberfaellig = forderungen.filter((r) => tageUeberfaellig(rechnungFaellig(r), heute) > 0);
-      gesamtElement.textContent = `Offene Forderungen über alle Baustellen: ${chf(summeOffen(forderungen))}`
+      gesamtElement.textContent = `Beträge inkl. MWST. Offene Forderungen über alle Baustellen: ${chf(summeOffen(forderungen))}`
         + ` (${forderungen.length})${ueberfaellig.length
           ? ` · davon überfällig ${chf(summeOffen(ueberfaellig))} (${ueberfaellig.length})` : ''}`;
     }
@@ -163,6 +188,9 @@ export default {
       neuZeile.hidden = true;
       const nummer = rechnung?.nummer || await naechsteRechnungsnummer();
       const deb = rechnung?.debitor || { name: baustelle.bauherr || '' };
+      // Neue Rechnung: Satz der Firmendaten; bestehende: ihr eigener Satz
+      // (alte ohne Satz: aktueller Firmensatz, nicht festgehalten).
+      const satz = rechnung ? rechnungsBetraege(rechnung).satz : mwstSatzFirma(await ladeFirma());
       formularBereich.innerHTML = `
         <form class="karte formular" data-rolle="rechnung-formular">
           <h3>${rechnung ? `Rechnung ${esc(rechnung.nummer)} bearbeiten` : 'Neue Rechnung'}</h3>
@@ -176,13 +204,15 @@ export default {
             value="${esc(rechnung?.titel ?? '')}"
             placeholder="z. B. Regiearbeiten KW 35"></label>
           <div class="feld-reihe">
-            <label>Betrag [CHF] *<input name="betrag" type="number" required
+            <label>Betrag netto exkl. MWST [CHF] *<input name="betrag" type="number" required
               inputmode="decimal" step="any" value="${esc(rechnung?.betrag ?? '')}"
               placeholder="0.00"></label>
             <label>Zahlungsfrist [Tage]<input name="zahlungsfrist" type="number"
               inputmode="numeric" min="0" step="1"
               value="${esc(rechnung?.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE)}"></label>
           </div>
+          <div class="mwst-vorschau" data-rolle="mwst-vorschau" data-satz="${esc(satz)}"></div>
+          ${rechnung && rechnungsBetraege(rechnung).satzAusFirma ? `<p class="hinweis">${esc(SATZ_HINWEIS)}</p>` : ''}
           <details class="adress-block" ${adresseVollstaendig(deb) ? '' : 'open'}>
             <summary>Rechnungsadresse (für PDF und QR-Zahlteil)</summary>
             <label>Name / Firma<input name="debName" autocomplete="off" value="${esc(deb.name ?? '')}"></label>
@@ -210,7 +240,19 @@ export default {
           </div>
           <p class="meldung" role="status"></p>
         </form>`;
+      zeigeMwstVorschau(formularBereich.querySelector('form'));
       formularBereich.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Zusammenzug im Formular, rechnet beim Tippen mit: netto → MWST → Total.
+    function zeigeMwstVorschau(formular) {
+      const ziel = formular?.querySelector('[data-rolle="mwst-vorschau"]');
+      if (!ziel) return;
+      const b = rechnungsBetraege({ betrag: formular.elements.betrag.value, mwstSatz: ziel.dataset.satz });
+      ziel.innerHTML = `
+        <div><span>Total netto exkl. MWST</span><span>${chf(b.netto)}</span></div>
+        <div><span>${b.satz > 0 ? `MWST ${formatSatz(b.satz)}` : 'MWST'}</span><span>${b.satz > 0 ? chf(b.mwst) : 'keine'}</span></div>
+        <div class="mwst-total"><span>Total inkl. MWST</span><span>${chf(b.brutto)}</span></div>`;
     }
 
     function schliesseFormular() {
@@ -236,7 +278,7 @@ export default {
           <table class="uebersicht-tabelle">
             <thead><tr>
               <th>Nummer</th><th>Datum</th><th>Titel</th><th>Basis</th>
-              <th class="zahl">Betrag</th><th class="zahl">Offen</th><th>Status</th><th>Zahlbar bis</th><th></th>
+              <th class="zahl">Betrag</th><th class="zahl">Offen inkl. MWST</th><th>Status</th><th>Zahlbar bis</th><th></th>
             </tr></thead>
             <tbody>
               ${rechnungen.map((r) => {
@@ -252,7 +294,7 @@ export default {
                     <td class="kein-umbruch">${formatTag(r.tag)}</td>
                     <td class="text-spalte">${esc(r.titel)}</td>
                     <td class="kein-umbruch">${esc(basisText(r.basis))}</td>
-                    <td class="zahl">${chf(zahl(r.betrag))}</td>
+                    <td class="zahl">${betragZelle(r)}</td>
                     <td class="zahl">${r.status === 'bezahlt' ? '—' : chf(offenerBetrag(r))}</td>
                     <td class="status-spalte">${esc(r.status)}${ueberfaellig
                       ? ' <span class="ueberfaellig">überfällig</span>' : ''}<br>
@@ -279,14 +321,17 @@ export default {
               }).join('')}
               <tr class="summen-zeile">
                 <td colspan="4"><b>Total (${rechnungen.length})</b></td>
-                <td class="zahl"><b>${chf(summe(rechnungen))}</b></td>
+                <td class="zahl"><span class="mwst-stapel"><small>netto ${chf(summeNetto(rechnungen))}</small>
+                  <b>${chf(summe(rechnungen))}</b></span></td>
                 <td class="zahl"><b>${chf(summeOffen(rechnungen.filter((r) => r.status !== 'offen')))}</b></td>
                 <td colspan="3">davon bezahlt ${chf(summe(rechnungen.filter((r) => r.status === 'bezahlt'))
                   + rechnungen.filter((r) => r.status !== 'bezahlt').reduce((s, r) => s + bezahltSumme(r), 0))}</td>
               </tr>
             </tbody>
           </table>
-        </div>`;
+        </div>
+        ${rechnungen.some((r) => rechnungsBetraege(r).satzAusFirma)
+          ? `<p class="hinweis">${esc(SATZ_HINWEIS)}</p>` : ''}`;
     }
 
     // ---------- Offene Posten über alle Baustellen ----------
@@ -331,7 +376,7 @@ export default {
           <table class="uebersicht-tabelle">
             <thead><tr>
               <th>Fällig</th><th>Baustelle</th><th>Nummer</th><th>Titel</th>
-              <th class="zahl">Betrag</th><th class="zahl">Offen</th><th>Status</th><th></th>
+              <th class="zahl">Total inkl. MWST</th><th class="zahl">Offen</th><th>Status</th><th></th>
             </tr></thead>
             <tbody>
               ${forderungen.map(({ r, faellig, tage }) => {
@@ -343,7 +388,7 @@ export default {
                     <td class="kein-umbruch">${esc(b?.ktr || '—')}<br><small class="hinweis">${esc(b?.name || '')}</small></td>
                     <td class="kein-umbruch">${esc(r.nummer)}</td>
                     <td class="text-spalte">${esc(r.titel)}</td>
-                    <td class="zahl">${chf(zahl(r.betrag))}</td>
+                    <td class="zahl">${chf(rechnungsBetraege(r).brutto)}</td>
                     <td class="zahl"><b>${chf(offenerBetrag(r))}</b></td>
                     <td class="kein-umbruch">${esc(r.status)}</td>
                     <td class="zahl"><button type="button" class="knopf eintrag-loeschen"
@@ -357,7 +402,8 @@ export default {
               </tr>
             </tbody>
           </table>
-        </div>` : '<p class="hinweis">Keine offenen Forderungen — alles bezahlt.</p>'}`;
+        </div>
+        <p class="hinweis">Beträge inkl. MWST.</p>` : '<p class="hinweis">Keine offenen Forderungen — alles bezahlt.</p>'}`;
     }
 
     async function zeichneTabelle() {
@@ -412,7 +458,8 @@ export default {
       const firma = await ladeFirma();
       const frist = rechnungFaellig(rechnung);
       const referenz = referenzVon(rechnung);
-      const offen = offenerBetrag(rechnung);
+      const b = rechnungsBetraege(rechnung);
+      const offen = offenerBetrag(rechnung); // Total inkl. MWST − Zahlungen
       const bezahlt = bezahltSumme(rechnung);
       const deb = rechnung.debitor || {};
       const empfaenger = [deb.name || baustelle.bauherr, [deb.strasse, deb.hausnummer].filter(Boolean).join(' '),
@@ -452,10 +499,17 @@ export default {
           empfaenger.length ? { art: 'felder', titel: 'Rechnungsempfänger',
             zeilen: [{ label: 'Adresse', wert: empfaenger.join(', ') }] } : null,
           { art: 'tabelle', titel: 'Leistung',
-            spalten: ['Bezeichnung', 'Basis', 'Betrag'],
-            zeilen: [[rechnung.titel, basisText(rechnung.basis), chf(zahl(rechnung.betrag))]] },
+            spalten: ['Bezeichnung', 'Basis', 'Betrag exkl. MWST'],
+            zeilen: [[rechnung.titel, basisText(rechnung.basis), chf(b.netto)]] },
+          // MWST immer zuletzt: netto → MWST → Total inkl. MWST.
+          { art: 'summen', titel: 'Rechnungsbetrag', zeilen: b.satz > 0 ? [
+            { label: 'Total netto exkl. MWST', wert: chf(b.netto) },
+            { label: `MWST ${formatSatz(b.satz)}`, wert: chf(b.mwst) },
+            { label: 'Total inkl. MWST', wert: chf(b.brutto), total: true },
+          ] : [
+            { label: 'Total (ohne MWST)', wert: chf(b.brutto), total: true },
+          ] },
           { art: 'felder', titel: 'Zahlung', zeilen: [
-            { label: 'Rechnungsbetrag', wert: chf(zahl(rechnung.betrag)) },
             ...(bezahlt ? [{ label: 'Bereits bezahlt', wert: chf(bezahlt) },
               { label: 'Noch offen', wert: chf(offen) }] : []),
             { label: 'Zahlungsfrist', wert: `${rechnung.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE} Tage` },
@@ -505,10 +559,12 @@ export default {
           .map((b) => [b.baustelleId, b.ktr]));
         exportiereCsv(
           ansicht === 'alle' ? 'luense-offene-forderungen.csv' : `luense-rechnungen-${baustelle.ktr}.csv`,
-          ['KTR', 'Nummer', 'Datum', 'Titel', 'Basis', 'Betrag CHF', 'Bezahlt CHF', 'Offen CHF',
+          ['KTR', 'Nummer', 'Datum', 'Titel', 'Basis', 'Netto exkl. MWST CHF', 'MWST-Satz %',
+            'MWST CHF', 'Total inkl. MWST CHF', 'Bezahlt CHF', 'Offen CHF',
             'Status', 'Zahlbar bis', 'Referenz', 'Statusverlauf'],
           rechnungen.slice().reverse().map((r) => [baustellen.get(r.baustelleId) || '', r.nummer,
-            formatTag(r.tag), r.titel, basisText(r.basis), zahl(r.betrag), bezahltSumme(r),
+            formatTag(r.tag), r.titel, basisText(r.basis), rechnungsBetraege(r).netto,
+            rechnungsBetraege(r).satz, rechnungsBetraege(r).mwst, rechnungsBetraege(r).brutto, bezahltSumme(r),
             offenerBetrag(r), r.status,
             r.status === 'bezahlt' ? '' : formatTag(rechnungFaellig(r)), referenzVon(r),
             (r.statusHistorie || []).map((h) => `${h.status} ${formatTag(h.datum)}`).join(' → ')]),
@@ -517,6 +573,10 @@ export default {
 
     formularBereich.addEventListener('click', (klick) => {
       if (klick.target.closest('[data-aktion="abbrechen"]')) schliesseFormular();
+    });
+
+    formularBereich.addEventListener('input', (eingabe) => {
+      if (eingabe.target.name === 'betrag') zeigeMwstVorschau(eingabe.target.form);
     });
 
     formularBereich.addEventListener('submit', async (abschicken) => {
@@ -538,6 +598,9 @@ export default {
         const referenz = basis.referenz && basis.nummer === nummer
           ? basis.referenz : scorAusNummer(nummer);
         const feld = (name) => formular.elements[name].value.trim();
+        // Neue Rechnung: MWST-Satz festhalten. Bestehende behalten ihren
+        // (alte ohne Satz bleiben ohne — sie rechnen mit dem Firmensatz).
+        if (!inBearbeitung) basis.mwstSatz = mwstSatzFirma(await ladeFirma());
         await put({
           ...basis,
           nummer,

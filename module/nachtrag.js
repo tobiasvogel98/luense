@@ -344,8 +344,9 @@ export default {
         dialog.innerHTML = `
           <form class="karte formular dialog" data-rolle="nachtrag-rechnung">
             <h3>Rechnung aus Nachtrag ${esc(nachtrag.nummer)}</h3>
-            <label>Betrag [CHF]<input name="betrag" type="number" inputmode="decimal"
+            <label>Betrag netto exkl. MWST [CHF]<input name="betrag" type="number" inputmode="decimal"
               step="any" min="0" value="${esc(zahl(nachtrag.summe))}"></label>
+            <p class="hinweis">Die MWST kommt auf der Rechnung dazu (Satz aus den Firmendaten).</p>
             <label>Titel<input name="titel" autocomplete="off"
               value="${esc(`Nachtrag ${nachtrag.nummer} — ${nachtrag.titel}`)}"></label>
             <div class="knopfzeile">

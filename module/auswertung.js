@@ -410,6 +410,8 @@ export default {
       const bisStichtag = (liste2) => liste2.filter((d) => (d.tag || '') <= stichtag);
       const summe = (liste2) => liste2.reduce((s, d) => s + zahl(d.betrag), 0);
       // Debitoren: gestellt, teilbezahlt oder bezahlt zählt als fakturiert.
+      // Fakturiert = Rechnungsbetrag NETTO (exkl. MWST): Die MWST ist kein
+      // Ertrag, sondern geht an die ESTV — verglichen wird mit Kosten.
       const fakturiert = bisStichtag(rechnungen.filter((r) => ['gestellt', 'teilbezahlt', 'bezahlt'].includes(r.status)));
       const b1V = summe(fakturiert.filter((r) => r.basis?.art !== 'regierapport'));
       const b2V = summe(fakturiert.filter((r) => r.basis?.art === 'regierapport'));
@@ -442,15 +444,15 @@ export default {
           (ohne Löhne und Inventar-Verrechnung) — S1 danach ergänzen.</p>
         ${w1V ? zeile('W1 — Werkvertrag der Baustelle', w1V, 'w1') : ''}
         ${zeile('B1 — fakturiert (Ausmass/Nachtrag/manuell)', b1V, 'b1',
-          `${fakturiert.filter((r) => r.basis?.art !== 'regierapport').length} Rechnungen gestellt/bezahlt`)}
+          `${fakturiert.filter((r) => r.basis?.art !== 'regierapport').length} Rechnungen gestellt/bezahlt, netto exkl. MWST`)}
         ${zeile('B2 — Regiefakturen', b2V, 'b2',
-          `${fakturiert.filter((r) => r.basis?.art === 'regierapport').length} Rechnungen`)}
+          `${fakturiert.filter((r) => r.basis?.art === 'regierapport').length} Rechnungen, netto exkl. MWST`)}
         ${zeile('S1 — Kreditoren visiert/bezahlt', kreditorenTotal, 's1',
           `${anerkannt.length} Lieferantenrechnungen`)}
         ${jeKostenart.map((k) => zeile(`&nbsp;&nbsp;davon ${esc(k.art)}`, k.betrag, '')).join('')}
         ${eingang || ausgang ? `
           <p class="hinweis">Erfasste Zahlungen bis Stichtag (Kontoauszug/von Hand), nur zur Information:</p>
-          ${zeile('Zahlungseingang Debitoren', eingang, '')}
+          ${zeile('Zahlungseingang Debitoren', eingang, '', 'inkl. MWST')}
           ${zeile('Zahlungsausgang Kreditoren', ausgang, '',
             skontoErtrag ? `Skonto genutzt ${chfGanz(skontoErtrag)}` : '')}` : ''}`;
     }

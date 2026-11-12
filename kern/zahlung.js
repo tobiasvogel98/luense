@@ -11,17 +11,111 @@
 //     bankRef, referenz, gegenpartei, skonto }]
 // Ältere Dokumente ohne Liste gelten als ohne erfasste Zahlungen.
 
+//
+// Geldrechnung: exakt in ganzen Rappen (Ganzzahlen), nie mit Gleitkomma-
+// Toleranz. Keine Rundung auf 5 Rappen — gerundet wird nur dort, wo ein
+// Ergebnis feiner als ein Rappen wäre (MWST, Skonto), kaufmännisch auf
+// 0.01. Eine Zahlung schliesst eine Rechnung nur, wenn sie den offenen
+// Betrag auf den Rappen genau deckt.
+
 export const ZAHLUNGSFRIST_TAGE = 30;
-// Rappen-Toleranz beim Vergleich von Beträgen (Rundung 5 Rappen).
-export const TOLERANZ = 0.05;
 
 export function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
 }
 
+// Dezimalwert (Text oder Zahl) als Ganzzahl mit «stellen» Nachkommastellen,
+// aus dem Dezimaltext gelesen (keine Gleitkomma-Multiplikation) und
+// kaufmännisch gerundet (ab 5 weg von null). ganzzahl('12.345', 2) → 1235.
+function ganzzahl(wert, stellen) {
+  let text = typeof wert === 'number'
+    ? (Number.isFinite(wert) ? wert.toFixed(stellen + 6) : '0')
+    : String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.');
+  if (!text) return 0;
+  const negativ = text.startsWith('-');
+  text = text.replace(/^[-+]/, '');
+  const treffer = /^(\d*)(?:\.(\d*))?$/.exec(text);
+  if (!treffer) return Math.round(zahl(wert) * 10 ** stellen); // z. B. «1e-7»
+  const nachkomma = (treffer[2] || '').padEnd(stellen + 1, '0');
+  let n = Number(`${treffer[1] || '0'}${nachkomma.slice(0, stellen)}`);
+  if (Number(nachkomma[stellen]) >= 5) n += 1;
+  return negativ && n ? -n : n;
+}
+
+// Betrag in ganzen Rappen: rappen('12\'345.60') → 1234560.
+export function rappen(wert) {
+  return ganzzahl(wert, 2);
+}
+
+// Prozent von einem Rappenbetrag, exakt gerechnet (BigInt) und
+// kaufmännisch auf den Rappen gerundet: prozentVonRappen(1000000, 8.1) → 81000.
+export function prozentVonRappen(basisRappen, prozent) {
+  const satz = BigInt(ganzzahl(prozent, 4)); // Prozent × 10'000
+  const basis = BigInt(basisRappen);
+  const negativ = (basis < 0n) !== (satz < 0n);
+  const produkt = (basis < 0n ? -basis : basis) * (satz < 0n ? -satz : satz);
+  const ergebnis = Number((produkt + 500000n) / 1000000n);
+  return negativ && ergebnis ? -ergebnis : ergebnis;
+}
+
+// Auf den Rappen (0.01) — nur wegen der Rappen der Währung, nie auf 5 Rappen.
 export function runde(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
+  return rappen(n) / 100;
+}
+
+// ---------- MWST ----------
+// Standardsatz der Firma (Firmendaten, kern/stamm.js setzt ihn beim Laden).
+// Gilt für neue Rechnungen und für alte Rechnungen ohne eigenen Satz.
+export const MWST_SATZ_STANDARD = 8.1;
+let standardSatz = MWST_SATZ_STANDARD;
+
+// Satz aus Text/Zahl; leer oder ungültig → null.
+export function mwstSatzAus(wert) {
+  const text = String(wert ?? '').trim().replace(',', '.');
+  if (!text) return null;
+  const n = Number(text);
+  return Number.isFinite(n) && n >= 0 && n < 100 ? n : null;
+}
+
+export function setzeStandardMwstSatz(satz) {
+  standardSatz = mwstSatzAus(satz) ?? MWST_SATZ_STANDARD;
+}
+
+export function standardMwstSatz() {
+  return standardSatz;
+}
+
+export function formatSatz(satz) {
+  return `${Number(satz).toLocaleString('de-CH', { maximumFractionDigits: 4 })} %`;
+}
+
+// Beträge einer Debitoren-Rechnung: «betrag» ist netto (exkl. MWST); der
+// Satz steht seit der Einführung an der Rechnung (mwstSatz, bei Erstellung
+// festgehalten). Alte Rechnungen ohne Satz rechnen mit dem aktuellen Satz
+// der Firmendaten (satzAusFirma = true).
+export function rechnungsBetraege(doc, ersatzSatz = standardSatz) {
+  const eigenerSatz = mwstSatzAus(doc?.mwstSatz);
+  const satz = eigenerSatz ?? ersatzSatz;
+  const nettoRappen = rappen(doc?.betrag);
+  const mwstRappen = satz > 0 ? prozentVonRappen(nettoRappen, satz) : 0;
+  const bruttoRappen = nettoRappen + mwstRappen;
+  return {
+    satz,
+    satzAusFirma: eigenerSatz === null,
+    nettoRappen,
+    mwstRappen,
+    bruttoRappen,
+    netto: nettoRappen / 100,
+    mwst: mwstRappen / 100,
+    brutto: bruttoRappen / 100,
+  };
+}
+
+// Geschuldeter Betrag in Rappen: Rechnung = Total inkl. MWST,
+// Kreditor = Rechnungsbetrag des Lieferanten (wie erfasst).
+export function sollRappen(doc) {
+  return doc?.typ === 'rechnung' ? rechnungsBetraege(doc).bruttoRappen : rappen(doc?.betrag);
 }
 
 export function heuteTag() {
@@ -141,19 +235,32 @@ export function zahlungen(doc) {
   return Array.isArray(doc?.zahlungen) ? doc.zahlungen : [];
 }
 
+export function bezahltRappen(doc) {
+  return zahlungen(doc).reduce((s, z) => s + rappen(z.betrag), 0);
+}
+
+export function skontoRappen(doc) {
+  return zahlungen(doc).reduce((s, z) => s + rappen(z.skonto), 0);
+}
+
 export function bezahltSumme(doc) {
-  return runde(zahlungen(doc).reduce((s, z) => s + zahl(z.betrag), 0));
+  return bezahltRappen(doc) / 100;
 }
 
 export function skontoSumme(doc) {
-  return runde(zahlungen(doc).reduce((s, z) => s + zahl(z.skonto), 0));
+  return skontoRappen(doc) / 100;
 }
 
-// Restbetrag: Betrag minus Zahlungen minus abgezogener Skonto.
-// Ein von Hand auf «bezahlt» gesetztes Dokument hat keinen Rest.
-export function offenerBetrag(doc) {
+// Restbetrag in Rappen: geschuldeter Betrag (Rechnung inkl. MWST) minus
+// Zahlungen minus abgezogener Skonto. Ein von Hand auf «bezahlt» gesetztes
+// Dokument hat keinen Rest.
+export function offenRappen(doc) {
   if (doc?.status === 'bezahlt') return 0;
-  return Math.max(0, runde(zahl(doc?.betrag) - bezahltSumme(doc) - skontoSumme(doc)));
+  return Math.max(0, sollRappen(doc) - bezahltRappen(doc) - skontoRappen(doc));
+}
+
+export function offenerBetrag(doc) {
+  return offenRappen(doc) / 100;
 }
 
 // Fälligkeit einer Debitoren-Rechnung (Rechnungsdatum + Zahlungsfrist).
@@ -164,13 +271,14 @@ export function rechnungFaellig(rechnung) {
 
 // Abgeleitete Termine und Beträge eines Kreditors (Skonto, Fälligkeit, Rest).
 export function kreditorWerte(k, heute = heuteTag()) {
-  const betrag = zahl(k.betrag);
+  const betragRappen = rappen(k.betrag);
+  const betrag = betragRappen / 100;
   const faelligTag = k.tag ? plusTage(k.tag, k.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE) : '';
   const skontoProzent = zahl(k.skontoProzent);
   const skontoTage = parseInt(k.skontoTage, 10) || 0;
   const skontoTag = skontoProzent > 0 && skontoTage > 0 && k.tag
     ? plusTage(k.tag, skontoTage) : '';
-  const skontoBetrag = skontoTag ? runde(betrag * skontoProzent / 100) : 0;
+  const skontoBetrag = skontoTag ? prozentVonRappen(betragRappen, k.skontoProzent) / 100 : 0;
   const offen = k.status !== 'bezahlt';
   return {
     betrag,
@@ -189,8 +297,8 @@ export function kreditorWerte(k, heute = heuteTag()) {
 // der ersten Zahlung (gestellt bzw. visiert), damit beim Entfernen einer
 // Zahlung der Ablauf korrekt zurückspringt.
 export function statusNachZahlungen(doc) {
-  const summe = bezahltSumme(doc) + skontoSumme(doc);
   if (!zahlungen(doc).length) return doc.statusVorZahlung || doc.status;
-  if (summe >= zahl(doc.betrag) - 0.005) return 'bezahlt';
+  // Exakt auf den Rappen: 1 Rappen zu wenig bleibt «teilbezahlt».
+  if (bezahltRappen(doc) + skontoRappen(doc) >= sollRappen(doc)) return 'bezahlt';
   return 'teilbezahlt';
 }

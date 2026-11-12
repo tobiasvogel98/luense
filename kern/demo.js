@@ -271,7 +271,7 @@ export async function ladeBeispielbaustelle() {
   await speichere({
     typ: 'rechnung', baustelleId: B, nummer: 'R-DEMO-001', tag: arbeitstagZurueck(9),
     datum: `${arbeitstagZurueck(9)}T12:00:00.000Z`,
-    titel: '1. Akontozahlung (Beispiel)', betrag: '40000', zahlungsfristTage: 30,
+    titel: '1. Akontozahlung (Beispiel)', betrag: '40000', mwstSatz: 8.1, zahlungsfristTage: 30,
     basis: { art: 'manuell', id: '', label: '' }, status: 'bezahlt',
     statusHistorie: [{ status: 'offen', datum: arbeitstagZurueck(9) },
       { status: 'gestellt', datum: arbeitstagZurueck(9) },
@@ -280,7 +280,7 @@ export async function ladeBeispielbaustelle() {
   await speichere({
     typ: 'rechnung', baustelleId: B, nummer: 'R-DEMO-002', tag: arbeitstagZurueck(2),
     datum: `${arbeitstagZurueck(2)}T12:00:00.000Z`,
-    titel: `Nachtrag N-01 — ${n1.titel}`, betrag: '6800', zahlungsfristTage: 30,
+    titel: `Nachtrag N-01 — ${n1.titel}`, betrag: '6800', mwstSatz: 8.1, zahlungsfristTage: 30,
     basis: { art: 'nachtrag', id: n1._id, label: 'N-01' }, status: 'gestellt',
     statusHistorie: [{ status: 'offen', datum: arbeitstagZurueck(2) },
       { status: 'gestellt', datum: arbeitstagZurueck(2) }],
