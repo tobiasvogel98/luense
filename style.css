@@ -3504,3 +3504,18 @@ details.katalog-wahl > summary {
   border-color: var(--mahn-flaeche);
   font-weight: 700;
 }
+
+/* Mahnwesen: Marke und Hauptaktion in der ersten Spalte — auf dem Handy
+   ohne seitliches Scrollen sichtbar */
+.uebersicht-tabelle td.mahn-spalte .knopf.mahn-knopf {
+  display: flex;
+  align-items: center;
+  margin-top: var(--abstand-2);
+  min-height: var(--touch-ziel);
+  white-space: nowrap;
+}
+
+.mahn-faellig.mahn-betreibung {
+  color: var(--farbe-flaeche);
+  background: var(--farbe-text);
+}

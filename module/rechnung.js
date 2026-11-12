@@ -28,9 +28,12 @@
 // Keine Mahngebühr (nach OR nur mit Vertragsabrede). Verzugszins 5 % p. a.
 // (Art. 104 Abs. 1 OR) ab der Zahlungserinnerung (gilt als Mahnung nach
 // Art. 102 Abs. 1 OR) bis zum Datum der jeweiligen Mahnung, auf dem offenen
-// Betrag inkl. MWST, Tage effektiv / 365, kaufmännisch auf den Rappen. Der
-// Zins steht nur auf der Mahnung (eigene Zeile, im QR-Betrag enthalten) —
-// er verändert weder den offenen Betrag noch den Status der Rechnung.
+// Kapital inkl. MWST (ohne bereits verrechneten Zins), Tage effektiv / 365,
+// kaufmännisch auf den Rappen. Der Zins der LETZTEN Mahnung zählt zum
+// geschuldeten Betrag (kern/zahlung.js, zinsSollRappen): bezahlt ist die
+// Rechnung erst, wenn Kapital und Zins gedeckt sind. Nach der 2. Mahnung
+// lässt sich «Betreibung eingeleitet» vermerken (betreibung: { datum,
+// nummer, notiz }) — ein reiner Vermerk, ändert keine Beträge.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import {
@@ -39,7 +42,7 @@ import {
 import {
   formatTag, scorAusNummer, formatReferenz, formatIban, offenerBetrag,
   bezahltSumme, rechnungFaellig, zahlungen, rechnungsBetraege, formatSatz,
-  offenRappen, plusTage,
+  offenRappen, plusTage, offenAufteilung, zinsSollRappen, statusNachZahlungen,
 } from '../kern/zahlung.js';
 import { zahlteilSvg, pruefeZahlteil, adresseVollstaendig } from '../kern/qrrechnung.js';
 import { oeffneKontoauszug, zeigeZahlungen } from '../kern/bank.js';
@@ -60,6 +63,20 @@ function mitHistorie(rechnung, neuerStatus) {
     statusHistorie: [...(rechnung.statusHistorie || []),
       { status: neuerStatus, datum: heuteTag() }],
   };
+}
+
+// Nach einer Mahnung (Zins kommt dazu) oder ihrer Rücknahme (Zins fällt
+// weg) folgt der Status den erfassten Zahlungen: bezahlt nur, wenn Kapital
+// und verrechneter Verzugszins auf den Rappen gedeckt sind.
+function mitZahlungsStatus(neu, alt) {
+  if (!zahlungen(neu).length) return neu;
+  const status = statusNachZahlungen(neu);
+  if (status === alt.status) return neu;
+  const doc = { ...neu, status,
+    statusHistorie: [...(alt.statusHistorie || []), { status, datum: heuteTag() }] };
+  if (status === 'bezahlt') doc.bezahltAm = heuteTag();
+  else delete doc.bezahltAm;
+  return doc;
 }
 
 function basisText(basis) {
@@ -183,15 +200,24 @@ export function verzugszinsRappen(offen, vonIso, bisIso, prozent = VERZUGSZINS_P
 // fällige Stufe (oder null). Fällig nur für gestellte bzw. teilbezahlte
 // Rechnungen mit offenem Betrag, Stufe für Stufe: die nächste Stufe, sobald
 // ihre Frist ab Rechnungsdatum erreicht ist UND die Zahlungsfrist der
-// vorherigen Stufe (10 Tage) abgelaufen ist. Nach der 2. Mahnung keine
-// weitere Stufe.
+// vorherigen Stufe (10 Tage) abgelaufen ist. Massgebend ist das offene
+// KAPITAL (ohne Verzugszins): ist nur noch Zins offen, wird keine weitere
+// Stufe fällig. Nach der 2. Mahnung keine weitere Stufe — dann lässt sich
+// «Betreibung eingeleitet» vermerken.
 export function mahnStand(rechnung, fristen, heute = heuteTag()) {
   const liste = mahnungenVon(rechnung);
   const letzte = liste[liste.length - 1] || null;
   const naechste = liste.length < MAHN_STUFEN.length ? liste.length + 1 : null;
-  const stand = { letzte, naechste, faellig: null, wartetBis: '' };
-  if (!naechste || !FORDERUNG.includes(rechnung?.status) || !rechnung.tag
-    || offenRappen(rechnung) <= 0) return stand;
+  const offen = FORDERUNG.includes(rechnung?.status) && offenRappen(rechnung) > 0;
+  const stand = {
+    letzte,
+    naechste,
+    faellig: null,
+    wartetBis: '',
+    betreibung: rechnung?.betreibung || null,
+    betreibungMoeglich: offen && !naechste && !rechnung?.betreibung,
+  };
+  if (!naechste || !offen || !rechnung.tag || offenAufteilung(rechnung).kapital <= 0) return stand;
   if (tageZwischen(rechnung.tag, heute) < fristen[naechste - 1]) return stand;
   if (letzte) {
     const fristEnde = plusTage(letzte.datum, letzte.fristTage ?? MAHN_ZAHLUNGSFRIST_TAGE);
@@ -204,17 +230,23 @@ export function mahnStand(rechnung, fristen, heute = heuteTag()) {
   return stand;
 }
 
-// Neuer Eintrag für die fällige Stufe: offener Betrag (inkl. MWST, nach
-// Zahlungen) und — ab der 1. Mahnung — Verzugszins seit der Erinnerung.
+// Neuer Eintrag für die fällige Stufe: offenes Kapital (Total inkl. MWST
+// nach Zahlungen, OHNE bereits verrechneten Zins — kein Zinseszins) und —
+// ab der 1. Mahnung — Verzugszins seit der Erinnerung. Der Zins ersetzt den
+// der vorherigen Mahnung (zinsSollRappen nimmt immer den letzten); er fällt
+// nie unter den bereits verrechneten Zins (Teilzahlung nach einer Mahnung
+// würde ihn sonst nachträglich kürzen).
 export function neueMahnung(rechnung, stufe, heute = heuteTag()) {
-  const offen = offenRappen(rechnung);
+  const offen = offenAufteilung(rechnung).kapital;
   const erinnerung = mahnungenVon(rechnung).find((m) => m.stufe === 1);
   const zinsVon = stufe > 1 && erinnerung ? erinnerung.datum : '';
+  const zins = zinsVon
+    ? Math.max(verzugszinsRappen(offen, zinsVon, heute), zinsSollRappen(rechnung)) : 0;
   return {
     stufe,
     datum: heute,
     offenRappen: offen,
-    zinsRappen: zinsVon ? verzugszinsRappen(offen, zinsVon, heute) : 0,
+    zinsRappen: zins,
     zinsVon,
     zinsBis: zinsVon ? heute : '',
     zinsProzent: zinsVon ? VERZUGSZINS_PROZENT : 0,
@@ -222,15 +254,31 @@ export function neueMahnung(rechnung, stufe, heute = heuteTag()) {
   };
 }
 
+// Erste Tabellenspalte: fällige Stufe bzw. Betreibung als Marke, darunter
+// die Hauptaktion — so auf dem Handy ohne seitliches Scrollen erreichbar.
+function mahnErsteSpalte(rechnung, stand) {
+  const id = esc(rechnung._id);
+  const betreibung = stand.betreibung && FORDERUNG.includes(rechnung.status);
+  return `${stand.faellig ? `<span class="mahn-faellig">${stufenName(stand.faellig)} fällig</span>` : ''}${
+    betreibung ? `<span class="mahn-faellig mahn-betreibung">Betreibung eingeleitet</span>` : ''}${
+    stand.faellig ? `
+    <button type="button" class="knopf mahn-knopf" data-aktion="mahnen"
+      data-id="${id}" title="${stufenName(stand.faellig)} festhalten und PDF erstellen">Mahnung erstellen</button>` : ''}${
+    stand.betreibungMoeglich ? `
+    <button type="button" class="knopf mahn-knopf" data-aktion="betreibung"
+      data-id="${id}">Betreibung eingeleitet</button>` : ''}`;
+}
+
+// Weitere Mahn-Knöpfe in der Aktionsspalte: PDF erneut, zurücknehmen.
 function mahnKnoepfe(rechnung, stand, { mitZuruecknehmen = true } = {}) {
   const id = esc(rechnung._id);
-  return `${stand.faellig ? `
-    <button type="button" class="knopf eintrag-loeschen mahn-knopf" data-aktion="mahnen"
-      data-id="${id}" title="${stufenName(stand.faellig)} festhalten und PDF erstellen">Mahnung erstellen</button>` : ''}${
+  return `${stand.betreibung && mitZuruecknehmen ? `
+    <button type="button" class="knopf eintrag-loeschen" data-aktion="betreibung-zurueck"
+      data-id="${id}">Betreibung zurücknehmen</button>` : ''}${
     stand.letzte ? `
     <button type="button" class="knopf eintrag-loeschen" data-aktion="mahn-pdf"
       data-id="${id}">${stufenName(stand.letzte.stufe)} PDF</button>` : ''}${
-    stand.letzte && mitZuruecknehmen ? `
+    stand.letzte && mitZuruecknehmen && !stand.betreibung ? `
     <button type="button" class="knopf eintrag-loeschen" data-aktion="mahn-zurueck"
       data-id="${id}">${stufenName(stand.letzte.stufe)} zurücknehmen</button>` : ''}`;
 }
@@ -240,13 +288,18 @@ function mahnText(absaetze, werte) {
     .replace(/\{(\w+)\}/g, (_, name) => werte[name] ?? ''));
 }
 
-// Badge-Zeile für Tabellen: fällige Stufe hervorgehoben, erstellte Stufen
-// mit Datum als Verlauf.
-function mahnBadge(rechnung, stand) {
-  const verlauf = mahnungenVon(rechnung);
-  return `${stand.faellig ? `<span class="mahn-faellig">${stufenName(stand.faellig)} fällig</span>` : ''}${
-    verlauf.length ? `<small class="mahn-verlauf">${verlauf
-      .map((m) => `${stufenName(m.stufe)} ${formatTag(m.datum)}`).join(' → ')}</small>` : ''}`;
+// Verlauf für die Statusspalte: erstellte Stufen und Betreibung mit Datum.
+function mahnVerlauf(rechnung) {
+  const teile = mahnungenVon(rechnung).map((m) => `${stufenName(m.stufe)} ${formatTag(m.datum)}`);
+  const b = rechnung.betreibung;
+  if (b) teile.push(`Betreibung ${formatTag(b.datum)}${b.nummer ? ` Nr. ${b.nummer}` : ''}`);
+  return teile.length ? `<small class="mahn-verlauf">${esc(teile.join(' → '))}</small>` : '';
+}
+
+// Offener Betrag mit Zinsanteil («davon Verzugszins»).
+function offenZelle(r) {
+  const a = offenAufteilung(r);
+  return `${chf(a.offen / 100)}${a.zins ? `<br><small class="hinweis">davon Verzugszins ${chf(a.zins / 100)}</small>` : ''}`;
 }
 
 export default {
@@ -453,15 +506,15 @@ export default {
                 const stand = mahnStand(r, fristen, heute);
                 return `
                   <tr>
-                    <td class="kein-umbruch">${esc(r.nummer)}<br>
-                      <small class="hinweis">${esc(formatReferenz(referenzVon(r)))}</small></td>
+                    <td class="kein-umbruch mahn-spalte">${esc(r.nummer)}<br>
+                      <small class="hinweis">${esc(formatReferenz(referenzVon(r)))}</small>${mahnErsteSpalte(r, stand)}</td>
                     <td class="kein-umbruch">${formatTag(r.tag)}</td>
                     <td class="text-spalte">${esc(r.titel)}</td>
                     <td class="kein-umbruch">${esc(basisText(r.basis))}</td>
                     <td class="zahl">${betragZelle(r)}</td>
-                    <td class="zahl">${r.status === 'bezahlt' ? '—' : chf(offenerBetrag(r))}</td>
+                    <td class="zahl">${r.status === 'bezahlt' ? '—' : offenZelle(r)}</td>
                     <td class="status-spalte">${esc(r.status)}${ueberfaellig
-                      ? ' <span class="ueberfaellig">überfällig</span>' : ''}${mahnBadge(r, stand)}<br>
+                      ? ' <span class="ueberfaellig">überfällig</span>' : ''}${mahnVerlauf(r)}<br>
                       <small class="hinweis">${(r.statusHistorie || [])
                         .map((h) => `${esc(h.status)} ${formatTag(h.datum)}`).join(' → ')}</small></td>
                     <td class="kein-umbruch">${r.status === 'bezahlt' ? `bezahlt ${formatTag(r.bezahltAm) || ''}`.trim() : formatTag(frist)}</td>
@@ -549,7 +602,7 @@ export default {
         <div class="tabellen-scroll">
           <table class="uebersicht-tabelle">
             <thead><tr>
-              <th>Fällig</th><th>Baustelle</th><th>Nummer</th><th>Titel</th>
+              <th>Rechnung · fällig</th><th>Baustelle</th><th>Titel</th>
               <th class="zahl">Total inkl. MWST</th><th class="zahl">Offen</th><th>Status</th><th></th>
             </tr></thead>
             <tbody>
@@ -557,14 +610,14 @@ export default {
                 const b = ktr.get(r.baustelleId);
                 return `
                   <tr class="${tage > 0 ? 'zeile-ueberfaellig' : ''}">
-                    <td class="kein-umbruch">${formatTag(faellig)}${tage > 0
-                      ? `<br><span class="ueberfaellig">${tage} Tag${tage > 1 ? 'e' : ''} überfällig</span>` : ''}</td>
+                    <td class="kein-umbruch mahn-spalte">${esc(r.nummer)}<br>
+                      <small class="hinweis">fällig ${formatTag(faellig)}</small>${tage > 0
+                      ? `<br><span class="ueberfaellig">${tage} Tag${tage > 1 ? 'e' : ''} überfällig</span>` : ''}${mahnErsteSpalte(r, stand)}</td>
                     <td class="kein-umbruch">${esc(b?.ktr || '—')}<br><small class="hinweis">${esc(b?.name || '')}</small></td>
-                    <td class="kein-umbruch">${esc(r.nummer)}</td>
                     <td class="text-spalte">${esc(r.titel)}</td>
                     <td class="zahl">${chf(rechnungsBetraege(r).brutto)}</td>
-                    <td class="zahl"><b>${chf(offenerBetrag(r))}</b></td>
-                    <td class="status-spalte">${esc(r.status)}${mahnBadge(r, stand)}</td>
+                    <td class="zahl"><b>${offenZelle(r)}</b></td>
+                    <td class="status-spalte">${esc(r.status)}${mahnVerlauf(r)}</td>
                     <td class="zahl"><span class="rapport-knoepfe">
                       ${mahnKnoepfe(r, stand, { mitZuruecknehmen: false })}
                       <button type="button" class="knopf eintrag-loeschen"
@@ -572,7 +625,7 @@ export default {
                   </tr>`;
               }).join('')}
               <tr class="summen-zeile">
-                <td colspan="5"><b>Total offen (${forderungen.length})</b></td>
+                <td colspan="4"><b>Total offen (${forderungen.length})</b></td>
                 <td class="zahl"><b>${chf(total)}</b></td>
                 <td colspan="2"></td>
               </tr>
@@ -739,7 +792,7 @@ export default {
       const frist = rechnungFaellig(rechnung);
       const referenz = referenzVon(rechnung);
       const b = rechnungsBetraege(rechnung);
-      const offen = offenerBetrag(rechnung); // Total inkl. MWST − Zahlungen
+      const offen = offenerBetrag(rechnung); // Total inkl. MWST + Verzugszins − Zahlungen
       const bezahlt = bezahltSumme(rechnung);
       const deb = rechnung.debitor || {};
       const empfaenger = [deb.name || baustelle.bauherr, [deb.strasse, deb.hausnummer].filter(Boolean).join(' '),
@@ -790,8 +843,10 @@ export default {
             { label: 'Total (ohne MWST)', wert: chf(b.brutto), total: true },
           ] },
           { art: 'felder', titel: 'Zahlung', zeilen: [
-            ...(bezahlt ? [{ label: 'Bereits bezahlt', wert: chf(bezahlt) },
+            ...(zinsSollRappen(rechnung) ? [{ label: 'Verzugszins (gemäss Mahnung)', wert: chf(zinsSollRappen(rechnung) / 100) }] : []),
+            ...(bezahlt || zinsSollRappen(rechnung) ? [{ label: 'Bereits bezahlt', wert: chf(bezahlt) },
               { label: 'Noch offen', wert: chf(offen) }] : []),
+            ...(offenAufteilung(rechnung).zins ? [{ label: 'davon Verzugszins', wert: chf(offenAufteilung(rechnung).zins / 100) }] : []),
             { label: 'Zahlungsfrist', wert: `${rechnung.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE} Tage` },
             { label: 'Zahlbar bis', wert: formatTag(frist) },
             ...(firma?.iban ? [{ label: 'IBAN', wert: formatIban(firma.iban) }] : []),
@@ -822,7 +877,7 @@ export default {
         const zins = eintrag.zinsRappen ? `, Verzugszins ${chf(eintrag.zinsRappen / 100)}` : '';
         if (!confirm(`${name} zu Rechnung ${rechnung.nummer} erstellen?\n`
           + `Offen ${chf(eintrag.offenRappen / 100)}${zins}. Die Stufe wird an der Rechnung festgehalten.`)) return;
-        const gespeichert = await put({ ...rechnung, mahnungen: [...liste, eintrag] });
+        const gespeichert = await put(mitZahlungsStatus({ ...rechnung, mahnungen: [...liste, eintrag] }, rechnung));
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneTabelle();
         await mahnPdf(gespeichert, eintrag);
@@ -835,11 +890,63 @@ export default {
         if (!letzte) return;
         const name = stufenName(letzte.stufe);
         if (!confirm(`${name} vom ${formatTag(letzte.datum)} zu Rechnung ${rechnung.nummer} zurücknehmen?`)) return;
-        await put({ ...rechnung, mahnungen: liste.slice(0, -1) });
-        meldungElement.textContent = `${name} zu Rechnung ${rechnung.nummer} zurückgenommen.`;
+        if (rechnung.betreibung) return; // zuerst die Betreibung zurücknehmen
+        const neu = await put(mitZahlungsStatus({ ...rechnung, mahnungen: liste.slice(0, -1) }, rechnung));
+        meldungElement.textContent = `${name} zu Rechnung ${rechnung.nummer} zurückgenommen.`
+          + (neu.status !== rechnung.status ? ` Status → ${neu.status}.` : '');
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneTabelle();
+      } else if (aktion === 'betreibung') {
+        if (!mahnStand(rechnung, mahnFristenFirma(await ladeFirma())).betreibungMoeglich) return;
+        const angaben = await betreibungDialog(rechnung);
+        if (!angaben) return;
+        await put({ ...rechnung, betreibung: angaben });
+        meldungElement.textContent = `Rechnung ${rechnung.nummer}: Betreibung eingeleitet am ${formatTag(angaben.datum)} vermerkt.`;
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneTabelle();
+      } else if (aktion === 'betreibung-zurueck') {
+        if (!rechnung.betreibung) return;
+        if (!confirm(`Vermerk «Betreibung eingeleitet» zu Rechnung ${rechnung.nummer} zurücknehmen?`)) return;
+        const neu = { ...rechnung };
+        delete neu.betreibung;
+        await put(neu);
+        meldungElement.textContent = `Rechnung ${rechnung.nummer}: Betreibungsvermerk zurückgenommen.`;
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneTabelle();
       }
+    }
+
+    // Vermerk «Betreibung eingeleitet»: Datum, optional Betreibungs-Nr. und
+    // Notiz. Ändert keine Beträge — Zahlungen schliessen die Rechnung normal.
+    function betreibungDialog(rechnung) {
+      return new Promise((fertig) => {
+        const dialog = document.createElement('div');
+        dialog.className = 'vollbild dialog-hintergrund';
+        dialog.innerHTML = `
+          <form class="karte formular dialog" data-rolle="betreibung-formular">
+            <h3>Betreibung eingeleitet · Rechnung ${esc(rechnung.nummer)}</h3>
+            <p class="hinweis">Nur ein Vermerk an der Rechnung — die Beträge bleiben,
+              Zahlungen schliessen die Rechnung wie gewohnt.</p>
+            <label>Datum *<input name="datum" type="date" required value="${heuteTag()}"></label>
+            <label>Betreibungs-Nr.<input name="nummer" autocomplete="off" placeholder="optional"></label>
+            <label>Notiz<input name="notiz" autocomplete="off" placeholder="optional, z. B. Betreibungsamt"></label>
+            <div class="knopfzeile">
+              <button type="submit" class="knopf knopf-primaer">Vermerk speichern</button>
+              <button type="button" class="knopf" data-aktion="abbrechen">Abbrechen</button>
+            </div>
+          </form>`;
+        document.body.append(dialog);
+        const schliesse = (wert) => { dialog.remove(); fertig(wert); };
+        dialog.addEventListener('click', (klick) => {
+          if (klick.target === dialog || klick.target.closest('[data-aktion="abbrechen"]')) schliesse(null);
+        });
+        dialog.querySelector('form').addEventListener('submit', (abschicken) => {
+          abschicken.preventDefault();
+          const f = abschicken.target.elements;
+          schliesse({ datum: f.datum.value || heuteTag(), nummer: f.nummer.value.trim(), notiz: f.notiz.value.trim() });
+        });
+        dialog.querySelector('[name="datum"]').focus();
+      });
     }
 
     // ---------- Aktionen ----------
@@ -871,16 +978,25 @@ export default {
           : await ladeRechnungen();
         const baustellen = new Map((await alleBaustellen({ mitArchivierten: true }))
           .map((b) => [b.baustelleId, b.ktr]));
+        const fristen = mahnFristenFirma(await ladeFirma());
+        const letzteStufe = (r) => {
+          const m = mahnungenVon(r);
+          return m.length ? `${stufenName(m[m.length - 1].stufe)} ${formatTag(m[m.length - 1].datum)}` : '';
+        };
+        const betreibungText = (r) => (r.betreibung ? [formatTag(r.betreibung.datum),
+          r.betreibung.nummer ? `Nr. ${r.betreibung.nummer}` : '', r.betreibung.notiz].filter(Boolean).join(' · ') : '');
         exportiereCsv(
           ansicht === 'alle' ? 'luense-offene-forderungen.csv' : `luense-rechnungen-${baustelle.ktr}.csv`,
           ['KTR', 'Nummer', 'Datum', 'Titel', 'Basis', 'Netto exkl. MWST CHF', 'MWST-Satz %',
-            'MWST CHF', 'Total inkl. MWST CHF', 'Bezahlt CHF', 'Offen CHF',
-            'Status', 'Zahlbar bis', 'Referenz', 'Statusverlauf'],
+            'MWST CHF', 'Total inkl. MWST CHF', 'Verzugszins CHF', 'Bezahlt CHF', 'Offen CHF',
+            'davon Verzugszins CHF', 'Status', 'Zahlbar bis', 'Mahnstufe', 'Mahnstufe fällig',
+            'Betreibung', 'Referenz', 'Statusverlauf'],
           rechnungen.slice().reverse().map((r) => [baustellen.get(r.baustelleId) || '', r.nummer,
             formatTag(r.tag), r.titel, basisText(r.basis), rechnungsBetraege(r).netto,
-            rechnungsBetraege(r).satz, rechnungsBetraege(r).mwst, rechnungsBetraege(r).brutto, bezahltSumme(r),
-            offenerBetrag(r), r.status,
-            r.status === 'bezahlt' ? '' : formatTag(rechnungFaellig(r)), referenzVon(r),
+            rechnungsBetraege(r).satz, rechnungsBetraege(r).mwst, rechnungsBetraege(r).brutto,
+            zinsSollRappen(r) / 100, bezahltSumme(r), offenerBetrag(r), offenAufteilung(r).zins / 100, r.status,
+            r.status === 'bezahlt' ? '' : formatTag(rechnungFaellig(r)), letzteStufe(r),
+            stufenName(mahnStand(r, fristen).faellig), betreibungText(r), referenzVon(r),
             (r.statusHistorie || []).map((h) => `${h.status} ${formatTag(h.datum)}`).join(' → ')]),
         );
       });
@@ -954,7 +1070,7 @@ export default {
           { detail: { baustelleId: knopf.dataset.baustelle } }));
         return;
       }
-      if (['mahnen', 'mahn-pdf', 'mahn-zurueck'].includes(knopf.dataset.aktion)) {
+      if (['mahnen', 'mahn-pdf', 'mahn-zurueck', 'betreibung', 'betreibung-zurueck'].includes(knopf.dataset.aktion)) {
         await mahnAktion(knopf.dataset.aktion, knopf.dataset.id);
         return;
       }
