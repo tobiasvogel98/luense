@@ -12,11 +12,18 @@
 // Bewusste Ausnahme von «alle Dokumente tragen eine Baustellen-Id»:
 // Katalog und Offerten existieren VOR der Baustelle — sie nutzen die
 // Sammel-Ids «katalog» bzw. «offertwesen».
+// Sperre: eine angenommene Offerte ist der Vertragsstand und bleibt
+// unveränderlich (kein Entsperren). Gearbeitet wird in einer Kopie
+// («Kopie erstellen», kopieVon = Original) — dort werden Mengen erfasst.
+// Menge je Position: direkt als Zahl oder als Rechenweg («12.5*3 + 4.2»,
+// eigener kleiner Parser, kein eval), aus Ausmasszeilen oder mit dem
+// Grabenrechner (kern/graben.js).
 
-import { put, abfrage, entferneDokument } from '../kern/speicher.js';
+import { put, get, abfrage, entferneDokument } from '../kern/speicher.js';
 import { speichereBaustelle } from '../kern/stamm.js';
 import { zeigeOffertDruck } from '../kern/pdf.js';
 import { chf, esc, naechsteNummer } from '../kern/ui.js';
+import { GRABENARTEN, ROHR_LABELS, berechneTeil } from '../kern/graben.js';
 
 const KATALOG_ID = 'katalog';
 const OFFERT_ID = 'offertwesen';
@@ -32,6 +39,196 @@ function mengeText(n) {
   return (n || 0).toLocaleString('de-CH', {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   });
+}
+
+// ---------- Rechenweg ----------
+// Eine Menge ist entweder eine Zahl («12.5», «1'250,5») oder ein
+// Rechenweg mit + − × / und Klammern («12.5*3 + 4,2*2»). Ausgewertet
+// mit einem kleinen rekursiven Parser — bewusst ohne eval/Function.
+// Mal: * × x ·   Geteilt: / : ÷   Dezimal: Punkt oder Komma.
+const NUR_ZAHL = /^[+-]?\d[\d'’]*(?:[.,]\d+)?$/;
+
+export function istRechenweg(text) {
+  const t = String(text ?? '').replace(/\s/g, '');
+  return t !== '' && !NUR_ZAHL.test(t);
+}
+
+export function rechneRechenweg(text) {
+  const quelle = String(text ?? '');
+  let i = 0;
+  const fehler = (meldung) => { throw new Error(meldung); };
+  const zeichen = () => {
+    while (i < quelle.length && /\s/.test(quelle[i])) i++;
+    return quelle[i] ?? '';
+  };
+  const unerwartet = () => (i >= quelle.length
+    ? 'Der Rechenweg endet mitten in der Rechnung.'
+    : `Unerwartetes Zeichen «${quelle[i]}» an Stelle ${i + 1}.`);
+  function zahlLesen() {
+    zeichen();
+    let ziffern = '';
+    let dezimal = false;
+    while (i < quelle.length) {
+      const c = quelle[i];
+      if (c >= '0' && c <= '9') ziffern += c;
+      else if ((c === '.' || c === ',') && !dezimal && /\d/.test(ziffern)) {
+        dezimal = true;
+        ziffern += '.';
+      } else if ((c === "'" || c === '’') && /\d/.test(ziffern) && !dezimal) {
+        // Tausender-Hochkomma (1'250) — zählt nicht
+      } else break;
+      i++;
+    }
+    if (!/\d/.test(ziffern)) fehler(unerwartet());
+    return Number(ziffern);
+  }
+  function faktor() {
+    const c = zeichen();
+    if (c === '+') { i++; return faktor(); }
+    if (c === '-' || c === '−') { i++; return -faktor(); }
+    if (c === '(') {
+      i++;
+      const wert = summe();
+      if (zeichen() !== ')') fehler('Klammer «)» fehlt.');
+      i++;
+      return wert;
+    }
+    return zahlLesen();
+  }
+  function produkt() {
+    let wert = faktor();
+    for (;;) {
+      const c = zeichen();
+      if (c && '*×xX·'.includes(c)) {
+        i++;
+        wert *= faktor();
+      } else if (c && '/:÷'.includes(c)) {
+        i++;
+        const teiler = faktor();
+        if (teiler === 0) fehler('Division durch null.');
+        wert /= teiler;
+      } else return wert;
+    }
+  }
+  function summe() {
+    let wert = produkt();
+    for (;;) {
+      const c = zeichen();
+      if (c === '+') { i++; wert += produkt(); }
+      else if (c === '-' || c === '−') { i++; wert -= produkt(); }
+      else return wert;
+    }
+  }
+  if (!quelle.trim()) fehler('Der Rechenweg ist leer.');
+  const wert = summe();
+  if (zeichen()) fehler(quelle[i] === ')' ? 'Klammer «(» fehlt.' : unerwartet());
+  if (!Number.isFinite(wert)) fehler('Das Ergebnis ist keine Zahl.');
+  return Math.round(wert * 1000) / 1000;
+}
+
+// Direkte Eingabe (Zahl oder Rechenweg) → Felder der Position.
+// Mit vorhandenen Ausmasszeilen gilt eine Zahl als bewusstes Übersteuern.
+function direktErgebnis(text, ausmass) {
+  const t = String(text ?? '').trim();
+  const mitZeilen = Boolean(ausmass?.length);
+  if (!t) return { menge: '' };
+  if (istRechenweg(t)) {
+    try {
+      const wert = rechneRechenweg(t);
+      return { menge: String(wert), mengeQuelle: 'rechenweg', mengeFormel: t };
+    } catch (fehler) {
+      return { fehler: `Rechenweg ungültig: ${fehler.message}` };
+    }
+  }
+  return { menge: String(zahl(t)), mengeVonHand: mitZeilen || undefined };
+}
+
+// ---------- Grabenrechner in der Offerte ----------
+// position.graben = { grabenart, L, groesse, teile } — dieselben Teile
+// wie im Baustellen-Grabenrechner; die gewählte Grösse (Aushub, Sand …)
+// summiert über alle Teile wird zur Menge.
+const GRABEN_GROESSEN = {
+  aushub: 'Aushub',
+  bettung: 'Bettung',
+  verdaemmungNetto: 'Umhüllung netto',
+  sandTotal: 'Sand total (Bettung + Umhüllung)',
+  auffuellung: 'Auffüllung',
+};
+
+function groesseVorschlag(text) {
+  const t = String(text ?? '').toLowerCase();
+  if (/auff[üu]ll|r[üu]ckf[üu]ll|hinterf[üu]ll/.test(t)) return 'auffuellung';
+  if (/umh[üu]ll|verd[äa]mm|sand|bettung|leitungszone/.test(t)) return 'sandTotal';
+  return 'aushub';
+}
+
+function grabenVorlage(grabenart, groesse = 'aushub') {
+  return {
+    grabenart, L: '', groesse,
+    teile: JSON.parse(JSON.stringify(GRABENARTEN[grabenart].teile)),
+  };
+}
+
+export function grabenMenge(graben) {
+  if (!graben?.teile?.length) return 0;
+  const groesse = GRABEN_GROESSEN[graben.groesse] ? graben.groesse : 'aushub';
+  const summe = graben.teile
+    .reduce((s, teil) => s + (berechneTeil(zahl(graben.L), teil)[groesse] || 0), 0);
+  return Math.round(summe * 100) / 100;
+}
+
+// ---------- Sperre und Kopie ----------
+export function istGesperrt(offerte) {
+  return offerte?.status === 'angenommen';
+}
+
+// Felder, die sich an einer gesperrten Offerte noch ändern dürfen: die
+// Verknüpfung zur daraus erstellten Baustelle (kein Inhalt der Offerte).
+const SPERRE_FREI = new Set(['_rev', 'baustelleErstellt', 'zielBaustelleId']);
+
+function inhalt(offerte) {
+  return JSON.stringify(Object.keys(offerte).filter((k) => !SPERRE_FREI.has(k)).sort()
+    .map((k) => [k, offerte[k]]));
+}
+
+// Einziger Schreibweg für Offerten: eine gespeicherte, angenommene
+// Offerte lässt sich inhaltlich nicht mehr ändern — auch nicht über
+// einen veralteten Bildschirmstand.
+async function speichereOfferte(offerte) {
+  if (offerte._id) {
+    let alt = null;
+    try { alt = await get(offerte._id); } catch { alt = null; }
+    if (istGesperrt(alt) && inhalt(alt) !== inhalt(offerte)) {
+      throw new Error(`Offerte ${alt.nummer} ist angenommen und gesperrt — `
+        + 'bitte eine Kopie erstellen.');
+    }
+    if (alt && !istGesperrt(alt) && istGesperrt(offerte)) {
+      return put({ ...offerte, angenommenAm: new Date().toISOString() });
+    }
+  } else if (istGesperrt(offerte)) {
+    return put({ ...offerte, angenommenAm: new Date().toISOString() });
+  }
+  return put(offerte);
+}
+
+// Alle Ids, von denen diese Offerte (über Kopien) abstammt, samt eigener.
+function abstammung(offerte, alle) {
+  const ids = new Set();
+  let lauf = offerte;
+  while (lauf && !ids.has(lauf._id)) {
+    ids.add(lauf._id);
+    lauf = lauf.kopieVon ? alle.find((o) => o._id === lauf.kopieVon) : null;
+  }
+  return ids;
+}
+
+function offertName(offerte) {
+  return offerte.titel || offerte.objekt || '';
+}
+
+function datumText(iso) {
+  return iso ? new Date(iso).toLocaleDateString('de-CH',
+    { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
 }
 
 // ---------- Ausmasszeilen (Kalkulationsgrundlage) ----------
@@ -104,7 +301,7 @@ function rundungText(rundung) {
 // LV-Tabellenzeilen (Ansicht und Druck teilen dieselbe Darstellung).
 // interaktiv: jede Menge wird zum Knopf — Antippen öffnet ihr Ausmass
 // (bearbeiten und direkt in die Menge speichern). Der Druck bleibt schlicht.
-export function lvZeilenHtml(gliederung, { interaktiv = false } = {}) {
+export function lvZeilenHtml(gliederung, { interaktiv = false, gesperrt = false } = {}) {
   const zeilen = [];
   let kapitelSumme = 0;
   let kapitelNr = null;
@@ -131,7 +328,7 @@ export function lvZeilenHtml(gliederung, { interaktiv = false } = {}) {
       kapitelSumme += betrag;
       gesamt += betrag;
       const mengeHtml = interaktiv
-        ? mengeKnopfHtml(z, `data-ausmass-zeige="${index}"`)
+        ? mengeKnopfHtml(z, `data-ausmass-zeige="${index}"`, { gesperrt })
         : mengeText(zahl(z.menge));
       zeilen.push(`<tr class="lv-position"><td class="lv-nr">${esc(z.nr)}</td>
         <td>${esc(z.text)}</td>
@@ -179,7 +376,11 @@ function zusammenzugZeilen(offerte) {
 // Ausmass eine andere Menge will, setzt «mengeVonHand» — die Abweichung
 // wird dann überall sichtbar markiert. Alte Positionen ohne das Feld:
 // Menge ≠ Summe gilt ebenfalls als Abweichung.
+// Neu: mengeQuelle «rechenweg» (mengeFormel) bzw. «graben» (graben) —
+// dann stammt die Menge aus dem Rechenweg bzw. dem Grabenrechner.
 export function mengeHerkunft(position) {
+  if (position.mengeQuelle === 'rechenweg' && position.mengeFormel) return 'rechenweg';
+  if (position.mengeQuelle === 'graben' && position.graben) return 'graben';
   if (!position.ausmass?.length) return 'hand';
   const summe = ausmassSumme(position.ausmass);
   return Math.abs(zahl(position.menge) - summe) > 0.0005 ? 'abweichend' : 'ausmass';
@@ -188,35 +389,83 @@ export function mengeHerkunft(position) {
 const HERKUNFT_MARKE = {
   ausmass: '<span class="lv-menge-marke">aus Ausmass</span>',
   abweichend: '<span class="lv-menge-marke lv-menge-abweichend">≠ Ausmass</span>',
+  rechenweg: '<span class="lv-menge-marke">Rechenweg</span>',
+  graben: '<span class="lv-menge-marke">Grabenrechner</span>',
   hand: '',
+};
+
+const HERKUNFT_TEXT = {
+  ausmass: ' (aus Ausmass)', abweichend: ' (weicht vom Ausmass ab)',
+  rechenweg: ' (Rechenweg)', graben: ' (Grabenrechner)', hand: '',
 };
 
 // Knopf für die Menge (LV-Ansicht und Editor teilen ihn): Wert gross,
 // darunter klein die Herkunft — Antippen öffnet das Ausmass-Fenster.
-function mengeKnopfHtml(position, attribut) {
+function mengeKnopfHtml(position, attribut, { gesperrt = false } = {}) {
   const herkunft = mengeHerkunft(position);
   const leer = String(position.menge ?? '').trim() === '';
+  const formel = herkunft === 'rechenweg' ? ` · ${position.mengeFormel}` : '';
   return `<button type="button" class="lv-menge-knopf" ${attribut}
-      title="Menge und Ausmass bearbeiten"
-      aria-label="Menge ${leer ? 'erfassen' : mengeText(zahl(position.menge))}${herkunft === 'ausmass' ? ' (aus Ausmass)' : ''}${herkunft === 'abweichend' ? ' (weicht vom Ausmass ab)' : ''} — Ausmass öffnen">
+      title="${gesperrt ? 'Menge und Ausmass ansehen (gesperrt)' : 'Menge und Ausmass bearbeiten'}${esc(formel)}"
+      aria-label="Menge ${leer ? (gesperrt ? 'leer' : 'erfassen') : mengeText(zahl(position.menge))}${HERKUNFT_TEXT[herkunft]} — ${gesperrt ? 'ansehen' : 'Ausmass öffnen'}">
       <span class="lv-menge-wert">${leer ? 'Menge …' : mengeText(zahl(position.menge))}</span>
       ${HERKUNFT_MARKE[herkunft]}
     </button>`;
 }
 
-// ---------- Ausmass-Fenster ----------
-// Ein Fenster für beide Wege (LV-Ansicht und Editor): Ausmasszeilen
-// erfassen, Summe live, die Summe wird zur Menge — oder ohne Zeilen
-// die Menge von Hand. onSpeichern({ ausmass, menge, mengeVonHand }).
+// ---------- Mengen-Fenster ----------
+// Ein Fenster für alle Wege (LV-Ansicht, Editor, Sprung von der
+// Baustelle): oben die Wahl, wie die Menge entsteht —
+//   «Direkt / Rechenweg»: Zahl oder Rechnung tippen,
+//   «Ausmass-Zeilen»: Anzahl × Länge × Breite × Höhe, Summe = Menge
+//     (mit «Menge von Hand übersteuern»),
+//   «Grabenrechner»: Grabenart, Länge, Profil → Aushub/Sand/Auffüllung.
+// Gespeichert wird der gewählte Weg; Ausmasszeilen und Grabenangaben
+// bleiben als Kalkulationsgrundlage an der Position erhalten.
+// onSpeichern(felder) mit { menge, ausmass, mengeVonHand, mengeQuelle,
+// mengeFormel, graben } — fehlende Felder werden an der Position entfernt.
+// nurLesen: gesperrte Offerte — alles sichtbar, nichts änderbar.
 // baustelle: optionales Promise auf { menge, einheit, onOeffnen } —
 // zeigt die auf der Baustelle ausgemessene Menge mit Sprung ins Ausmass.
+const MENGEN_FELDER = ['ausmass', 'menge', 'mengeVonHand', 'mengeQuelle', 'mengeFormel', 'graben'];
+
+export function wendeMengeAn(position, felder) {
+  const neu = { ...position };
+  for (const feld of MENGEN_FELDER) {
+    const wert = felder[feld];
+    if (wert === undefined || wert === null || wert === false || wert === '') {
+      if (feld === 'menge') neu.menge = '';
+      else if (feld === 'ausmass') neu.ausmass = [];
+      else delete neu[feld];
+    } else {
+      neu[feld] = wert;
+    }
+  }
+  return neu;
+}
+
+function startWeg(position) {
+  const herkunft = mengeHerkunft(position);
+  if (herkunft === 'graben') return 'graben';
+  if (herkunft === 'ausmass' || herkunft === 'abweichend') return 'zeilen';
+  return 'direkt';
+}
+
+const WEGE = [
+  ['direkt', 'Direkt / Rechenweg'],
+  ['zeilen', 'Ausmass-Zeilen'],
+  ['graben', 'Grabenrechner'],
+];
+
 function oeffneAusmassFenster({
-  titel, einheit, ep, zeilen, menge, mengeVonHand, speichernText = 'Speichern',
-  baustelle = null, onSpeichern,
+  titel, untertitel = '', position, speichernText = 'Speichern',
+  baustelle = null, nurLesen = false, startMitWeg = null, onSpeichern,
 }) {
+  const { einheit, ep, ausmass: zeilen, menge, mengeVonHand } = position;
   const dialog = document.createElement('div');
   dialog.className = 'vollbild dialog-hintergrund';
   const eh = einheit ? ` ${einheit}` : '';
+  const ehKlammer = einheit ? ` [${esc(einheit)}]` : '';
   const zeileHtml = (z = {}) => `
     <div class="ausmass-editor-zeile" data-rolle="az">
       <input data-az="bez" placeholder="Bezeichnung" autocomplete="off"
@@ -230,36 +479,109 @@ function oeffneAusmassFenster({
       <input data-az="hoehe" type="number" inputmode="decimal" step="any"
         placeholder="Höhe" aria-label="Höhe" value="${esc(z.hoehe ?? '')}">
       <span class="ausmass-wert" data-rolle="az-wert"></span>
-      <button type="button" class="knopf zeile-weg"
-        data-aktion="az-weg" aria-label="Zeile entfernen">×</button>
+      ${nurLesen ? '<span></span>' : `<button type="button" class="knopf zeile-weg"
+        data-aktion="az-weg" aria-label="Zeile entfernen">×</button>`}
     </div>`;
   const startZeilen = zeilen?.length ? zeilen : [{}];
   const startSumme = ausmassSumme(zeilen);
   const startVonHand = Boolean(zeilen?.length)
     && (Boolean(mengeVonHand) || Math.abs(zahl(menge) - startSumme) > 0.0005);
+  const startDirekt = mengeHerkunft(position) === 'rechenweg'
+    ? position.mengeFormel : (menge ?? '');
+  let graben = position.graben
+    ? JSON.parse(JSON.stringify(position.graben))
+    : grabenVorlage('wasser', groesseVorschlag(position.text || titel));
+  let grabenBenutzt = Boolean(position.graben);
+  let weg = startMitWeg || startWeg(position);
+
+  const teilHtml = (teil, index) => {
+    const rohre = (teil.pipes || []).map((r) => `${ROHR_LABELS[r.type] || r.type} d${r.d}`);
+    const feldHtml = (name, label, wert) => `<label>${label}<input data-gt="${name}"
+      type="number" inputmode="decimal" step="any" value="${esc(wert ?? '')}"></label>`;
+    return `
+      <div class="graben-teil-kurz" data-rolle="g-teil" data-index="${index}">
+        <p class="gruppen-label">${esc(teil.name)}${rohre.length ? ` · ${esc(rohre.join(', '))}` : ''}</p>
+        <div class="feld-reihe">
+          <label>Profil<select data-gt="profil">
+            <option value="u"${teil.profil !== 'v' ? ' selected' : ''}>U-Graben</option>
+            <option value="v"${teil.profil === 'v' ? ' selected' : ''}>V-Graben</option>
+          </select></label>
+          ${feldHtml('B', 'Breite Sohle [m]', teil.B)}
+          <span data-rolle="g-oben"${teil.profil === 'v' ? '' : ' hidden'}>${feldHtml('BOben', 'Breite oben [m]', teil.BOben ?? teil.B)}</span>
+        </div>
+        <div class="feld-reihe">
+          ${feldHtml('H', 'Tiefe [m]', teil.H)}
+          ${feldHtml('hBett', 'Bettung [m]', teil.hBett)}
+          ${feldHtml('hUeber', 'Überdeckung [m]', teil.hUeber)}
+        </div>
+        <p class="hinweis graben-teil-ergebnis" data-rolle="g-teil-erg"></p>
+      </div>`;
+  };
+
   dialog.innerHTML = `
     <form class="karte formular dialog ausmass-dialog" data-rolle="ausmass-fenster"
-      aria-label="Ausmass ${esc(titel)}">
-      <h3>Ausmass · ${esc(titel)}</h3>
-      <p class="hinweis">Anzahl × Länge × Breite × Höhe — leere Felder zählen
-        nicht mit. Die Summe wird zur Menge${einheit ? ` [${esc(einheit)}]` : ''}.</p>
-      <div class="ausmass-editor-kopf" aria-hidden="true">
-        <span class="az-kopf-bez">Bezeichnung</span><span>Anz.</span><span>Länge</span>
-        <span>Breite</span><span>Höhe</span><span>=</span><span></span>
+      aria-label="Menge ${esc(titel)}">
+      <h3>Menge · ${esc(titel)}</h3>
+      ${untertitel ? `<p class="hinweis">${esc(untertitel)}</p>` : ''}
+      ${nurLesen ? `<p class="sperre-hinweis" role="note">🔒 Offerte angenommen · gesperrt —
+        nur Ansicht. Für Mengen eine Kopie der Offerte erstellen.</p>` : ''}
+      <div class="menge-wege" role="tablist" aria-label="Menge ermitteln">
+        ${WEGE.map(([schluessel, label]) => `<button type="button" class="chip-knopf"
+          role="tab" data-weg="${schluessel}">${label}</button>`).join('')}
       </div>
-      <div data-rolle="az-liste">${startZeilen.map(zeileHtml).join('')}</div>
-      <button type="button" class="knopf zeile-hinzu" data-aktion="az-neu">+ Ausmasszeile</button>
+      <fieldset class="menge-feldset"${nurLesen ? ' disabled' : ''}>
+        <legend class="visually-hidden">Menge erfassen</legend>
+        <div data-panel="direkt" role="tabpanel">
+          <label>Menge oder Rechenweg${ehKlammer}
+            <input data-rolle="direkt-eingabe" inputmode="text" autocomplete="off"
+              enterkeyhint="done" spellcheck="false" class="rechenweg-feld"
+              placeholder="z. B. 12.5*3 + 4.2*2" value="${esc(startDirekt)}"></label>
+          <p class="hinweis">Zahl oder Rechnung mit + − * / und Klammern,
+            Dezimal mit Punkt oder Komma. Der Rechenweg bleibt gespeichert.</p>
+          <p class="rechenweg-fehler" data-rolle="direkt-fehler" role="alert" hidden></p>
+        </div>
+
+        <div data-panel="zeilen" role="tabpanel">
+          <p class="hinweis">Anzahl × Länge × Breite × Höhe — leere Felder zählen
+            nicht mit. Die Summe wird zur Menge${ehKlammer}.</p>
+          <div class="ausmass-editor-kopf" aria-hidden="true">
+            <span class="az-kopf-bez">Bezeichnung</span><span>Anz.</span><span>Länge</span>
+            <span>Breite</span><span>Höhe</span><span>=</span><span></span>
+          </div>
+          <div data-rolle="az-liste">${startZeilen.map(zeileHtml).join('')}</div>
+          ${nurLesen ? '' : '<button type="button" class="knopf zeile-hinzu" data-aktion="az-neu">+ Ausmasszeile</button>'}
+          <div class="ausmass-menge">
+            <div class="ausmass-ergebnis summe" data-rolle="summe-zeile"><span>Summe Ausmass</span>
+              <span data-rolle="az-summe"></span></div>
+            <label class="ausmass-hand" data-rolle="hand-schalter">
+              <input type="checkbox" data-rolle="von-hand"${startVonHand ? ' checked' : ''}>
+              Menge von Hand übersteuern</label>
+            <label data-rolle="menge-feld">Menge${ehKlammer}
+              <input data-rolle="menge-eingabe" type="number" inputmode="decimal" step="any"
+                value="${esc(menge ?? '')}" placeholder="0"></label>
+            <p class="ausmass-abweichung" data-rolle="abweichung" role="status" hidden></p>
+          </div>
+        </div>
+
+        <div data-panel="graben" role="tabpanel">
+          <div class="feld-reihe">
+            <label>Grabenart<select data-g="grabenart">
+              ${Object.entries(GRABENARTEN).map(([schluessel, art]) => `<option value="${schluessel}"
+                ${schluessel === graben.grabenart ? ' selected' : ''}>${esc(art.name)}</option>`).join('')}
+            </select></label>
+            <label>Länge [m]<input data-g="L" type="number" inputmode="decimal" step="any"
+              value="${esc(graben.L ?? '')}" placeholder="0"></label>
+          </div>
+          <label>Menge aus<select data-g="groesse">
+            ${Object.entries(GRABEN_GROESSEN).map(([schluessel, label]) => `<option value="${schluessel}"
+              ${schluessel === graben.groesse ? ' selected' : ''}>${label}</option>`).join('')}
+          </select></label>
+          <div data-rolle="g-teile">${graben.teile.map(teilHtml).join('')}</div>
+          <div data-rolle="g-warnungen"></div>
+        </div>
+      </fieldset>
 
       <div class="ausmass-menge">
-        <div class="ausmass-ergebnis summe" data-rolle="summe-zeile"><span>Summe Ausmass</span>
-          <span data-rolle="az-summe"></span></div>
-        <label class="ausmass-hand" data-rolle="hand-schalter">
-          <input type="checkbox" data-rolle="von-hand"${startVonHand ? ' checked' : ''}>
-          Menge von Hand übersteuern</label>
-        <label data-rolle="menge-feld">Menge${einheit ? ` [${esc(einheit)}]` : ''}
-          <input data-rolle="menge-eingabe" type="number" inputmode="decimal" step="any"
-            value="${esc(menge ?? '')}" placeholder="0"></label>
-        <p class="ausmass-abweichung" data-rolle="abweichung" role="status" hidden></p>
         <div class="ausmass-ergebnis"><span>Menge</span><strong data-rolle="menge-ergebnis"></strong></div>
         <div class="ausmass-ergebnis"><span>Betrag (× EP ${chf(zahl(ep))})</span>
           <strong data-rolle="betrag"></strong></div>
@@ -267,8 +589,8 @@ function oeffneAusmassFenster({
       <div data-rolle="baustelle-link"></div>
 
       <div class="knopfzeile">
-        <button type="submit" class="knopf knopf-primaer">${esc(speichernText)}</button>
-        <button type="button" class="knopf" data-aktion="zu">Abbrechen</button>
+        ${nurLesen ? '' : `<button type="submit" class="knopf knopf-primaer">${esc(speichernText)}</button>`}
+        <button type="button" class="knopf" data-aktion="zu">${nurLesen ? 'Schliessen' : 'Abbrechen'}</button>
       </div>
     </form>`;
   document.body.append(dialog);
@@ -277,6 +599,7 @@ function oeffneAusmassFenster({
   const feld = (rolle) => dialog.querySelector(`[data-rolle="${rolle}"]`);
   const vonHand = feld('von-hand');
   const mengeEingabe = feld('menge-eingabe');
+  const direktEingabe = feld('direkt-eingabe');
   let geaendert = false;
 
   function sammle() {
@@ -287,18 +610,39 @@ function oeffneAusmassFenster({
     }).filter((z) => z.bez || z.anzahl || z.laenge || z.breite || z.hoehe);
   }
 
+  function sammleGraben() {
+    const g = (name) => dialog.querySelector(`[data-g="${name}"]`).value;
+    graben.L = g('L').trim();
+    graben.groesse = g('groesse');
+    dialog.querySelectorAll('[data-rolle="g-teil"]').forEach((block) => {
+      const teil = graben.teile[Number(block.dataset.index)];
+      const wert = (name) => block.querySelector(`[data-gt="${name}"]`).value;
+      teil.profil = wert('profil');
+      for (const name of ['B', 'H', 'hBett', 'hUeber']) teil[name] = zahl(wert(name));
+      teil.BOben = teil.profil === 'v' ? zahl(wert('BOben')) : teil.B;
+    });
+    return graben;
+  }
+
   // Ergebnis des Fensters: was beim Speichern in die Position geht.
   function ergebnis() {
     const ausmass = sammle();
+    const grundlage = { ausmass, graben: grabenBenutzt ? sammleGraben() : null };
+    if (weg === 'direkt') {
+      return { ...grundlage, ...direktErgebnis(direktEingabe.value, ausmass) };
+    }
+    if (weg === 'graben') {
+      const g = sammleGraben();
+      return { ...grundlage, graben: g, menge: String(grabenMenge(g)), mengeQuelle: 'graben' };
+    }
     const summe = ausmassSumme(ausmass);
     const mitZeilen = ausmass.length > 0;
     const hand = !mitZeilen || vonHand.checked;
-    const wert = hand ? mengeEingabe.value.trim() : String(summe);
-    return { ausmass, summe, mitZeilen, hand, menge: wert,
+    return { ...grundlage, menge: hand ? mengeEingabe.value.trim() : String(summe),
       mengeVonHand: mitZeilen && vonHand.checked };
   }
 
-  function rechne() {
+  function rechneZeilen() {
     liste.querySelectorAll('[data-rolle="az"]').forEach((block) => {
       const wert = (name) => block.querySelector(`[data-az="${name}"]`).value;
       const einzel = ausmassZeileWert({ anzahl: wert('anzahl'), laenge: wert('laenge'),
@@ -306,20 +650,64 @@ function oeffneAusmassFenster({
       block.querySelector('[data-rolle="az-wert"]').textContent =
         einzel ? mengeText(Math.round(einzel * 1000) / 1000) : '—';
     });
-    const e = ergebnis();
-    feld('az-summe').textContent = `${mengeText(e.summe)}${eh}`;
-    feld('summe-zeile').hidden = !e.mitZeilen;
-    feld('hand-schalter').hidden = !e.mitZeilen;
-    feld('menge-feld').hidden = !e.hand;
+    const ausmass = sammle();
+    const summe = ausmassSumme(ausmass);
+    const mitZeilen = ausmass.length > 0;
+    const hand = !mitZeilen || vonHand.checked;
+    feld('az-summe').textContent = `${mengeText(summe)}${eh}`;
+    feld('summe-zeile').hidden = !mitZeilen;
+    feld('hand-schalter').hidden = !mitZeilen;
+    feld('menge-feld').hidden = !hand;
     const abweichung = feld('abweichung');
-    const weichtAb = e.mitZeilen && e.hand && Math.abs(zahl(e.menge) - e.summe) > 0.0005;
+    const weichtAb = mitZeilen && hand && Math.abs(zahl(mengeEingabe.value) - summe) > 0.0005;
     abweichung.hidden = !weichtAb;
     abweichung.textContent = weichtAb
-      ? `⚠ Menge weicht vom Ausmass ab (Summe ${mengeText(e.summe)}${eh}) — in der Offerte als «≠ Ausmass» markiert.`
+      ? `⚠ Menge weicht vom Ausmass ab (Summe ${mengeText(summe)}${eh}) — in der Offerte als «≠ Ausmass» markiert.`
       : '';
-    feld('menge-ergebnis').textContent = `${mengeText(zahl(e.menge))}${eh}`
-      + (e.mitZeilen && !e.hand ? ' · aus Ausmass' : '');
-    feld('betrag').textContent = chf(zahl(e.menge) * zahl(ep));
+  }
+
+  function rechneGraben() {
+    const g = sammleGraben();
+    const warnungen = [];
+    dialog.querySelectorAll('[data-rolle="g-teil"]').forEach((block) => {
+      const teil = g.teile[Number(block.dataset.index)];
+      const erg = berechneTeil(zahl(g.L), teil);
+      block.querySelector('[data-rolle="g-oben"]').hidden = teil.profil !== 'v';
+      block.querySelector('[data-rolle="g-teil-erg"]').textContent =
+        `Aushub ${mengeText(erg.aushub)} m³ · Sand ${mengeText(erg.sandTotal)} m³ · `
+        + `Auffüllung ${mengeText(erg.auffuellung)} m³`;
+      warnungen.push(...erg.warnings);
+    });
+    feld('g-warnungen').innerHTML = warnungen
+      .map((w) => `<p class="hinweis wiederhol-warnung">⚠ ${esc(w)}</p>`).join('');
+  }
+
+  function rechne() {
+    rechneZeilen();
+    if (weg === 'graben') rechneGraben();
+    dialog.querySelectorAll('[data-weg]').forEach((knopf) => {
+      const aktiv = knopf.dataset.weg === weg;
+      knopf.classList.toggle('aktiv', aktiv);
+      knopf.setAttribute('aria-selected', String(aktiv));
+    });
+    dialog.querySelectorAll('[data-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.panel !== weg;
+    });
+    const e = ergebnis();
+    const fehlerFeld = feld('direkt-fehler');
+    fehlerFeld.hidden = !(weg === 'direkt' && e.fehler);
+    fehlerFeld.textContent = weg === 'direkt' && e.fehler ? `⚠ ${e.fehler}` : '';
+    direktEingabe.setAttribute('aria-invalid', String(Boolean(e.fehler)));
+    const zusatz = {
+      direkt: e.mengeQuelle === 'rechenweg' ? ' · Rechenweg' : '',
+      zeilen: sammle().length && !vonHand.checked ? ' · aus Ausmass' : '',
+      graben: ` · ${(GRABEN_GROESSEN[graben.groesse] || '').split(' (')[0]}`,
+    }[weg];
+    feld('menge-ergebnis').textContent = e.fehler
+      ? '—' : `${mengeText(zahl(e.menge))}${eh}${zusatz}`;
+    feld('betrag').textContent = e.fehler ? '—' : chf(zahl(e.menge) * zahl(ep));
+    const knopf = formular.querySelector('[type="submit"]');
+    if (knopf) knopf.disabled = Boolean(e.fehler);
   }
 
   const schliesse = () => {
@@ -327,7 +715,7 @@ function oeffneAusmassFenster({
     dialog.remove();
   };
   const abbrechen = () => {
-    if (geaendert && !confirm('Änderungen am Ausmass verwerfen?')) return;
+    if (!nurLesen && geaendert && !confirm('Änderungen an der Menge verwerfen?')) return;
     schliesse();
   };
   function taste(ereignis) {
@@ -339,8 +727,28 @@ function oeffneAusmassFenster({
     // Übersteuern beginnt bei der aktuellen Summe, nicht bei einem alten Wert.
     if (vonHand.checked && !startVonHand) mengeEingabe.value = String(ausmassSumme(sammle()));
   });
-  formular.addEventListener('input', () => { geaendert = true; rechne(); });
+  formular.addEventListener('change', (wechsel) => {
+    if (wechsel.target.dataset.g === 'grabenart') {
+      // Neue Grabenart: Teile-Vorlage frisch (Länge und Grösse bleiben).
+      const { L, groesse } = sammleGraben();
+      graben = { ...grabenVorlage(wechsel.target.value, groesse), L };
+      feld('g-teile').innerHTML = graben.teile.map(teilHtml).join('');
+      rechne();
+    }
+  });
+  formular.addEventListener('input', (eingabe) => {
+    geaendert = true;
+    if (eingabe.target.closest('[data-panel="graben"]')) grabenBenutzt = true;
+    rechne();
+  });
   formular.addEventListener('click', (klick) => {
+    const wegKnopf = klick.target.closest('[data-weg]');
+    if (wegKnopf) {
+      weg = wegKnopf.dataset.weg;
+      rechne();
+      if (!nurLesen && weg === 'direkt') direktEingabe.select();
+      return;
+    }
     const knopf = klick.target.closest('[data-aktion]');
     if (!knopf) return;
     if (knopf.dataset.aktion === 'zu') {
@@ -362,11 +770,17 @@ function oeffneAusmassFenster({
   });
   formular.addEventListener('submit', async (abschicken) => {
     abschicken.preventDefault();
+    if (nurLesen) return;
     const e = ergebnis();
+    if (e.fehler) {
+      direktEingabe.focus();
+      return;
+    }
     const knopf = formular.querySelector('[type="submit"]');
     knopf.disabled = true;
     try {
-      await onSpeichern?.({ ausmass: e.ausmass, menge: e.menge, mengeVonHand: e.mengeVonHand });
+      const { fehler, ...felder } = e;
+      await onSpeichern?.(felder);
       schliesse();
     } catch (fehler) {
       knopf.disabled = false;
@@ -374,6 +788,7 @@ function oeffneAusmassFenster({
     }
   });
   rechne();
+  if (!nurLesen && weg === 'direkt') direktEingabe.focus();
 
   // Verknüpfte Baustelle: dort ausgemessene Menge, Sprung ins Ausmass.
   baustelle?.then((treffer) => {
@@ -383,11 +798,12 @@ function oeffneAusmassFenster({
       <div class="ausmass-baustelle">
         <span>Ausgemessene Menge auf der Baustelle${treffer.ktr ? ` ${esc(treffer.ktr)}` : ''}:
           <strong>${mengeText(zahl(treffer.menge))}${esc(treffer.einheit ? ` ${treffer.einheit}` : '')}</strong></span>
-        <button type="button" class="knopf" data-aktion="zur-baustelle">zum Baustellen-Ausmass →</button>
+        ${treffer.onOeffnen ? '<button type="button" class="knopf" data-aktion="zur-baustelle">zum Baustellen-Ausmass →</button>' : ''}
       </div>`;
     ziel.querySelector('[data-aktion="zur-baustelle"]')
-      .addEventListener('click', () => treffer.onOeffnen());
+      ?.addEventListener('click', () => treffer.onOeffnen());
   }).catch(() => {});
+  return dialog;
 }
 
 // ---------- Verknüpfung Offerte → Baustelle ----------
@@ -395,27 +811,31 @@ function oeffneAusmassFenster({
 // Position der Baustelle, die aus dieser Offert-Position entstanden ist.
 // Neue Baustellen tragen offertId/offertPosNr, die Offerte zielBaustelleId;
 // ältere Verknüpfungen (nur «baustelleErstellt») finden die Baustelle über
-// das Objekt und die Position über die NPK-Nummer.
-async function baustellenPosition(offerte, position) {
+// das Objekt und die Position über die NPK-Nummer. Eine Kopie findet die
+// Baustelle ihres Originals (offertId zeigt auf das Original).
+async function baustellenPosition(offerte, position, alleOfferten = []) {
   if (!offerte?.zielBaustelleId && !offerte?.baustelleErstellt) return null;
   const nr = String(position.nr ?? '').trim();
   if (!nr) return null;
+  const ids = abstammung(offerte, [offerte, ...alleOfferten]);
+  const nummern = alleOfferten.filter((o) => ids.has(o._id)).map((o) => o.nummer)
+    .concat(offerte.nummer);
   const baustellen = await abfrage({ typ: 'baustelle' });
   let kandidaten;
   if (offerte.zielBaustelleId) {
     kandidaten = await abfrage({ typ: 'ausmass', baustelleId: offerte.zielBaustelleId });
   } else {
     const alle = await abfrage({ typ: 'ausmass' });
-    kandidaten = alle.filter((d) => d.offertId === offerte._id);
+    kandidaten = alle.filter((d) => ids.has(d.offertId));
     if (!kandidaten.length) {
       const passend = baustellen.filter((b) => b.name === offerte.objekt);
-      const baustelle = passend.find((b) => String(b.werkvertrag || '')
-        .includes(`Offerte ${offerte.nummer}`)) || passend[0];
+      const baustelle = passend.find((b) => nummern.some((n) => String(b.werkvertrag || '')
+        .includes(`Offerte ${n}`))) || passend[0];
       if (!baustelle) return null;
       kandidaten = alle.filter((d) => d.baustelleId === baustelle.baustelleId);
     }
   }
-  const treffer = kandidaten.find((d) => d.offertId === offerte._id && d.offertPosNr === nr)
+  const treffer = kandidaten.find((d) => ids.has(d.offertId) && d.offertPosNr === nr)
     || kandidaten.find((d) => String(d.pos ?? '').trim() === nr);
   if (!treffer) return null;
   const baustelle = baustellen.find((b) => b.baustelleId === treffer.baustelleId);
@@ -434,7 +854,10 @@ export default {
   name: 'Offerten',
   dokumentTypen: ['offerte', 'katalogposition'],
 
-  render(container) {
+  // optionen.ziel (von der Shell, Sprung aus dem Baustellen-Ausmass):
+  // { offertId, posNr } — öffnet die Arbeitsversion dieser Offerte mit
+  // dem Mengen-Fenster der Position.
+  render(container, _baustelle, optionen = {}) {
     let inBearbeitung = null;
 
     container.innerHTML = `
@@ -442,7 +865,8 @@ export default {
         <h2>Offerten</h2>
         <p class="hinweis">Baustellenunabhängig — eine angenommene Offerte wird
           per Klick zur neuen Baustelle; die Positionen gehen als Kopie ins
-          Ausmass, die Offerte selbst bleibt unverändert.</p>
+          Ausmass. Angenommene Offerten sind gesperrt (Vertragsstand) —
+          für Mengen eine Kopie erstellen und dort weiterarbeiten.</p>
 
         <div class="knopfzeile" data-rolle="neu-zeile">
           <button type="button" class="knopf knopf-primaer" data-aktion="neu">Neue Offerte</button>
@@ -508,6 +932,32 @@ export default {
     });
 
     // ---------- Editor: Gliederungszeilen ----------
+    // Position: sichtbare Felder Nr./Einheit/Text/EP und das Mengenfeld
+    // (Zahl oder Rechenweg direkt tippen). Die übrigen Mengenangaben
+    // (Ausmasszeilen, Grabenrechner, Quelle) liegen als JSON am Block.
+    function mengenStand(block) {
+      return JSON.parse(block.dataset.menge || '{}');
+    }
+
+    function mengenStatusHtml(stand, fehler = '') {
+      if (fehler) return `<span class="rechenweg-fehler">⚠ ${esc(fehler)}</span>`;
+      const eh = stand.einheit ? ` ${esc(stand.einheit)}` : '';
+      const herkunft = mengeHerkunft(stand);
+      if (herkunft === 'rechenweg') return `= ${mengeText(zahl(stand.menge))}${eh} · Rechenweg`;
+      if (herkunft === 'graben') {
+        return `Grabenrechner · ${esc((GRABEN_GROESSEN[stand.graben.groesse] || '').split(' (')[0])}`;
+      }
+      if (herkunft === 'ausmass') return `aus Ausmass (${stand.ausmass.length} Zeilen)`;
+      if (herkunft === 'abweichend') {
+        return `<span class="lv-menge-abweichend">≠ Ausmass (Summe ${mengeText(ausmassSumme(stand.ausmass))}${eh})</span>`;
+      }
+      return '';
+    }
+
+    function mengenEingabeWert(stand) {
+      return mengeHerkunft(stand) === 'rechenweg' ? stand.mengeFormel : (stand.menge ?? '');
+    }
+
     function gliederungsBlock(z = { art: 'position' }) {
       if (z.art === 'kapitel' || z.art === 'unternummer') {
         const istKapitel = z.art === 'kapitel';
@@ -528,10 +978,13 @@ export default {
             </div>
           </div>`;
       }
+      const stand = {};
+      for (const feld of MENGEN_FELDER) if (z[feld] !== undefined) stand[feld] = z[feld];
+      stand.ausmass = z.ausmass || [];
+      stand.menge = z.menge ?? '';
       return `
         <div class="tab-block lv-block" data-rolle="lv-zeile" data-art="position"
-          data-ausmass="${esc(JSON.stringify(z.ausmass || []))}"
-          data-menge-von-hand="${z.mengeVonHand ? '1' : ''}">
+          data-menge="${esc(JSON.stringify(stand))}">
           <div class="tab-block-kopf">
             <strong data-rolle="tab-nr"></strong>
             <button type="button" class="knopf zeile-weg" data-aktion="zeile-weg"
@@ -546,9 +999,15 @@ export default {
           <label>Text<input data-o="text" value="${esc(z.text ?? '')}" autocomplete="off"></label>
           <div class="feld-reihe">
             <div class="lv-menge-feld">
-              <span class="lv-menge-label">Menge · Ausmass</span>
-              <input type="hidden" data-o="menge" value="${esc(z.menge ?? '')}">
-              ${mengeKnopfHtml(z, 'data-aktion="ausmass"')}
+              <span class="lv-menge-label">Menge (Zahl oder Rechenweg)</span>
+              <div class="menge-eingabe-zeile">
+                <input data-o="mengeEingabe" class="rechenweg-feld" inputmode="text"
+                  autocomplete="off" spellcheck="false" aria-label="Menge oder Rechenweg"
+                  placeholder="z. B. 12.5*3" value="${esc(mengenEingabeWert({ ...stand, einheit: z.einheit }))}">
+                <button type="button" class="knopf menge-rechner-knopf" data-aktion="ausmass"
+                  aria-label="Menge ermitteln: Ausmass-Zeilen oder Grabenrechner">📐 Ausmass</button>
+              </div>
+              <span class="menge-status" data-rolle="menge-status" role="status">${mengenStatusHtml({ ...stand, einheit: z.einheit })}</span>
             </div>
             <label>EP [CHF]<input data-o="ep" type="number" inputmode="decimal" step="any"
               value="${esc(z.ep ?? '')}"></label>
@@ -556,9 +1015,32 @@ export default {
         </div>`;
     }
 
+    // Mengenfeld im Editor getippt: Zahl oder Rechenweg in den Block-Stand.
+    function aktualisiereMengenfeld(block) {
+      const stand = mengenStand(block);
+      const eingabe = block.querySelector('[data-o="mengeEingabe"]');
+      const einheit = block.querySelector('[data-o="einheit"]').value.trim();
+      const e = direktErgebnis(eingabe.value, stand.ausmass);
+      const status = block.querySelector('[data-rolle="menge-status"]');
+      block.dataset.mengeFehler = e.fehler || '';
+      eingabe.setAttribute('aria-invalid', String(Boolean(e.fehler)));
+      if (e.fehler) {
+        status.innerHTML = mengenStatusHtml(stand, e.fehler);
+        return;
+      }
+      // Tippen löst Rechenweg/Grabenrechner als Quelle ab; Ausmasszeilen
+      // und Grabenangaben bleiben als Grundlage stehen.
+      const neu = wendeMengeAn(stand, {
+        ausmass: stand.ausmass, graben: stand.graben, ...e,
+      });
+      block.dataset.menge = JSON.stringify(neu);
+      status.innerHTML = mengenStatusHtml({ ...neu, einheit });
+    }
+
     function sammleOfferte(formular) {
       return {
         nummer: formular.elements.nummer.value.trim(),
+        titel: formular.elements.titel.value.trim(),
         kunde: formular.elements.kunde.value.trim(),
         objekt: formular.elements.objekt.value.trim(),
         status: formular.elements.status.value,
@@ -569,12 +1051,10 @@ export default {
           if (block.dataset.art !== 'position') {
             return { art: block.dataset.art, nr: wert('nr'), titel: wert('titel') };
           }
-          return {
+          return wendeMengeAn({
             art: 'position', nr: wert('nr'), text: wert('text'),
-            einheit: wert('einheit'), menge: wert('menge'), ep: wert('ep'),
-            ausmass: JSON.parse(block.dataset.ausmass || '[]'),
-            ...(block.dataset.mengeVonHand ? { mengeVonHand: true } : {}),
-          };
+            einheit: wert('einheit'), ep: wert('ep'),
+          }, mengenStand(block));
         }).filter((z) => z.nr || z.titel || z.text
           || (z.art === 'position' && (zahl(z.menge) || zahl(z.ep)))),
       };
@@ -611,22 +1091,33 @@ export default {
       }
     }
 
-    async function oeffneFormular(offerte) {
+    async function oeffneFormular(offerte, { hinweis = '' } = {}) {
+      if (istGesperrt(offerte)) {
+        alert(`Offerte ${offerte.nummer} ist angenommen und gesperrt — bitte eine Kopie erstellen.`);
+        return;
+      }
       inBearbeitung = offerte || null;
       neuZeile.hidden = true;
       const offerten = await ladeOfferten();
       const jahr = new Date().getFullYear();
       const nummer = offerte?.nummer || naechsteNummer(offerten.map((o) => o.nummer), `O-${jahr}-`);
       const gliederung = offerte ? gliederungVon(offerte) : [{ art: 'position' }];
+      const original = offerte?.kopieVon ? offerten.find((o) => o._id === offerte.kopieVon) : null;
       formularBereich.innerHTML = `
         <form class="karte formular" data-rolle="offert-formular">
           <h3>${offerte ? `Offerte ${esc(offerte.nummer)} bearbeiten` : 'Neue Offerte'}</h3>
+          ${hinweis ? `<p class="hinweis kopie-hinweis" role="status">${esc(hinweis)}</p>` : ''}
+          ${offerte?.kopieVon ? `<p class="hinweis">Kopie von Offerte ${esc(original?.nummer || '(gelöscht)')}${
+            original && istGesperrt(original) ? ' (angenommen · gesperrt)' : ''}</p>` : ''}
           <div class="feld-reihe">
             <label>Nummer *<input name="nummer" required value="${esc(nummer)}" autocomplete="off"></label>
             <label>Status<select name="status">
               ${OFFERT_STATUS.map((s) => `<option${(offerte?.status || 'Entwurf') === s ? ' selected' : ''}>${s}</option>`).join('')}
             </select></label>
           </div>
+          <label>Bezeichnung (Name der Offerte, z. B. für die Ausmass-Version)
+            <input name="titel" autocomplete="off" value="${esc(offerte?.titel ?? '')}"
+              placeholder="leer = Objekt"></label>
           <label>Kunde / Bauherr *<input name="kunde" required autocomplete="off"
             value="${esc(offerte?.kunde ?? '')}"></label>
           <label>Objekt / Baustelle *<input name="objekt" required autocomplete="off"
@@ -670,9 +1161,15 @@ export default {
       neuZeile.hidden = false;
     }
 
-    formularBereich.addEventListener('input', aktualisiereZusammenzug);
+    formularBereich.addEventListener('input', (eingabe) => {
+      const block = eingabe.target.closest('[data-rolle="lv-zeile"][data-art="position"]');
+      if (block && eingabe.target.matches('[data-o="mengeEingabe"], [data-o="einheit"]')) {
+        aktualisiereMengenfeld(block);
+      }
+      aktualisiereZusammenzug();
+    });
 
-    formularBereich.addEventListener('click', (klick) => {
+    formularBereich.addEventListener('click', async (klick) => {
       const knopf = klick.target.closest('[data-aktion]');
       if (!knopf) return;
       const formular = formularBereich.querySelector('form');
@@ -703,29 +1200,42 @@ export default {
         knopf.closest('[data-rolle="lv-zeile"]').remove();
         aktualisiereZusammenzug();
       } else if (aktion === 'ausmass') {
-        // Menge und Ausmass dieser Position — dasselbe Fenster wie in der
+        // Menge dieser Position ermitteln — dasselbe Fenster wie in der
         // LV-Ansicht; «Übernehmen» schreibt ins Formular (gespeichert wird
         // mit «Offerte speichern»).
         const block = knopf.closest('[data-rolle="lv-zeile"]');
         const wert = (feld) => block.querySelector(`[data-o="${feld}"]`)?.value.trim() ?? '';
-        oeffneAusmassFenster({
+        const stand = mengenStand(block);
+        if (block.dataset.mengeFehler) {
+          // Ungültiger Rechenweg im Feld: im Fenster weiterbearbeiten.
+          stand.mengeQuelle = 'rechenweg';
+          stand.mengeFormel = wert('mengeEingabe');
+        }
+        const position = { ...stand, nr: wert('nr'), text: wert('text'),
+          einheit: wert('einheit'), ep: wert('ep') };
+        const fenster = oeffneAusmassFenster({
           titel: [wert('nr'), wert('text')].filter(Boolean).join(' · ') || 'Position',
-          einheit: wert('einheit'),
-          ep: wert('ep'),
-          zeilen: JSON.parse(block.dataset.ausmass || '[]'),
-          menge: wert('menge'),
-          mengeVonHand: Boolean(block.dataset.mengeVonHand),
+          position,
+          startMitWeg: startWeg(position) === 'direkt' ? 'zeilen' : null,
           speichernText: 'Übernehmen',
-          baustelle: inBearbeitung ? baustellenPosition(inBearbeitung, { nr: wert('nr') }) : null,
-          onSpeichern: ({ ausmass, menge, mengeVonHand }) => {
-            block.dataset.ausmass = JSON.stringify(ausmass);
-            block.dataset.mengeVonHand = mengeVonHand ? '1' : '';
-            block.querySelector('[data-o="menge"]').value = menge;
-            knopf.outerHTML = mengeKnopfHtml({ ausmass, menge, mengeVonHand }, 'data-aktion="ausmass"');
+          baustelle: inBearbeitung
+            ? baustellenPosition(inBearbeitung, { nr: wert('nr') }, await ladeOfferten()) : null,
+          onSpeichern: (felder) => {
+            const neu = wendeMengeAn(stand, felder);
+            block.dataset.menge = JSON.stringify(neu);
+            block.dataset.mengeFehler = '';
+            const eingabe = block.querySelector('[data-o="mengeEingabe"]');
+            eingabe.value = mengenEingabeWert(neu);
+            eingabe.setAttribute('aria-invalid', 'false');
+            block.querySelector('[data-rolle="menge-status"]').innerHTML =
+              mengenStatusHtml({ ...neu, einheit: wert('einheit') });
             aktualisiereZusammenzug();
-            block.querySelector('[data-aktion="ausmass"]').focus();
+            knopf.focus();
           },
         });
+        if (block.dataset.mengeFehler) {
+          fenster.querySelector('[data-weg="direkt"]').click();
+        }
       }
     });
 
@@ -733,18 +1243,60 @@ export default {
       if (abschicken.target.dataset.rolle !== 'offert-formular') return;
       abschicken.preventDefault();
       const formular = abschicken.target;
+      const meldung = formular.querySelector('.meldung');
+      const fehlerBlock = formular.querySelector('[data-rolle="lv-zeile"][data-menge-fehler]:not([data-menge-fehler=""])');
+      if (fehlerBlock) {
+        meldung.textContent = `Menge ungültig: ${fehlerBlock.dataset.mengeFehler}`;
+        fehlerBlock.querySelector('[data-o="mengeEingabe"]').focus();
+        return;
+      }
       try {
         const basis = inBearbeitung
           ? { ...inBearbeitung }
           : { typ: 'offerte', baustelleId: OFFERT_ID };
         delete basis.positionen; // altes flaches Format wird abgelöst
-        await put({ ...basis, ...sammleOfferte(formular) });
+        const neu = { ...basis, ...sammleOfferte(formular) };
+        if (!neu.titel) delete neu.titel;
+        if (istGesperrt(neu) && !istGesperrt(inBearbeitung)
+          && !confirm(`Offerte ${neu.nummer} als angenommen speichern? Danach ist sie `
+            + 'gesperrt und lässt sich nicht mehr ändern (nur noch kopieren).')) return;
+        await speichereOfferte(neu);
         schliesseFormular();
         await zeichneListe();
       } catch (fehler) {
-        formular.querySelector('.meldung').textContent = fehler.message;
+        meldung.textContent = fehler.message;
       }
     });
+
+    // ---------- Kopie ----------
+    // Neue Offerte mit neuer Nummer und eigenem Namen, Status Entwurf,
+    // gleiche Positionen, Preise, Mengen und Kalkulationsgrundlagen.
+    // Eine Baustellen-Verknüpfung geht mit (die Kopie ist die Arbeits-
+    // version für das Ausmass); das Original bleibt unverändert.
+    async function erstelleKopie(original) {
+      const offerten = await ladeOfferten();
+      const vorschlag = `${offertName(original)} · Ausmass`;
+      const name = prompt(`Name der Kopie von Offerte ${original.nummer}:`, vorschlag);
+      if (name === null) return null;
+      const jahr = new Date().getFullYear();
+      const kopie = JSON.parse(JSON.stringify(original));
+      delete kopie._id;
+      delete kopie._rev;
+      delete kopie._attachments;
+      delete kopie.angenommenAm;
+      delete kopie.positionen;
+      delete kopie.datum; // die Kopie bekommt ihr eigenes Erfassungsdatum
+      const neu = await speichereOfferte({
+        ...kopie,
+        gliederung: gliederungVon(original).map((z) => ({ ...z })),
+        nummer: naechsteNummer(offerten.map((o) => o.nummer), `O-${jahr}-`),
+        titel: name.trim() || vorschlag,
+        status: 'Entwurf',
+        kopieVon: original._id,
+        kopieErstelltAm: new Date().toISOString(),
+      });
+      return neu;
+    }
 
     // ---------- Offerten-Liste (LV-Ansicht) ----------
     async function zeichneListe({ offenId = null } = {}) {
@@ -756,34 +1308,47 @@ export default {
             const anzahl = gliederung.filter((g) => g.art === 'position').length;
             const index = OFFERT_STATUS.indexOf(o.status);
             const naechster = OFFERT_STATUS[index + 1];
+            const gesperrt = istGesperrt(o);
+            const original = o.kopieVon ? offerten.find((x) => x._id === o.kopieVon) : null;
+            const kopien = offerten.filter((x) => x.kopieVon === o._id);
             return `
-              <article class="karte offert-karte" data-offerte="${esc(o._id)}">
+              <article class="karte offert-karte${gesperrt ? ' offert-gesperrt' : ''}" data-offerte="${esc(o._id)}">
                 <div class="rapport-kopf">
-                  <strong>${esc(o.nummer)} · ${esc(o.objekt)}</strong>
-                  <span class="chip${o.status === 'angenommen' ? ' gewinn' : ''}">${esc(o.status)}</span>
+                  <strong>${esc(o.nummer)} · ${esc(offertName(o))}</strong>
+                  <span class="chip${gesperrt ? ' gewinn chip-gesperrt' : ''}">${gesperrt
+                    ? '🔒 angenommen · gesperrt' : esc(o.status)}</span>
                   <span class="rapport-knoepfe">
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
                       data-id="${esc(o._id)}">PDF</button>
-                    <button type="button" class="knopf eintrag-loeschen" data-aktion="oeffnen"
+                    ${gesperrt ? '' : `<button type="button" class="knopf eintrag-loeschen" data-aktion="oeffnen"
                       data-id="${esc(o._id)}">Bearbeiten</button>
                     <button type="button" class="knopf eintrag-loeschen" data-aktion="loeschen"
-                      data-id="${esc(o._id)}" aria-label="Offerte löschen">Löschen</button>
+                      data-id="${esc(o._id)}" aria-label="Offerte löschen">Löschen</button>`}
                   </span>
                 </div>
-                <p class="hinweis">${esc(o.kunde)} · ${anzahl} Positionen
+                <p class="hinweis">${esc(o.kunde)}${o.titel ? ` · ${esc(o.objekt)}` : ''} · ${anzahl} Positionen
                   · ${chf(z.inklMwst)} inkl. MwSt.</p>
+                ${gesperrt ? `<p class="hinweis">Vertragsstand${o.angenommenAm
+                  ? ` seit ${datumText(o.angenommenAm)}` : ''} — nicht mehr änderbar.
+                  Mengen in einer Kopie erfassen.</p>` : ''}
+                ${o.kopieVon ? `<p class="hinweis">Kopie von Offerte ${esc(original?.nummer || '(gelöscht)')}${
+                  o.kopieErstelltAm ? ` vom ${datumText(o.kopieErstelltAm)}` : ''}</p>` : ''}
+                ${kopien.length ? `<p class="hinweis">Kopien: ${kopien.map((k) => esc(k.nummer)).join(', ')}</p>` : ''}
                 <details class="lv-details"${o._id === offenId ? ' open' : ''}>
                   <summary>Leistungsverzeichnis anzeigen</summary>
-                  <div class="tabellen-scroll">${lvTabelleHtml(gliederung, { interaktiv: true })}</div>
-                  <p class="hinweis">Menge antippen öffnet das Ausmass der Position —
-                    dort erfassen und direkt in die Menge speichern.</p>
+                  <div class="tabellen-scroll">${lvTabelleHtml(gliederung, { interaktiv: true, gesperrt })}</div>
+                  <p class="hinweis">${gesperrt
+                    ? 'Menge antippen zeigt Ausmass und Rechenweg der Position (nur Ansicht).'
+                    : 'Menge antippen: direkt tippen, Rechenweg, Ausmass-Zeilen oder Grabenrechner — und direkt speichern.'}</p>
                 </details>
                 <div class="knopfzeile">
-                  ${naechster ? `<button type="button" class="knopf" data-aktion="weiter"
+                  ${naechster && !gesperrt ? `<button type="button" class="knopf" data-aktion="weiter"
                     data-id="${esc(o._id)}">Status → ${naechster}</button>` : ''}
-                  ${o.status === 'angenommen' && !o.baustelleErstellt ? `
-                    <button type="button" class="knopf knopf-primaer" data-aktion="baustelle"
+                  ${gesperrt && !o.baustelleErstellt ? `
+                    <button type="button" class="knopf" data-aktion="baustelle"
                       data-id="${esc(o._id)}">Baustelle erstellen</button>` : ''}
+                  <button type="button" class="knopf${gesperrt ? ' knopf-primaer' : ''}" data-aktion="kopie"
+                    data-id="${esc(o._id)}">Kopie erstellen</button>
                   ${o.baustelleErstellt ? '<span class="hinweis">↳ Baustelle erstellt ✓</span>' : ''}
                 </div>
               </article>`;
@@ -791,40 +1356,45 @@ export default {
         : '<p class="hinweis">Noch keine Offerten.</p>';
     }
 
+    // Mengen-Fenster einer Position aus der LV-Ansicht — bei gesperrten
+    // Offerten nur zur Ansicht, sonst direkt speichern.
+    async function oeffnePositionsFenster(offertId, index) {
+      const offerten = await ladeOfferten();
+      const offerte = offerten.find((o) => o._id === offertId);
+      const zeile = offerte && gliederungVon(offerte)[index];
+      if (!zeile || zeile.art !== 'position') return null;
+      const gesperrt = istGesperrt(offerte);
+      return oeffneAusmassFenster({
+        titel: [zeile.nr, zeile.text].filter(Boolean).join(' · ') || 'Position',
+        untertitel: `Offerte ${offerte.nummer} · ${offertName(offerte)}`,
+        position: zeile,
+        nurLesen: gesperrt,
+        baustelle: baustellenPosition(offerte, zeile, offerten),
+        onSpeichern: async (felder) => {
+          // Frisch lesen: die Offerte kann inzwischen bearbeitet worden sein.
+          const aktuell = (await ladeOfferten()).find((o) => o._id === offertId);
+          if (!aktuell) throw new Error('Die Offerte gibt es nicht mehr.');
+          const gliederung = gliederungVon(aktuell).map((g) => ({ ...g }));
+          const ziel = gliederung[index];
+          if (!ziel || ziel.art !== 'position' || ziel.nr !== zeile.nr) {
+            throw new Error('Die Offerte wurde inzwischen geändert — bitte neu öffnen.');
+          }
+          gliederung[index] = wendeMengeAn(ziel, felder);
+          const neu = { ...aktuell, gliederung };
+          delete neu.positionen; // altes flaches Format wird abgelöst
+          await speichereOfferte(neu);
+          await zeichneListe({ offenId: offertId });
+          listeElement.querySelector(`[data-offerte="${CSS.escape(offertId)}"] `
+            + `[data-ausmass-zeige="${index}"]`)?.focus();
+        },
+      });
+    }
+
     listeElement.addEventListener('click', async (klick) => {
-      // Menge antippen: Ausmass dieser Position öffnen, bearbeiten und
-      // direkt speichern — Menge, Betrag und Zusammenzug rechnen nach.
       const mengeKnopf = klick.target.closest('[data-ausmass-zeige]');
       if (mengeKnopf) {
-        const offertId = mengeKnopf.closest('[data-offerte]').dataset.offerte;
-        const index = Number(mengeKnopf.dataset.ausmassZeige);
-        const offerte = (await ladeOfferten()).find((o) => o._id === offertId);
-        const zeile = offerte && gliederungVon(offerte)[index];
-        if (!zeile || zeile.art !== 'position') return;
-        oeffneAusmassFenster({
-          titel: [zeile.nr, zeile.text].filter(Boolean).join(' · ') || 'Position',
-          einheit: zeile.einheit, ep: zeile.ep, zeilen: zeile.ausmass,
-          menge: zeile.menge, mengeVonHand: zeile.mengeVonHand,
-          baustelle: baustellenPosition(offerte, zeile),
-          onSpeichern: async ({ ausmass, menge, mengeVonHand }) => {
-            // Frisch lesen: die Offerte kann inzwischen bearbeitet worden sein.
-            const aktuell = (await ladeOfferten()).find((o) => o._id === offertId);
-            const gliederung = gliederungVon(aktuell).map((g) => ({ ...g }));
-            const ziel = gliederung[index];
-            if (!ziel || ziel.art !== 'position' || ziel.nr !== zeile.nr) {
-              throw new Error('Die Offerte wurde inzwischen geändert — bitte neu öffnen.');
-            }
-            ziel.ausmass = ausmass;
-            ziel.menge = menge;
-            if (mengeVonHand) ziel.mengeVonHand = true; else delete ziel.mengeVonHand;
-            const neu = { ...aktuell, gliederung };
-            delete neu.positionen; // altes flaches Format wird abgelöst
-            await put(neu);
-            await zeichneListe({ offenId: offertId });
-            listeElement.querySelector(`[data-offerte="${CSS.escape(offertId)}"] `
-              + `[data-ausmass-zeige="${index}"]`)?.focus();
-          },
-        });
+        await oeffnePositionsFenster(mengeKnopf.closest('[data-offerte]').dataset.offerte,
+          Number(mengeKnopf.dataset.ausmassZeige));
         return;
       }
       const knopf = klick.target.closest('[data-aktion]');
@@ -833,64 +1403,116 @@ export default {
       const offerte = offerten.find((o) => o._id === knopf.dataset.id);
       if (!offerte) return;
       const aktion = knopf.dataset.aktion;
-      if (aktion === 'oeffnen') {
-        oeffneFormular(offerte);
-      } else if (aktion === 'weiter') {
-        const naechster = OFFERT_STATUS[OFFERT_STATUS.indexOf(offerte.status) + 1];
-        if (naechster) await put({ ...offerte, status: naechster });
-        await zeichneListe();
-      } else if (aktion === 'loeschen') {
-        if (!confirm(`Offerte ${offerte.nummer} endgültig löschen?`)) return;
-        await entferneDokument(offerte._id);
-        if (inBearbeitung?._id === offerte._id) schliesseFormular();
-        await zeichneListe();
-      } else if (aktion === 'pdf') {
-        // Druck ohne Ausmass-Spalte (Kalkulationsgrundlage bleibt intern) —
-        // Text bekommt die Breite, wie auf der Papier-Vorlage.
-        zeigeOffertDruck(offerte, {
-          tabelleHtml: lvTabelleHtml(gliederungVon(offerte)),
-          zusammenzug: zusammenzugZeilen(offerte),
-        });
-      } else if (aktion === 'baustelle') {
-        // Angenommene Offerte → neue Baustelle. Die Positionen gehen als
-        // KOPIE ins Ausmass (dort wird gemessen); die Offerte samt ihrer
-        // Kalkulationsgrundlage bleibt unverändert stehen.
-        const ktr = prompt('KTR-Nr. für die neue Baustelle:');
-        if (!ktr || !ktr.trim()) return;
-        const z = zusammenzug(offerte);
-        const neueBaustelle = await speichereBaustelle({
-          ktr: ktr.trim(),
-          name: offerte.objekt,
-          ort: '',
-          bauherr: offerte.kunde,
-          werkvertrag: `${chf(z.exklMwst)} exkl. MwSt. (Offerte ${offerte.nummer})`,
-        });
-        const positionen = nurPositionen(offerte);
-        for (const p of positionen) {
-          await put({
-            typ: 'ausmass',
-            baustelleId: neueBaustelle.baustelleId,
-            pos: p.nr, text: p.text, einheit: p.einheit,
-            vertragsmenge: p.menge, menge: '', ep: p.ep,
-            offertAusmass: p.ausmass || [], // Kopie der Kalkulationsgrundlage
-            offertId: offerte._id, offertPosNr: String(p.nr ?? '').trim(),
+      try {
+        if (aktion === 'oeffnen') {
+          oeffneFormular(offerte);
+        } else if (aktion === 'weiter') {
+          const naechster = OFFERT_STATUS[OFFERT_STATUS.indexOf(offerte.status) + 1];
+          if (!naechster) return;
+          if (naechster === 'angenommen' && !confirm(`Offerte ${offerte.nummer} als angenommen `
+            + 'markieren? Danach ist sie gesperrt und lässt sich nicht mehr ändern '
+            + '(nur noch kopieren).')) return;
+          await speichereOfferte({ ...offerte, status: naechster });
+          await zeichneListe();
+        } else if (aktion === 'kopie') {
+          const kopie = await erstelleKopie(offerte);
+          if (!kopie) return;
+          await zeichneListe({ offenId: kopie._id });
+          await oeffneFormular(kopie, {
+            hinweis: `Kopie ${kopie.nummer} erstellt — Name, Mengen und Positionen hier anpassen.`,
           });
+        } else if (aktion === 'loeschen') {
+          if (istGesperrt(offerte)) return;
+          if (!confirm(`Offerte ${offerte.nummer} endgültig löschen?`)) return;
+          await entferneDokument(offerte._id);
+          if (inBearbeitung?._id === offerte._id) schliesseFormular();
+          await zeichneListe();
+        } else if (aktion === 'pdf') {
+          // Druck ohne Ausmass-Spalte (Kalkulationsgrundlage bleibt intern) —
+          // Text bekommt die Breite, wie auf der Papier-Vorlage.
+          zeigeOffertDruck(offerte, {
+            tabelleHtml: lvTabelleHtml(gliederungVon(offerte)),
+            zusammenzug: zusammenzugZeilen(offerte),
+          });
+        } else if (aktion === 'baustelle') {
+          await erstelleBaustelle(offerte);
         }
-        await put({ ...offerte, baustelleErstellt: true,
-          zielBaustelleId: neueBaustelle.baustelleId });
-        document.dispatchEvent(new CustomEvent('luense:daten'));
-        alert(`Baustelle ${ktr.trim()} erstellt — ${positionen.length} `
-          + 'Positionen als Ausmass-Kopie übernommen. Die Offerte bleibt unverändert.');
-        document.dispatchEvent(new CustomEvent('luense:baustelleWechseln', {
-          detail: { baustelleId: neueBaustelle.baustelleId },
-        }));
+      } catch (fehler) {
+        alert(fehler.message);
       }
     });
+
+    // Angenommene Offerte → neue Baustelle. Die Positionen gehen als
+    // KOPIE ins Ausmass (dort wird gemessen); die Offerte samt ihrer
+    // Kalkulationsgrundlage bleibt unverändert stehen.
+    async function erstelleBaustelle(offerte) {
+      const ktr = prompt('KTR-Nr. für die neue Baustelle:');
+      if (!ktr || !ktr.trim()) return;
+      const z = zusammenzug(offerte);
+      const neueBaustelle = await speichereBaustelle({
+        ktr: ktr.trim(),
+        name: offerte.objekt,
+        ort: '',
+        bauherr: offerte.kunde,
+        werkvertrag: `${chf(z.exklMwst)} exkl. MwSt. (Offerte ${offerte.nummer})`,
+      });
+      const positionen = nurPositionen(offerte);
+      for (const p of positionen) {
+        await put({
+          typ: 'ausmass',
+          baustelleId: neueBaustelle.baustelleId,
+          pos: p.nr, text: p.text, einheit: p.einheit,
+          vertragsmenge: p.menge, menge: '', ep: p.ep,
+          offertAusmass: p.ausmass || [], // Kopie der Kalkulationsgrundlage
+          offertId: offerte._id, offertPosNr: String(p.nr ?? '').trim(),
+        });
+      }
+      await speichereOfferte({ ...offerte, baustelleErstellt: true,
+        zielBaustelleId: neueBaustelle.baustelleId });
+      document.dispatchEvent(new CustomEvent('luense:daten'));
+      alert(`Baustelle ${ktr.trim()} erstellt — ${positionen.length} `
+        + 'Positionen als Ausmass-Kopie übernommen. Die Offerte bleibt unverändert.');
+      document.dispatchEvent(new CustomEvent('luense:baustelleWechseln', {
+        detail: { baustelleId: neueBaustelle.baustelleId },
+      }));
+    }
+
+    // ---------- Sprung aus dem Baustellen-Ausmass ----------
+    // Ziel ist die Arbeitsversion: die neueste ungesperrte Offerte, die
+    // von der verknüpften Offerte abstammt (Kopie) — sonst die Offerte
+    // selbst (gesperrt: nur Ansicht, mit Hinweis auf «Kopie erstellen»).
+    async function springeZuPosition({ offertId, posNr }) {
+      const offerten = await ladeOfferten();
+      const familie = offerten.filter((o) => abstammung(o, offerten).has(offertId));
+      if (!familie.length) {
+        alert('Die verknüpfte Offerte gibt es nicht mehr.');
+        return;
+      }
+      const mitPosition = (o) => gliederungVon(o)
+        .some((z) => z.art === 'position' && String(z.nr ?? '').trim() === String(posNr ?? '').trim());
+      const arbeit = familie.filter((o) => !istGesperrt(o) && mitPosition(o))
+        .sort((a, b) => String(b.kopieErstelltAm || '').localeCompare(String(a.kopieErstelltAm || '')));
+      const ziel = arbeit[0] || familie.find((o) => o._id === offertId) || familie[0];
+      const index = gliederungVon(ziel)
+        .findIndex((z) => z.art === 'position' && String(z.nr ?? '').trim() === String(posNr ?? '').trim());
+      await zeichneListe({ offenId: ziel._id });
+      const karte = listeElement.querySelector(`[data-offerte="${CSS.escape(ziel._id)}"]`);
+      karte?.scrollIntoView({ block: 'start' });
+      karte?.classList.add('fokus-karte');
+      setTimeout(() => karte?.classList.remove('fokus-karte'), 2500);
+      if (index < 0) {
+        alert(`Position ${posNr} ist in Offerte ${ziel.nummer} nicht (mehr) vorhanden.`);
+        return;
+      }
+      await oeffnePositionsFenster(ziel._id, index);
+    }
 
     container.querySelector('[data-aktion="neu"]')
       .addEventListener('click', () => oeffneFormular(null));
 
-    zeichneListe();
     zeichneKatalog();
+    const ziel = optionen?.ziel;
+    if (ziel?.offertId) springeZuPosition(ziel);
+    else zeichneListe();
   },
 };
