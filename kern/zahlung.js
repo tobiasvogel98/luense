@@ -163,10 +163,24 @@ export function kreditorBetraege(k) {
   };
 }
 
-// Geschuldeter Betrag in Rappen: Rechnung = Total inkl. MWST,
-// Kreditor = Rechnungsbetrag des Lieferanten (wie erfasst).
+// ---------- Verzugszins aus dem Mahnwesen ----------
+// Verrechneter Verzugszins einer Debitoren-Rechnung: der Zins der LETZTEN
+// Mahnung (mahnungen[], module/rechnung.js). Jede Mahnung rechnet ab der
+// Zahlungserinnerung bis zu ihrem eigenen Datum — die letzte ersetzt die
+// früheren, nie zusammenzählen. Zurücknehmen der Mahnung nimmt den Zins
+// wieder weg. Entscheid Tobias 12.11.2026: eine Rechnung ist erst bezahlt,
+// wenn Kapital UND verrechneter Verzugszins bezahlt sind. Der Zins ist kein
+// Werkvertrags-Ertrag (Controlling rechnet weiter mit «betrag» netto).
+export function zinsSollRappen(doc) {
+  if (doc?.typ !== 'rechnung' || !Array.isArray(doc.mahnungen) || !doc.mahnungen.length) return 0;
+  return Math.max(0, Math.round(Number(doc.mahnungen[doc.mahnungen.length - 1].zinsRappen) || 0));
+}
+
+// Geschuldeter Betrag in Rappen: Rechnung = Total inkl. MWST plus
+// verrechneter Verzugszins, Kreditor = Rechnungsbetrag des Lieferanten.
 export function sollRappen(doc) {
-  return doc?.typ === 'rechnung' ? rechnungsBetraege(doc).bruttoRappen : rappen(doc?.betrag);
+  return doc?.typ === 'rechnung'
+    ? rechnungsBetraege(doc).bruttoRappen + zinsSollRappen(doc) : rappen(doc?.betrag);
 }
 
 export function heuteTag() {
@@ -302,7 +316,8 @@ export function skontoSumme(doc) {
   return skontoRappen(doc) / 100;
 }
 
-// Restbetrag in Rappen: geschuldeter Betrag (Rechnung inkl. MWST) minus
+// Restbetrag in Rappen: geschuldeter Betrag (Rechnung inkl. MWST und
+// verrechnetem Verzugszins) minus
 // Zahlungen minus abgezogener Skonto. Ein von Hand auf «bezahlt» gesetztes
 // Dokument hat keinen Rest.
 export function offenRappen(doc) {
@@ -312,6 +327,15 @@ export function offenRappen(doc) {
 
 export function offenerBetrag(doc) {
   return offenRappen(doc) / 100;
+}
+
+// Offener Betrag aufgeteilt: Zahlungen tilgen zuerst das Kapital (Total
+// inkl. MWST), der verrechnete Verzugszins bleibt als Rest offen.
+// { offen, zins (davon Verzugszins), kapital } — alles in Rappen.
+export function offenAufteilung(doc) {
+  const offen = offenRappen(doc);
+  const zins = Math.min(zinsSollRappen(doc), offen);
+  return { offen, zins, kapital: offen - zins };
 }
 
 // Fälligkeit einer Debitoren-Rechnung (Rechnungsdatum + Zahlungsfrist).

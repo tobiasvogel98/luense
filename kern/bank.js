@@ -24,6 +24,7 @@ import {
   zahl, runde, heuteTag, formatTag, kompakt, gleicheReferenz, scorAusNummer,
   istGueltigeScor, istGueltigeQrr, offenerBetrag, kreditorWerte, zahlungen,
   statusNachZahlungen, formatIban, formatReferenz, rappen, sollRappen, bezahltSumme, skontoSumme,
+  zinsSollRappen, offenAufteilung,
 } from './zahlung.js';
 
 // ---------- camt lesen ----------
@@ -600,10 +601,13 @@ export function zeigeZahlungen(docId, { titel = 'Zahlungen', nachAenderung = () 
     dialog.innerHTML = `
       <form class="karte formular dialog" data-rolle="zahlung-formular">
         <h3>${esc(titel)}</h3>
-        <p class="hinweis">${doc.typ === 'rechnung' ? 'Total inkl. MWST' : 'Betrag'} ${chf(sollRappen(doc) / 100)}
+        <p class="hinweis">${doc.typ === 'rechnung' ? 'Total inkl. MWST' : 'Betrag'} ${chf(sollRappen(doc) / 100)}${
+          zinsSollRappen(doc) ? ` (inkl. Verzugszins ${chf(zinsSollRappen(doc) / 100)})` : ''}
           · bezahlt ${chf(bezahltSumme(doc))}${
           skontoSumme(doc) ? ` · Skonto ${chf(skontoSumme(doc))}` : ''}
-          · offen <b>${chf(offenerBetrag(doc))}</b> · Status ${esc(doc.status)}</p>
+          · offen <b>${chf(offenerBetrag(doc))}</b>${
+          offenAufteilung(doc).zins ? ` (davon Verzugszins ${chf(offenAufteilung(doc).zins / 100)})` : ''}
+          · Status ${esc(doc.status)}</p>
         ${liste.length ? liste.map((z, i) => `
           <div class="fo-zeile dossier-zeile">
             <span class="fo-label">${formatTag(z.datum)} · ${chf(zahl(z.betrag))}${
