@@ -2,18 +2,46 @@
 
 Stand November 2026. Vereinbart mit dem ersten Pilotkunden nach der Demo.
 Die Schritte 1 (Offerte ↔ Ausmass) und 2 (Kreditoren/Debitoren mit
-Kontoauszug-Import) sind in Arbeit. Die folgenden Schritte werden erst nach
+Kontoauszug-Import) sind in Arbeit, Schritt 3 (Mahnwesen) ist gebaut. Die folgenden Schritte werden erst nach
 neuem Beschluss gebaut, in dieser Reihenfolge.
 
 Voraussetzung vor Schritt 4: schriftliche Vereinbarung mit dem Pilotkunden
 (Kostenbeteiligung, Rechte bleiben beim Lizenzgeber, Ausstieg).
 
-## Schritt 3 — Mahnwesen (als nächster Bau beschlossen, 12.11.2026)
-- Ziel: überfällige Rechnungen mahnen statt nur markieren.
-- Mahnstufen (Zahlungserinnerung, 1. und 2. Mahnung) mit Datum und Frist
-  an der Rechnung; Mahn-PDF mit neuem QR-Zahlteil über den offenen Betrag.
-- Offen mit Tobias: Fristen pro Stufe, Mahngebühren und Verzugszins (ja/nein,
-  wie hoch), Text der Stufen.
+## Schritt 3 — Mahnwesen (gebaut, 12.11.2026)
+- Ziel: überfällige Rechnungen mahnen statt nur markieren. Die App
+  verschickt nichts — sie zeigt, welche Rechnung für welche Stufe fällig ist,
+  hält die erstellte Stufe an der Rechnung fest und erstellt das Mahn-PDF.
+- Entscheide Tobias:
+  - Drei Stufen in fester Reihenfolge (kein Überspringen): Zahlungserinnerung
+    nach 30, 1. Mahnung nach 60, 2. Mahnung nach 75 Tagen — gezählt ab
+    **Rechnungsdatum**, nicht ab Fälligkeit. Die drei Werte stehen in den
+    Firmendaten (⚙ Stamm) und sind dort änderbar.
+  - Kosten nach OR: **keine Mahngebühr** (bräuchte eine Vertragsabrede).
+    **Verzugszins 5 % p. a.** (Art. 104 Abs. 1 OR). Verzug ab der
+    Zahlungserinnerung (gilt als Mahnung nach Art. 102 Abs. 1 OR): Zins auf
+    dem offenen Betrag inkl. MWST vom Datum der Zahlungserinnerung bis zum
+    Datum der jeweiligen Mahnung, Tage effektiv / 365, kaufmännisch auf den
+    Rappen (nie auf 5 Rappen). Zahlungserinnerung ohne Zins; 1. und
+    2. Mahnung mit eigener Zinszeile, im QR-Betrag enthalten.
+  - Der Zins verändert weder den offenen Betrag noch den Status der
+    Rechnung (eine Zahlung des offenen Betrags schliesst sie).
+  - Texte je Stufe sachlich und höflich (Erinnerung: «möglicherweise
+    übersehen»; 1. Mahnung bestimmt mit Hinweis auf Art. 102/104 OR;
+    2. Mahnung bestimmt, weitere Schritte, insbesondere Betreibung,
+    vorbehalten). Als Konstanten in module/rechnung.js, leicht anpassbar.
+- Umsetzung: Marke «Zahlungserinnerung fällig» / «1. Mahnung fällig» /
+  «2. Mahnung fällig» in den Rechnungen und in «Offene Posten alle
+  Baustellen» (mit Kachel «Mahnstufe fällig»). Knopf «Mahnung erstellen»
+  speichert `mahnungen: [{ stufe, datum, offenRappen, zinsRappen, zinsVon,
+  zinsBis, zinsProzent, fristTage }]` an der Rechnung und öffnet das PDF:
+  Briefkopf aus den Firmendaten, Bezug zur Rechnung (Nr., Datum, Betrag
+  inkl. MWST, bereits bezahlt, offen), Verzugszins, neue Zahlungsfrist
+  10 Tage, QR-Zahlteil auf eigener Seite mit derselben SCOR-Referenz.
+  Die letzte Stufe lässt sich zurücknehmen; ihr PDF jederzeit neu öffnen.
+- Fällig nur für gestellte bzw. teilbezahlte Rechnungen mit offenem Betrag.
+  Die nächste Stufe wird erst fällig, wenn auch die 10-Tage-Frist der
+  vorherigen Stufe abgelaufen ist (greift nur, wenn spät gemahnt wurde).
 - Grundsatz aus dem Pilot: Beträge immer exakt, nie runden.
 
 ## Schritt 4 — Offertanfragen einlesen
