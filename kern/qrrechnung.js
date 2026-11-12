@@ -50,7 +50,7 @@ export function pruefeZahlteil({ firma, betrag, referenz }) {
   if (!firma?.iban) maengel.push('IBAN fehlt in den Firmendaten (⚙ Stamm).');
   else if (!istGueltigeIban(firma.iban)) maengel.push('IBAN der Firmendaten ist ungültig.');
   else if (!/^(CH|LI)/.test(kompakt(firma.iban))) maengel.push('QR-Rechnung nur mit IBAN aus CH oder LI.');
-  else if (istQrIban(firma.iban)) maengel.push('QR-IBAN hinterlegt — dafür wäre eine QR-Referenz nötig. Bitte die normale IBAN des Kontos eintragen.');
+  else if (istQrIban(firma.iban)) maengel.push('QR-IBAN hinterlegt, dafür wäre eine QR-Referenz nötig. Bitte die normale IBAN des Kontos eintragen.');
   if (!adresseVollstaendig(firma)) maengel.push('Firmenname, PLZ und Ort fehlen in den Firmendaten.');
   if (!(betrag >= 0.01 && betrag <= 999999999.99)) maengel.push('Betrag muss zwischen 0.01 und 999 999 999.99 liegen.');
   if (referenz && !istGueltigeScor(referenz)) maengel.push('Referenz ist keine gültige SCOR-Referenz.');

@@ -116,7 +116,7 @@ export default {
           <button type="button" class="knopf eintrag-loeschen" data-aktion="zu-positionen">
             ↑ Positionen</button>
         </div>
-        <p class="hinweis">Abschnitte bleiben gespeichert — die berechneten Mengen
+        <p class="hinweis">Abschnitte bleiben gespeichert, die berechneten Mengen
           lassen sich je Grabenteil einer NPK-Position zuordnen und übernehmen.</p>
         <div data-rolle="graben-liste"></div>
         <div data-rolle="graben-editor"></div>
@@ -273,7 +273,7 @@ export default {
         <div class="fo-zeile fo-berechnet"><span class="fo-nr"></span>
           <span class="fo-label">Fortschritt gesamt</span>
           <span class="fo-wert">${summe.vertragsbetrag > 0
-            ? prozent(summe.betrag / summe.vertragsbetrag) : '—'}</span></div>`;
+            ? prozent(summe.betrag / summe.vertragsbetrag) : '-'}</span></div>`;
       listeElement.innerHTML = positionen.map(positionsKarte).join('');
     }
 
@@ -463,7 +463,7 @@ export default {
 
     function zuordnungSelect(name, gewaehlt, positionen) {
       return `<select data-t="${name}">
-        <option value="">— nicht übernehmen —</option>
+        <option value="">(nicht übernehmen)</option>
         ${positionen.map((p) => `<option value="${esc(p._id)}"
           ${p._id === gewaehlt ? ' selected' : ''}>${esc(p.pos)} · ${esc(p.text.slice(0, 32))}</option>`).join('')}
       </select>`;
@@ -549,7 +549,7 @@ export default {
         <form class="karte formular" data-rolle="graben-formular">
           <h3>${abschnitt ? `Abschnitt «${esc(abschnitt.name)}» bearbeiten` : 'Neuer Abschnitt'}</h3>
           <div class="feld-reihe">
-            <label>Abschnitt (z. B. KS 12 – KS 13) *
+            <label>Abschnitt (z. B. KS 12 bis KS 13) *
               <input name="abschnittName" required autocomplete="off" value="${esc(daten.name)}"></label>
             <label>Grabenart<select name="grabenart">
               ${Object.entries(GRABENARTEN).map(([schluessel, art]) => `
@@ -620,7 +620,7 @@ export default {
         }
       }
       if (!summen.size) {
-        grabenMeldung.textContent = 'Keine NPK-Zuordnungen vorhanden — zuerst in den Abschnitten zuordnen.';
+        grabenMeldung.textContent = 'Keine NPK-Zuordnungen vorhanden, zuerst in den Abschnitten zuordnen.';
         return;
       }
       const zeilen = [];

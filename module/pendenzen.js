@@ -122,7 +122,7 @@ export default {
       listeElement.innerHTML = gezeigt.length
         ? gezeigt.map(pendenzKarte).join('')
         : `<p class="hinweis">${
-            alle.length ? 'Keine offenen Pendenzen — alles erledigt.' : 'Noch keine Pendenzen auf dieser Baustelle.'}</p>`;
+            alle.length ? 'Keine offenen Pendenzen, alles erledigt.' : 'Noch keine Pendenzen auf dieser Baustelle.'}</p>`;
     }
 
     filterElement.addEventListener('click', async (klick) => {

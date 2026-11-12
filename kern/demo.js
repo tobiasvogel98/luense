@@ -176,18 +176,18 @@ export async function ladeBeispielbaustelle() {
   const ereignis = (tag, stunde, art, ortKv, notiz) => speichere({
     typ: 'ereignis', baustelleId: B, datum: zeit(tag, stunde), tag: art, ortKv, notiz,
   });
-  await ereignis(tVorzustand, 7, 'Vorzustand', 'Musterweg 1–15',
+  await ereignis(tVorzustand, 7, 'Vorzustand', 'Musterweg 1 bis 15',
     'Vorzustand Strasse und Vorgärten vor Baubeginn aufgenommen. Randsteine intakt, Riss im Belag bei Nr. 7.');
-  await ereignis(tFortschritt1, 16, 'Fortschritt', 'KS 1 – KS 2',
-    'Graben KS 1 – KS 2 ausgehoben, Wasserleitung PE d125 auf 40 m verlegt.');
+  await ereignis(tFortschritt1, 16, 'Fortschritt', 'KS 1 bis KS 2',
+    'Graben KS 1 bis KS 2 ausgehoben, Wasserleitung PE d125 auf 40 m verlegt.');
   await ereignis(tMangel, 10, 'Mangel', 'Musterweg 9',
-    'Abschrankung beim Hauszugang Nr. 9 umgestossen — sofort wieder gestellt, Anwohner informiert.');
+    'Abschrankung beim Hauszugang Nr. 9 umgestossen, sofort wieder gestellt, Anwohner informiert.');
   const regieEreignis = await ereignis(tRegie, 9, 'Regie', 'KS 3',
     'Findling im Graben bei KS 3, ca. 1.2 m³. Zusatzaushub und Abtransport auf Anordnung der Bauleitung (P. Planer).');
   await haengeAnhangAn(regieEreignis._id, `foto-${Date.now().toString(36)}-1.jpg`,
     await platzhalterFoto('Findling KS 3'));
-  await ereignis(tFortschritt2, 15, 'Fortschritt', 'KS 3 – KS 4',
-    'Abschnitt KS 3 – KS 4 verfüllt und verdichtet, Kabelschutzrohre eingelegt.');
+  await ereignis(tFortschritt2, 15, 'Fortschritt', 'KS 3 bis KS 4',
+    'Abschnitt KS 3 bis KS 4 verfüllt und verdichtet, Kabelschutzrohre eingelegt.');
 
   // Tagesrapporte.
   const rapport = (tag, wetter, arbeiten, extra = {}) => {
@@ -207,13 +207,13 @@ export async function ladeBeispielbaustelle() {
   const mat = (name, menge, einheit) => ({ name, menge: String(menge), einheit });
 
   await rapport(tFortschritt1, 'sonnig, 14 °C', [
-    { text: 'Graben KS 1 – KS 2 ausheben, Leitung PE d125 verlegen',
+    { text: 'Graben KS 1 bis KS 2 ausheben, Leitung PE d125 verlegen',
       personen: [p(MAX, 8.5), p(LEA, 8.5), p(SANDRO, 8.5), p(NINA, 8.5)],
       maschinen: [p(BAGGER, 7.5), p(DUMPER, 6)],
       material: [mat('Sand 0/4', 18, 'm³'), mat('PE-Rohr d125', 40, 'm')] },
   ], { absenzen: [{ name: MARCO, art: 'Ferien', stunden: '8.5' }] });
   await rapport(arbeitstagZurueck(6), 'bewölkt, 11 °C', [
-    { text: 'Graben KS 2 – KS 3 ausheben, Leitung verlegen',
+    { text: 'Graben KS 2 bis KS 3 ausheben, Leitung verlegen',
       personen: [p(MAX, 8.5), p(LEA, 8.5), p(NINA, 8.5)],
       maschinen: [p(BAGGER, 8), p(DUMPER, 7)],
       material: [mat('Sand 0/4', 16, 'm³')] },
@@ -226,7 +226,7 @@ export async function ladeBeispielbaustelle() {
       personen: [p(LEA, 3), p(NINA, 3)],
       maschinen: [p(BAGGER, 3), p(DUMPER, 2)],
       fremdleistungen: [p('Muldenservice Beispiel GmbH', 1)] },
-    { text: 'Leitung KS 3 – KS 4 verlegen',
+    { text: 'Leitung KS 3 bis KS 4 verlegen',
       personen: [p(MAX, 8.5), p(LEA, 5.5), p(NINA, 5.5), p(SANDRO, 8.5), p(MARCO, 8.5)],
       maschinen: [p(BAGGER, 5)],
       material: [mat('Sand 0/4', 12, 'm³')] },
@@ -236,7 +236,7 @@ export async function ladeBeispielbaustelle() {
       { status: 'unterschrieben', datum: arbeitstagZurueck(3) }],
   });
   await rapport(tFortschritt2, 'sonnig, 12 °C', [
-    { text: 'Verfüllen und verdichten KS 3 – KS 4, Kabelschutzrohre einlegen',
+    { text: 'Verfüllen und verdichten KS 3 bis KS 4, Kabelschutzrohre einlegen',
       personen: [p(MAX, 8.5), p(LEA, 8.5), p(SANDRO, 8.5), p(MARCO, 8.5)],
       maschinen: [p(VIBRO, 6), p(DUMPER, 5)],
       material: [mat('Kiessand 0/45', 64, 't'), mat('Kabelschutzrohr d120', 96, 'm')] },
@@ -280,7 +280,7 @@ export async function ladeBeispielbaustelle() {
   await speichere({
     typ: 'rechnung', baustelleId: B, nummer: 'R-DEMO-002', tag: arbeitstagZurueck(2),
     datum: `${arbeitstagZurueck(2)}T12:00:00.000Z`,
-    titel: `Nachtrag N-01 — ${n1.titel}`, betrag: '6800', mwstSatz: 8.1, zahlungsfristTage: 30,
+    titel: `Nachtrag N-01: ${n1.titel}`, betrag: '6800', mwstSatz: 8.1, zahlungsfristTage: 30,
     basis: { art: 'nachtrag', id: n1._id, label: 'N-01' }, status: 'gestellt',
     statusHistorie: [{ status: 'offen', datum: arbeitstagZurueck(2) },
       { status: 'gestellt', datum: arbeitstagZurueck(2) }],
@@ -367,7 +367,7 @@ export async function ladeBeispielbaustelle() {
     zuordnung: { aushub: posIds['211.111'], sand: posIds['211.411'], auffuellung: posIds['211.511'] },
   };
   const L = 120;
-  await speichere({ typ: 'graben', baustelleId: B, name: 'KS 1 – KS 4', grabenart: 'wasser', L, teile: [teil] });
+  await speichere({ typ: 'graben', baustelleId: B, name: 'KS 1 bis KS 4', grabenart: 'wasser', L, teile: [teil] });
   // Mengen wie «Mengen ins Ausmass übernehmen» des Grabenrechners.
   const erg = berechneTeil(L, teil);
   const ausGraben = { '211.111': erg.aushub, '211.411': erg.sandTotal, '211.511': erg.auffuellung };
@@ -394,7 +394,7 @@ export async function ladeBeispielbaustelle() {
       skAbgrenzungen: [{ bez: '', betrag: '' }, { bez: '', betrag: '' },
         { bez: '', betrag: '' }, { bez: '', betrag: '' }],
       k2: '8', k4: '', bauende: plusTage(75),
-      bemerkungen: 'Beispiel-Abschluss — keine echten Zahlen.', visum: 'Beispiel',
+      bemerkungen: 'Beispiel-Abschluss, keine echten Zahlen.', visum: 'Beispiel',
     },
   });
 
@@ -405,7 +405,7 @@ export async function ladeBeispielbaustelle() {
   };
   const aushubPos = lvPos('211.111');
   aushubPos.ausmass = [
-    { bez: 'Wassergraben KS 1 – KS 8', anzahl: '1', laenge: '620', breite: '0.8', hoehe: '1.5' },
+    { bez: 'Wassergraben KS 1 bis KS 8', anzahl: '1', laenge: '620', breite: '0.8', hoehe: '1.5' },
     { bez: 'Hausanschlüsse', anzahl: '12', laenge: '8', breite: '0.8', hoehe: '1.5' },
     { bez: 'Zuschlag Kabelgraben', anzahl: '1', laenge: '', breite: '', hoehe: '390.8' },
   ];
@@ -448,7 +448,7 @@ export function renderBeispielBereich(container, { nachLaden = () => {}, nachLoe
     <h3>Beispielbaustelle</h3>
     <p class="hinweis">Für Kundendemos und zum Ausprobieren: legt die klar
       markierte Baustelle <b>${esc(KTR)} · Werkleitungen Musterweg (Beispiel)</b>
-      an — mit Journal, Rapporten, Nachträgen, Rechnungen, Kreditoren,
+      an, mit Journal, Rapporten, Nachträgen, Rechnungen, Kreditoren,
       Pendenzen, Ausmass/Grabenrechner, Monatsabschluss, Offerte sowie
       Beispiel-Personal und -Geräten. Alle Beispieldaten sind markiert,
       gehören nicht ins Backup und lassen sich mit einem Knopf restlos
@@ -497,7 +497,7 @@ export function renderBeispielBereich(container, { nachLaden = () => {}, nachLoe
     loeschen.disabled = true;
     try {
       const anzahl = await loescheBeispielbaustelle();
-      letzteMeldung = `Beispielbaustelle gelöscht — ${anzahl} ${anzahl === 1 ? 'Dokument' : 'Dokumente'} entfernt.`;
+      letzteMeldung = `Beispielbaustelle gelöscht, ${anzahl} ${anzahl === 1 ? 'Dokument' : 'Dokumente'} entfernt.`;
       document.dispatchEvent(new CustomEvent('luense:daten'));
       nachLoeschen();
     } catch (fehler) {

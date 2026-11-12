@@ -56,7 +56,7 @@ function zahl(wert) {
 }
 
 function prozentText(anteil) {
-  return anteil === null ? '—'
+  return anteil === null ? '-'
     : `${(anteil * 100).toLocaleString('de-CH', { maximumFractionDigits: 1 })} %`;
 }
 
@@ -134,10 +134,10 @@ export default {
           <ol class="checkliste-text">
             <li>FO-5.1.01-Excel öffnen, Blatt zum gleichen Stichtag wählen.</li>
             <li>Hier beim Abschluss «Abgleich (JSON)» herunterladen oder die Kennzahlen ablesen.</li>
-            <li>Vergleichen: W10, B6, A13, S6, K1, K3 — <b>jede Abweichung ist ein Fehler</b>, das Excel gilt.</li>
+            <li>Vergleichen: W10, B6, A13, S6, K1, K3. <b>Jede Abweichung ist ein Fehler</b>, das Excel gilt.</li>
             <li>Ergebnis im Abschluss unter «Bemerkungen» notieren (z. B. «Abgleich ok, 30.09.»).</li>
             <li>Nach <b>zwei</b> stimmigen Monatsabschlüssen gilt das Controlling als
-              <b>führend</b>; das Excel einfrieren als Archiv — nie löschen.</li>
+              <b>führend</b>; das Excel einfrieren als Archiv, nie löschen.</li>
           </ol>
         </details>
       </section>`;
@@ -193,15 +193,15 @@ export default {
                   <tr data-baustelle="${esc(b.baustelleId)}"
                     class="${b.baustelleId === baustelle.baustelleId ? 'aktiv' : ''}">
                     <td>${esc(b.ktr)} · ${esc(b.name)}</td>
-                    <td class="zahl">${letzter ? formatTag(letzter.stichtag) : '—'}</td>
-                    <td class="zahl">${kenn ? chfGanz(kenn.w10) : '—'}</td>
-                    <td class="zahl ${ntGenehmigt ? 'gewinn' : ''}">${ntGenehmigt ? chfGanz(ntGenehmigt) : '—'}</td>
-                    <td class="zahl">${ntOffen ? chfGanz(ntOffen) : '—'}</td>
-                    <td class="zahl">${kenn ? chfGanz(kenn.a13) : '—'}</td>
-                    <td class="zahl">${kenn ? chfGanz(kenn.s6) : '—'}</td>
-                    <td class="zahl">${fertig !== null ? prozentText(fertig) : '—'}</td>
+                    <td class="zahl">${letzter ? formatTag(letzter.stichtag) : '-'}</td>
+                    <td class="zahl">${kenn ? chfGanz(kenn.w10) : '-'}</td>
+                    <td class="zahl ${ntGenehmigt ? 'gewinn' : ''}">${ntGenehmigt ? chfGanz(ntGenehmigt) : '-'}</td>
+                    <td class="zahl">${ntOffen ? chfGanz(ntOffen) : '-'}</td>
+                    <td class="zahl">${kenn ? chfGanz(kenn.a13) : '-'}</td>
+                    <td class="zahl">${kenn ? chfGanz(kenn.s6) : '-'}</td>
+                    <td class="zahl">${fertig !== null ? prozentText(fertig) : '-'}</td>
                     <td class="zahl ${kenn?.k1 > 0 ? 'gewinn' : kenn?.k1 < 0 ? 'verlust' : ''}">
-                      ${kenn ? prozentText(kenn.k1) : '—'}</td>
+                      ${kenn ? prozentText(kenn.k1) : '-'}</td>
                   </tr>`;
               }).join('')}
             </tbody>
@@ -443,15 +443,15 @@ export default {
             data-uebernehmen="${feld}" data-wert="${Math.round(wert * 100) / 100}">übernehmen</button>` : ''}
         </div>`;
       liste.innerHTML = `
-        <p class="hinweis">Vorschläge per ${stichtag.split('-').reverse().join('.')} —
+        <p class="hinweis">Vorschläge per ${stichtag.split('-').reverse().join('.')}:
           prüfen und einzeln übernehmen. Kreditoren sind Fremdkosten
-          (ohne Löhne und Inventar-Verrechnung) — S1 danach ergänzen.</p>
-        ${w1V ? zeile('W1 — Werkvertrag der Baustelle', w1V, 'w1') : ''}
-        ${zeile('B1 — fakturiert (Ausmass/Nachtrag/manuell)', b1V, 'b1',
+          (ohne Löhne und Inventar-Verrechnung), S1 danach ergänzen.</p>
+        ${w1V ? zeile('W1: Werkvertrag der Baustelle', w1V, 'w1') : ''}
+        ${zeile('B1: fakturiert (Ausmass/Nachtrag/manuell)', b1V, 'b1',
           `${fakturiert.filter((r) => r.basis?.art !== 'regierapport').length} Rechnungen gestellt/bezahlt, netto exkl. MWST`)}
-        ${zeile('B2 — Regiefakturen', b2V, 'b2',
+        ${zeile('B2: Regiefakturen', b2V, 'b2',
           `${fakturiert.filter((r) => r.basis?.art === 'regierapport').length} Rechnungen, netto exkl. MWST`)}
-        ${zeile('S1 — Kreditoren visiert/bezahlt', kreditorenTotal, 's1',
+        ${zeile('S1: Kreditoren visiert/bezahlt', kreditorenTotal, 's1',
           `${anerkannt.length} Lieferantenrechnungen, netto exkl. MWST`)}
         ${jeKostenart.map((k) => zeile(`&nbsp;&nbsp;davon ${esc(k.art)}`, k.betrag, '')).join('')}
         ${eingang || ausgang ? `

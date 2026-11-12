@@ -389,7 +389,7 @@ export default {
       const kacheln = [
         { titel: 'offen', liste: jeStatus('offen', rechnungen), wert: summe },
         { titel: 'gestellt', liste: jeStatus('gestellt', rechnungen), wert: summe },
-        ...(teil.length ? [{ titel: 'teilbezahlt — Rest', liste: teil, wert: summeOffen }] : []),
+        ...(teil.length ? [{ titel: 'teilbezahlt, Rest', liste: teil, wert: summeOffen }] : []),
         { titel: 'bezahlt', liste: jeStatus('bezahlt', rechnungen), wert: summe, gruen: true },
       ];
       kachelnElement.innerHTML = kacheln.map((k) => `
@@ -454,10 +454,10 @@ export default {
                 value="${esc(deb.ort ?? '')}"></label>
             </div>
             <p class="hinweis">Ohne PLZ und Ort bleibt «Zahlbar durch» im Zahlteil leer
-              (zum Ausfüllen von Hand) — das ist zulässig.</p>
+              (zum Ausfüllen von Hand), das ist zulässig.</p>
           </details>
           ${rechnung?.basis && rechnung.basis.art !== 'manuell' ? `
-            <p class="hinweis">Basis: ${esc(basisText(rechnung.basis))} — bleibt verknüpft.</p>` : ''}
+            <p class="hinweis">Basis: ${esc(basisText(rechnung.basis))}, bleibt verknüpft.</p>` : ''}
           ${rechnung ? `<p class="hinweis">Zahlungsreferenz: ${esc(formatReferenz(referenzVon(rechnung)))}</p>` : ''}
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Rechnung speichern</button>
@@ -493,7 +493,7 @@ export default {
       if (!rechnungen.length) {
         tabelleElement.innerHTML =
           '<p class="hinweis">Noch keine Rechnungen auf dieser Baustelle. '
-          + 'Rechnungen entstehen hier — oder direkt aus unterschriebenen '
+          + 'Rechnungen entstehen hier, oder direkt aus unterschriebenen '
           + 'Regierapporten und genehmigten Nachträgen.</p>';
         return;
       }
@@ -522,7 +522,7 @@ export default {
                     <td class="text-spalte">${esc(r.titel)}</td>
                     <td class="kein-umbruch">${esc(basisText(r.basis))}</td>
                     <td class="zahl">${betragZelle(r)}</td>
-                    <td class="zahl">${r.status === 'bezahlt' ? '—' : offenZelle(r)}</td>
+                    <td class="zahl">${r.status === 'bezahlt' ? '-' : offenZelle(r)}</td>
                     <td class="status-spalte">${esc(r.status)}${ueberfaellig
                       ? ' <span class="ueberfaellig">überfällig</span>' : ''}${mahnVerlauf(r)}<br>
                       <small class="hinweis">${(r.statusHistorie || [])
@@ -623,7 +623,7 @@ export default {
                     <td class="kein-umbruch mahn-spalte">${esc(r.nummer)}<br>
                       <small class="hinweis">fällig ${formatTag(faellig)}</small>${tage > 0
                       ? `<br><span class="ueberfaellig">${tage} Tag${tage > 1 ? 'e' : ''} überfällig</span>` : ''}${mahnErsteSpalte(r, stand)}</td>
-                    <td class="kein-umbruch">${esc(b?.ktr || '—')}<br><small class="hinweis">${esc(b?.name || '')}</small></td>
+                    <td class="kein-umbruch">${esc(b?.ktr || '-')}<br><small class="hinweis">${esc(b?.name || '')}</small></td>
                     <td class="text-spalte">${esc(r.titel)}</td>
                     <td class="zahl">${chf(rechnungsBetraege(r).brutto)}</td>
                     <td class="zahl"><b>${offenZelle(r)}</b></td>
@@ -642,7 +642,7 @@ export default {
             </tbody>
           </table>
         </div>
-        <p class="hinweis">Beträge inkl. MWST.</p>` : '<p class="hinweis">Keine offenen Forderungen — alles bezahlt.</p>'}`;
+        <p class="hinweis">Beträge inkl. MWST.</p>` : '<p class="hinweis">Keine offenen Forderungen, alles bezahlt.</p>'}`;
     }
 
     async function zeichneTabelle() {
@@ -939,7 +939,7 @@ export default {
         dialog.innerHTML = `
           <form class="karte formular dialog" data-rolle="betreibung-formular">
             <h3>Betreibung eingeleitet · Rechnung ${esc(rechnung.nummer)}</h3>
-            <p class="hinweis">Nur ein Vermerk an der Rechnung — die Beträge bleiben,
+            <p class="hinweis">Nur ein Vermerk an der Rechnung, die Beträge bleiben,
               Zahlungen schliessen die Rechnung wie gewohnt.</p>
             <label>Datum *<input name="datum" type="date" required value="${heuteTag()}"></label>
             <label>Betreibungs-Nr.<input name="nummer" autocomplete="off" placeholder="optional"></label>
@@ -1120,7 +1120,7 @@ export default {
         if (rechnung.status === 'bezahlt') delete doc.bezahltAm;
         await put(doc);
         meldungElement.textContent = `Rechnung ${rechnung.nummer} → ${vorheriger}. `
-          + 'Die Grundlage bleibt auf «verrechnet» — dort von Hand zurückstellen, falls nötig.';
+          + 'Die Grundlage bleibt auf «verrechnet», dort von Hand zurückstellen, falls nötig.';
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneTabelle();
       } else if (knopf.dataset.aktion === 'loeschen') {

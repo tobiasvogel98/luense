@@ -225,7 +225,7 @@ export function ordneZu(posten, bestand) {
       continue;
     }
     gesehen.add(p.id);
-    if (p.storno) { p.ergebnis = 'nicht-buchbar'; p.grund = 'Storno-Buchung — von Hand prüfen'; continue; }
+    if (p.storno) { p.ergebnis = 'nicht-buchbar'; p.grund = 'Storno-Buchung, von Hand prüfen'; continue; }
     if (p.status && p.status !== 'BOOK') { p.ergebnis = 'nicht-buchbar'; p.grund = `Status ${p.status} (noch nicht gebucht)`; continue; }
     if (p.waehrung && p.waehrung !== 'CHF') { p.ergebnis = 'nicht-buchbar'; p.grund = `Währung ${p.waehrung}`; continue; }
     if (!(p.betrag > 0)) { p.ergebnis = 'nicht-buchbar'; p.grund = 'ohne Betrag'; continue; }
@@ -270,7 +270,7 @@ export function ordneZu(posten, bestand) {
         const nurBetrag = mitBetrag(kandidaten);
         if (nurBetrag.length === 1) {
           treffer = nurBetrag[0];
-          grund = 'nur der Betrag stimmt — genau prüfen';
+          grund = 'nur der Betrag stimmt, genau prüfen';
         }
       }
       if (treffer) ergebnis = 'vorschlag';
@@ -393,9 +393,9 @@ function bewertungText(p) {
   const b = p.bewertung;
   if (!b) return '';
   if (b.skonto > 0) return `voll bezahlt mit Skonto ${chf(b.skonto)}`;
-  if (b.skontoVerpasst) return `Skonto abgezogen, aber Frist vorbei — als Teilzahlung, Rest ${chf(b.rest)}`;
-  if (b.art === 'ueber') return 'Überzahlung — Differenz von Hand klären';
-  if (b.art === 'teil') return `Teilzahlung — Rest ${chf(b.rest)}`;
+  if (b.skontoVerpasst) return `Skonto abgezogen, aber Frist vorbei: als Teilzahlung, Rest ${chf(b.rest)}`;
+  if (b.art === 'ueber') return 'Überzahlung, Differenz von Hand klären';
+  if (b.art === 'teil') return `Teilzahlung, Rest ${chf(b.rest)}`;
   return 'voll bezahlt';
 }
 
@@ -474,7 +474,7 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
       return karte(p, `
         <label class="bank-zuweisen">${p.richtung === 'CRDT' ? 'Rechnung' : 'Kreditor'} zuweisen
           <select data-wahl="${esc(p.id)}">
-            <option value="">— später entscheiden —</option>
+            <option value="">(später entscheiden)</option>
             <option value="ignorieren">ignorieren (keine Rechnung)</option>
             ${passende.map((z) => `<option value="${esc(z.doc._id)}">${esc(zielText(z))} · offen ${
               chf(offenerBetrag(z.doc))}</option>`).join('')}
@@ -495,10 +495,10 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
     vorschau.innerHTML = `
       ${dateiInfo}
       ${abschnitt('Zugeordnet', zugeordnet, (p) => zuordnungKarte(p, true))}
-      ${abschnitt('Vorschlag — bitte bestätigen', vorschlag, (p) => zuordnungKarte(p, false))}
+      ${abschnitt('Vorschlag: bitte bestätigen', vorschlag, (p) => zuordnungKarte(p, false))}
       ${abschnitt('Nicht zugeordnet', offen, offenKarte)}
       ${abschnitt('Nicht buchbar', nichtBuchbar, (p) => karte(p, `<small class="hinweis">${esc(p.grund)}</small>`), false)}
-      ${abschnitt('Bereits verbucht — wird übersprungen', doppelt, (p) => karte(p, `<small class="hinweis">${esc(p.grund)}</small>`), false)}
+      ${abschnitt('Bereits verbucht, wird übersprungen', doppelt, (p) => karte(p, `<small class="hinweis">${esc(p.grund)}</small>`), false)}
       ${posten.length ? '' : '<p class="hinweis">Die Datei enthält keine Buchungen.</p>'}`;
     zaehleAuswahl();
   }
@@ -526,13 +526,13 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
       const konten = [...new Set(gelesen.flatMap((g) => g.konten.map((k) => k.iban)).filter(Boolean))];
       const fremdesKonto = firma?.iban && konten.some((k) => k !== kompakt(firma.iban));
       const zeitraum = gelesen.flatMap((g) => g.konten)
-        .map((k) => [k.von, k.bis].filter(Boolean).map(formatTag).join('–')).filter(Boolean);
+        .map((k) => [k.von, k.bis].filter(Boolean).map(formatTag).join(' bis ')).filter(Boolean);
       const dateiInfo = `
         <p class="hinweis">${gelesen.map((g) => esc(g.version)).join(', ')} · Konto ${
-          konten.map((k) => esc(formatIban(k))).join(', ') || '—'}${
+          konten.map((k) => esc(formatIban(k))).join(', ') || '-'}${
           zeitraum.length ? ` · ${esc([...new Set(zeitraum)].join(', '))}` : ''} · ${posten.length} Buchungen</p>
         ${fremdesKonto ? `<p class="hinweis skonto-chance">⚠ Konto weicht von der IBAN in den
-          Firmendaten ab (${esc(formatIban(firma.iban))}) — richtiges Konto?</p>` : ''}`;
+          Firmendaten ab (${esc(formatIban(firma.iban))}), richtiges Konto?</p>` : ''}`;
       meldung.textContent = '';
       zeichne(dateiInfo);
     } catch (fehler) {

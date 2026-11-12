@@ -198,7 +198,7 @@ const PROTOKOLL_TYPEN = [
     name: 'Kalibrierprotokoll',
     unterschriften: ['Unternehmer', 'Bauleitung', 'Bauherr / Betreiber'],
     kartenTitel: (werte) => `Kalibrierung${
-      werte.von || werte.bis ? ` · ${[werte.von, werte.bis].filter(Boolean).join(' – ')}` : ''}`,
+      werte.von || werte.bis ? ` · ${[werte.von, werte.bis].filter(Boolean).join(' bis ')}` : ''}`,
     kartenInfo: (werte) => {
       const rohre = werte.rohre || [];
       if (!rohre.length) return 'Noch keine Rohre geprüft.';
@@ -533,7 +533,7 @@ const NACH_SPEICHERN = {
         baustelleId: baustelle.baustelleId,
         tag: 'Mangel',
         ortKv: '',
-        notiz: `${mangel.punkt}${mangel.bemerkung ? ' — ' + mangel.bemerkung : ''}`,
+        notiz: `${mangel.punkt}${mangel.bemerkung ? ', ' + mangel.bemerkung : ''}`,
         quelleText: `Aus ${doc.werte?.art || 'Begehung'} vom ${formatTag(doc.werte?.datum)}`,
         begehungRef: ref,
         protokollId: doc._id,
@@ -545,8 +545,8 @@ const NACH_SPEICHERN = {
     if (!neu) return 'Alle Mängel sind bereits im Journal.';
     return `${neu} Mangel-Ereignis${neu === 1 ? '' : 'se'} im Journal erstellt`
       + (wiederholte
-        ? ` — ⚠ ${wiederholte} davon ${wiederholte === 1 ? 'ist ein Wiederholungsmangel' : 'sind Wiederholungsmängel'}!`
-        : ' — Fotos dort ergänzen.');
+        ? `, ⚠ ${wiederholte} davon ${wiederholte === 1 ? 'ist ein Wiederholungsmangel' : 'sind Wiederholungsmängel'}!`
+        : '. Fotos dort ergänzen.');
   },
 };
 
@@ -573,7 +573,7 @@ export default {
     // Anlege-Auswahl: Typen und ihre Vorlagen als eigene Einträge.
     const anlegeOptionen = PROTOKOLL_TYPEN.flatMap((typ) => (typ.vorlagen?.length
       ? typ.vorlagen.map((v, i) => ({
-          wert: `${typ.unterTyp}::${i}`, text: `${typ.name} — ${v.name}`,
+          wert: `${typ.unterTyp}::${i}`, text: `${typ.name}, ${v.name}`,
         }))
       : [{ wert: typ.unterTyp, text: typ.name }]));
 

@@ -1,7 +1,7 @@
 {
   "name": "Lünse",
   "short_name": "Lünse",
-  "description": "Baustellen-Journal für den Bauführer-Alltag — offline, Daten bleiben auf dem Gerät.",
+  "description": "Baustellen-Journal für den Bauführer-Alltag: offline, Daten bleiben auf dem Gerät.",
   "lang": "de-CH",
   "start_url": ".",
   "scope": ".",

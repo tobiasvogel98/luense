@@ -140,7 +140,7 @@ export default {
             placeholder="z. B. sonnig, 18 °C"></label>
 
           <div class="gruppe team-bereich">
-            <p class="gruppen-label">Team des Tages — antippen, wer dabei war</p>
+            <p class="gruppen-label">Team des Tages: antippen, wer dabei war</p>
             <div class="chips" data-rolle="team-chips"></div>
             <div class="feld-reihe">
               <label>Weitere Person (temporär/fremd)<input data-rolle="team-eigen"
@@ -189,7 +189,7 @@ export default {
 
         <div class="knopfzeile">
           <button type="button" class="knopf" data-aktion="regie-export"
-            title="Alle Regierapporte dieser Baustelle — öffnet direkt in Excel">
+            title="Alle Regierapporte dieser Baustelle, öffnet direkt in Excel">
             Excel-Export Regierapporte</button>
         </div>
         <div data-rolle="liste"></div>
@@ -242,14 +242,14 @@ export default {
                 ${team.includes(name) ? 'checked' : ''}>
               <span>${esc(name)}</span>
             </label>`).join('')
-        : '<p class="hinweis">Noch keine Mitarbeiter im Personal-Stamm — unten von Hand ergänzen.</p>';
+        : '<p class="hinweis">Noch keine Mitarbeiter im Personal-Stamm, unten von Hand ergänzen.</p>';
     }
 
     // Matrix-Zellen: eine Stunden-Eingabe je Name (Personen oder Geräte).
     function matrixHtml(artKlasse, datenAttr, namen, werte) {
       if (!namen.length) {
         return `<p class="hinweis">${artKlasse === 'personen'
-          ? 'Zuerst oben das Team antippen.' : 'Kein Gerät im Stamm — Zeile unten nutzen.'}</p>`;
+          ? 'Zuerst oben das Team antippen.' : 'Kein Gerät im Stamm, Zeile unten nutzen.'}</p>`;
       }
       return `<div class="stunden-matrix">${namen.map((name) => `
         <label class="matrix-zelle">
@@ -474,17 +474,17 @@ export default {
       }
       let text = '';
       if (treffer && schalter.checked && schalter.dataset.auto) {
-        text = `Regie erkannt: «${treffer}» — abwählen, falls es keine Regie ist.`;
+        text = `Regie erkannt: «${treffer}», abwählen, falls es keine Regie ist.`;
       } else if (treffer && !schalter.checked) {
         text = gesperrt
-          ? `Regie-Hinweis «${treffer}» — Rapport ist bereits unterschrieben, `
+          ? `Regie-Hinweis «${treffer}», Rapport ist bereits unterschrieben, `
             + 'Häkchen nicht automatisch gesetzt. Bitte separat prüfen (Nachtrag).'
-          : `Regie-Hinweis «${treffer}» — Regie von Hand ausgeschaltet.`;
+          : `Regie-Hinweis «${treffer}», Regie von Hand ausgeschaltet.`;
       } else if (!treffer && !schalter.checked) {
         // Schaden allein kann Unternehmerverschulden sein: nur fragen.
         const schaden = schadenTreffer(blockTexte(block));
         if (schaden) {
-          text = `Leitungsschaden («${schaden}») – Regie prüfen? War die Leitung `
+          text = `Leitungsschaden («${schaden}»): Regie prüfen? War die Leitung `
             + 'nicht ersichtlich/nicht im Plan, «Regie» antippen.';
         }
       }
@@ -502,12 +502,12 @@ export default {
       const regieDa = [...arbeitenElement.querySelectorAll('[data-feld="regie"]')]
         .some((s) => s.checked);
       hinweis.textContent = treffer && !regieDa
-        ? `Regie-Hinweis in den Bemerkungen: «${treffer}» — bitte bei der `
+        ? `Regie-Hinweis in den Bemerkungen: «${treffer}», bitte bei der `
           + 'betreffenden Arbeit «Regie» antippen.'
         : '';
       const schaden = !treffer && !regieDa && schadenTreffer(formular.elements.bemerkungen.value);
       if (schaden) {
-        hinweis.textContent = `Leitungsschaden («${schaden}») in den Bemerkungen – Regie prüfen? `
+        hinweis.textContent = `Leitungsschaden («${schaden}») in den Bemerkungen: Regie prüfen? `
           + 'War die Leitung nicht ersichtlich/nicht im Plan, bei der Arbeit «Regie» antippen.';
       }
       hinweis.hidden = !hinweis.textContent;
@@ -564,7 +564,7 @@ export default {
       fotoEingabe.value = '';
       const anzahlFotos = Object.keys(rapport?._attachments || {}).length;
       formular.querySelector('[data-rolle="foto-hinweis"]').textContent = anzahlFotos
-        ? `${anzahlFotos} Foto${anzahlFotos > 1 ? 's' : ''} am Rapport — neue kommen dazu.`
+        ? `${anzahlFotos} Foto${anzahlFotos > 1 ? 's' : ''} am Rapport, neue kommen dazu.`
         : 'Noch kein Foto gewählt.';
       nummeriereArbeiten();
       pruefungUebersprungen = false;
@@ -604,7 +604,7 @@ export default {
         const wert = mitStunden
           ? (String(z.stunden).trim() ? ` ${stundenText(zahl(z.stunden))}` : '')
           : ([z.menge, z.einheit].filter(Boolean).join(' ') ? ` ${[z.menge, z.einheit].filter(Boolean).join(' ')}` : '');
-        return `${esc(z.name || '—')}${wert}`;
+        return `${esc(z.name || '-')}${wert}`;
       }).join(', ');
     }
 
@@ -633,7 +633,7 @@ export default {
               <button type="button" class="knopf eintrag-loeschen" data-aktion="pdf"
                 data-id="${esc(r._id)}">PDF</button>
               <button type="button" class="knopf eintrag-loeschen" data-aktion="uebergeben"
-                data-id="${esc(r._id)}" title="Rapport als Datei an den Bauführer senden —
+                data-id="${esc(r._id)}" title="Rapport als Datei an den Bauführer senden,
                 dort über «Import» einlesen">Übergeben</button>
               <button type="button" class="knopf eintrag-loeschen" data-aktion="bearbeiten"
                 data-id="${esc(r._id)}">Bearbeiten</button>
@@ -646,7 +646,7 @@ export default {
             ? `<p class="hinweis">${[r.mitarbeiter, r.wetter].filter(Boolean).map(esc).join(' · ')}</p>` : ''}
           ${(r.arbeiten || []).map((arbeit, i) => `
             <div class="rapport-arbeit">
-              <p class="arbeit-titel">${i + 1}. ${esc(arbeit.text || '—')}${
+              <p class="arbeit-titel">${i + 1}. ${esc(arbeit.text || '-')}${
                 arbeit.regie ? ' <span class="chip regie-chip">Regie</span>' : ''}</p>
               ${arbeit.personen?.length ? `<p class="hinweis">Personen: ${gruppenText(arbeit.personen, true)}</p>` : ''}
               ${arbeit.maschinen?.length ? `<p class="hinweis">Maschinen: ${gruppenText(arbeit.maschinen, true)}</p>` : ''}
@@ -681,7 +681,7 @@ export default {
       return `
         <p class="regie-erkannt regie-warnung">⚠ Regie-Hinweis nicht verbucht: ${hinweise
           .map((h) => `${esc(h.ort)} «${esc(h.treffer)}»`).join(', ')}${
-          istUnterschrieben(r) ? ' — Rapport ist unterschrieben, bitte separat prüfen (Nachtrag).' : ''}
+          istUnterschrieben(r) ? ', Rapport ist unterschrieben, bitte separat prüfen (Nachtrag).' : ''}
           <button type="button" class="knopf eintrag-loeschen" data-aktion="bearbeiten"
             data-id="${esc(r._id)}">Prüfen</button></p>`;
     }
@@ -776,7 +776,7 @@ export default {
     async function oeffneNachtragZuordnung(rapport) {
       const nachtraege = await abfrage({ typ: 'nachtrag', baustelleId: baustelle.baustelleId });
       if (!nachtraege.length) {
-        alert('Noch keine Nachträge auf dieser Baustelle — zuerst im Nachträge-Tab anlegen.');
+        alert('Noch keine Nachträge auf dieser Baustelle, zuerst im Nachträge-Tab anlegen.');
         return;
       }
       const dialog = document.createElement('div');
@@ -872,7 +872,7 @@ export default {
           basis: { art: 'regierapport', id: rapport._id, label: `vom ${formatTag(rapport.tag)}` },
         });
         dialog.remove();
-        meldung.textContent = `Rechnung ${rechnung.nummer} erstellt — im Modul Rechnungen stellen.`;
+        meldung.textContent = `Rechnung ${rechnung.nummer} erstellt, im Modul Rechnungen stellen.`;
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
       });
@@ -1022,7 +1022,7 @@ export default {
           return {
             tagText: formatTag(r.tag),
             mitarbeiter: r.mitarbeiter || '',
-            arbeitenText: (r.arbeiten || []).map((a) => a.text).filter(Boolean).join('; ') || '—',
+            arbeitenText: (r.arbeiten || []).map((a) => a.text).filter(Boolean).join('; ') || '-',
             personen: t.personen,
             maschinen: t.maschinen,
             fremdleistungen: t.fremdleistungen,
@@ -1067,7 +1067,7 @@ export default {
           { type: 'application/json' },
         );
         if (await teileDatei(datei, `Tagesrapport ${formatTag(rapport.tag)}`)) {
-          meldung.textContent = `Rapport vom ${formatTag(rapport.tag)} übergeben — `
+          meldung.textContent = `Rapport vom ${formatTag(rapport.tag)} übergeben, `
             + 'der Empfänger liest ihn über «Import» ein.';
         }
       } else if (knopf.dataset.aktion === 'rechnung-erstellen') {
@@ -1079,7 +1079,7 @@ export default {
         const ueberNachtrag = nachtraegeMitVerrechnung(rapport._id, nachtraege, rechnungen);
         if (ueberNachtrag.length) {
           meldung.textContent = `Bereits verrechnet über Nachtrag ${ueberNachtrag
-            .map((n) => n.nummer).join(', ')} — keine zweite Rechnung.`;
+            .map((n) => n.nummer).join(', ')}, keine zweite Rechnung.`;
           await zeichneListe();
           return;
         }
@@ -1137,22 +1137,22 @@ export default {
       if (!pruefungUebersprungen) {
         const punkte = [];
         if (neu.length) {
-          punkte.push(`Regie automatisch angekreuzt bei Arbeit ${neu.join(', ')} — `
+          punkte.push(`Regie automatisch angekreuzt bei Arbeit ${neu.join(', ')}, `
             + 'Begründung steht bei der Arbeit. Falls keine Regie: Häkchen dort abwählen.');
         }
         if (bemerkung && !ignoriert) {
           punkte.push(`In den Bemerkungen steht «${bemerkung}», aber keine Arbeit ist als `
-            + 'Regie markiert. Bei der betreffenden Arbeit «Regie» antippen — oder ohne Regie speichern.');
+            + 'Regie markiert. Bei der betreffenden Arbeit «Regie» antippen, oder ohne Regie speichern.');
         }
         if (istUnterschrieben(inBearbeitung)) {
           regieHinweiseRapport({ ...inBearbeitung, arbeiten, bemerkungen: '' })
-            .forEach((h) => punkte.push(`${h.ort}: «${h.treffer}» — Rapport ist unterschrieben, `
+            .forEach((h) => punkte.push(`${h.ort}: «${h.treffer}», Rapport ist unterschrieben, `
               + 'nicht automatisch als Regie verbucht. Bitte separat prüfen (Nachtrag).'));
         }
         [...arbeitenElement.querySelectorAll('[data-rolle="arbeit"]')].forEach((block, i) => {
           if (!block.querySelector('[data-feld="regie"]').checked) return;
           if (!totale([arbeitAusBlock(block)]).regie) {
-            punkte.push(`Arbeit ${i + 1} ist Regie, hat aber keine Stunden — `
+            punkte.push(`Arbeit ${i + 1} ist Regie, hat aber keine Stunden, `
               + 'so wird keine Regie verbucht. Stunden bei dieser Arbeit eintragen.');
           }
         });
@@ -1218,7 +1218,7 @@ export default {
         }
         await fuelleFormular(null); // erst zurücksetzen, dann melden —
         meldung.textContent = pendenzErstellt // sonst löscht der Reset die Meldung
-          ? 'Rapport gespeichert — Pendenz «Regierapport unterschreiben lassen» erstellt.'
+          ? 'Rapport gespeichert, Pendenz «Regierapport unterschreiben lassen» erstellt.'
           : 'Rapport gespeichert.';
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();

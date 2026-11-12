@@ -110,7 +110,7 @@ export function mwstNrWarnung(firma) {
   if (satz <= 0 || String(firma?.mwstNr ?? '').trim()) return '';
   return `⚠ MWST ${satz.toLocaleString('de-CH', { maximumFractionDigits: 4 })} % wird verrechnet, `
     + 'aber in den Firmendaten fehlt die MWST-Nr. (CHE-…). Sie gehört auf jede '
-    + 'Rechnung mit MWST — bitte unter ⚙ Firmendaten nachtragen.';
+    + 'Rechnung mit MWST, bitte unter ⚙ Firmendaten nachtragen.';
 }
 
 export async function ladeFirma() {
@@ -135,7 +135,7 @@ export async function speichereFirma(felder) {
   if (!doc.name) throw new Error('Firmenname ist ein Pflichtfeld.');
   if (doc.mwstSatz) {
     const satz = mwstSatzAus(doc.mwstSatz);
-    if (satz === null) throw new Error('MWST-Satz ungültig — Prozent zwischen 0 und 99.9, z. B. 8.1.');
+    if (satz === null) throw new Error('MWST-Satz ungültig, Prozent zwischen 0 und 99.9, z. B. 8.1.');
     doc.mwstSatz = String(satz);
   }
   for (const feld of MAHN_FELDER) {
@@ -148,7 +148,7 @@ export async function speichereFirma(felder) {
     throw new Error('Mahnfristen müssen aufsteigen: Zahlungserinnerung < 1. Mahnung < 2. Mahnung.');
   }
   if (doc.iban && !istGueltigeIban(doc.iban)) {
-    throw new Error('IBAN ungültig — Prüfziffer stimmt nicht. Bitte genau abschreiben.');
+    throw new Error('IBAN ungültig, Prüfziffer stimmt nicht. Bitte genau abschreiben.');
   }
   return put(doc);
 }
@@ -183,7 +183,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
         <summary>Firmendaten (Rechnungen, QR-Zahlteil)</summary>
         <form class="formular" data-rolle="firma-formular">
           <p class="hinweis">Absender der Rechnungen und Zahlungsempfänger im
-            QR-Zahlteil. Die IBAN wird mit der Prüfziffer kontrolliert — normale
+            QR-Zahlteil. Die IBAN wird mit der Prüfziffer kontrolliert, normale
             IBAN des Geschäftskontos, keine QR-IBAN.</p>
           <label>Firmenname *<input name="name" required autocomplete="organization"></label>
           <div class="feld-reihe">
@@ -210,7 +210,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
           </div>
           <p class="mwst-warnung" data-rolle="mwst-nr-warnung" role="alert" hidden></p>
           <p class="hinweis">Der MWST-Satz gilt für neue Rechnungen und Offerten und wird
-            dort beim Erstellen festgehalten — bestehende behalten ihren Satz.
+            dort beim Erstellen festgehalten, bestehende behalten ihren Satz.
             0 = ohne MWST.</p>
           <fieldset class="mahn-fristen">
             <legend>Mahnfristen [Tage ab Rechnungsdatum]</legend>
@@ -244,7 +244,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
       <details class="karte import">
         <summary>Gerätemodus (Polier-Modus)</summary>
         <p class="hinweis">Im <b>Polier-Modus</b> zeigt dieses Gerät nur die
-          Tagesrapporte — schnell und übersichtlich für die Stundenerfassung.
+          Tagesrapporte, schnell und übersichtlich für die Stundenerfassung.
           Erfasste Rapporte gehen per «Übergeben»-Knopf an den Bauführer.
           Einrichtung: Baustellen vorher per Lünse-Backup-Import übernehmen
           (Import-Knopf), damit die Rapporte zur richtigen Baustelle passen.
@@ -392,7 +392,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
     } else if (!istGueltigeIban(iban)) {
       ibanPruefung.textContent = '✗ IBAN ungültig (Prüfziffer oder Länge).';
     } else if (istQrIban(iban)) {
-      ibanPruefung.textContent = '⚠ Das ist eine QR-IBAN — für SCOR-Referenzen die normale IBAN eintragen.';
+      ibanPruefung.textContent = '⚠ Das ist eine QR-IBAN, für SCOR-Referenzen die normale IBAN eintragen.';
     } else {
       ibanPruefung.textContent = `✓ IBAN gültig: ${formatIban(iban)}`;
     }

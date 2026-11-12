@@ -109,15 +109,15 @@ export function berechneTeil(L, teil) {
   const warnings = [];
   pipes.forEach((p, i) => {
     if (p.z - p.d / 2000 < hBett - 1e-6) {
-      warnings.push(`${teil.name} – Rohr ${i + 1}: liegt in der Bettung`);
+      warnings.push(`${teil.name}, Rohr ${i + 1}: liegt in der Bettung`);
     }
     if (p.z + p.d / 2000 + hUeber > H + 1e-6) {
-      warnings.push(`${teil.name} – Rohr ${i + 1}: Überdeckung ragt aus dem Graben`);
+      warnings.push(`${teil.name}, Rohr ${i + 1}: Überdeckung ragt aus dem Graben`);
     }
     // Seitlich: beim V-Graben ist die Breite an der unteren Rohrkante massgebend.
     const halbeBreite = breiteBei(teil, Math.max(0, p.z - p.d / 2000)) / 2;
     if (Math.abs(p.x) + p.d / 2000 > halbeBreite + 1e-6) {
-      warnings.push(`${teil.name} – Rohr ${i + 1}: ragt seitlich aus dem Graben`);
+      warnings.push(`${teil.name}, Rohr ${i + 1}: ragt seitlich aus dem Graben`);
     }
   });
   return {

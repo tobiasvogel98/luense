@@ -199,7 +199,7 @@ export default {
       const kacheln = [
         { titel: 'offen', liste: kreditoren.filter((k) => k.status === 'offen'), wert: summe },
         { titel: 'visiert', liste: kreditoren.filter((k) => k.status === 'visiert'), wert: summe },
-        ...(teil.length ? [{ titel: 'teilbezahlt — Rest', liste: teil, wert: summeOffen }] : []),
+        ...(teil.length ? [{ titel: 'teilbezahlt, Rest', liste: teil, wert: summeOffen }] : []),
         { titel: 'bezahlt', liste: kreditoren.filter((k) => k.status === 'bezahlt'), wert: summe, gruen: true },
       ];
       kachelnElement.innerHTML = kacheln.map((k) => `
@@ -216,7 +216,7 @@ export default {
         const naechste = nutzbar.map(({ w }) => w.skontoTag).sort()[0];
         skontoHinweis.hidden = false;
         skontoHinweis.textContent = `💡 Skonto nutzbar auf ${nutzbar.length} `
-          + `Rechnung${nutzbar.length > 1 ? 'en' : ''}: ${chf(ersparnis)} sparen — `
+          + `Rechnung${nutzbar.length > 1 ? 'en' : ''}: ${chf(ersparnis)} sparen, `
           + `nächste Frist ${formatTag(naechste)}.`;
       } else {
         skontoHinweis.hidden = true;
@@ -233,7 +233,7 @@ export default {
       if (!kreditoren.length) {
         tabelleElement.innerHTML = `
           <p class="hinweis">Noch keine Lieferantenrechnungen auf dieser Baustelle.
-            Erfassen, Beleg fotografieren, visieren, bezahlen — die Selbstkosten
+            Erfassen, Beleg fotografieren, visieren, bezahlen: die Selbstkosten
             sammeln sich hier statt im Bürostapel.</p>`;
         return;
       }
@@ -258,13 +258,13 @@ export default {
                     <td class="kein-umbruch">${formatTag(k.tag)}</td>
                     <td class="kein-umbruch">${esc(k.kostenart)}</td>
                     <td class="zahl">${betragZelle(k)}</td>
-                    <td class="zahl">${k.status === 'bezahlt' ? '—' : chf(w.rest)}</td>
+                    <td class="zahl">${k.status === 'bezahlt' ? '-' : chf(w.rest)}</td>
                     <td class="kein-umbruch">${w.skontoTag
                       ? `${formatTag(w.skontoTag)}${w.skontoNutzbar
                           ? `<br><small class="skonto-chance">− ${chf(w.skontoBetrag)}</small>`
                           : (k.skontoGenutzt
                             ? '<br><small class="gewinn">genutzt ✓</small>' : '')}`
-                      : '—'}</td>
+                      : '-'}</td>
                     <td class="kein-umbruch">${k.status === 'bezahlt'
                       ? `bezahlt ${formatTag(k.bezahltAm)}`
                       : `${formatTag(w.faelligTag)}${w.ueberfaellig
@@ -359,14 +359,14 @@ export default {
                 const b = ktr.get(k.baustelleId);
                 return `
                   <tr class="${w.ueberfaellig ? 'zeile-ueberfaellig' : ''}">
-                    <td class="kein-umbruch"><b>${formatTag(frist) || '—'}</b>${w.skontoNutzbar
+                    <td class="kein-umbruch"><b>${formatTag(frist) || '-'}</b>${w.skontoNutzbar
                       ? '<br><small class="skonto-chance">Skonto</small>'
                       : (w.ueberfaellig ? '<br><span class="ueberfaellig">überfällig</span>' : '')}</td>
-                    <td class="kein-umbruch">${esc(b?.ktr || '—')}<br><small class="hinweis">${esc(b?.name || '')}</small></td>
+                    <td class="kein-umbruch">${esc(b?.ktr || '-')}<br><small class="hinweis">${esc(b?.name || '')}</small></td>
                     <td class="kein-umbruch"><b>${esc(k.lieferant)}</b><br><small class="hinweis">${esc(k.rechnungsNr)}</small></td>
                     <td class="zahl"><b>${chf(w.rest)}</b>${w.skontoNutzbar
                       ? `<br><small class="skonto-chance">mit Skonto ${chf(w.rest - w.skontoBetrag)}</small>` : ''}</td>
-                    <td class="kein-umbruch">${w.skontoTag ? formatTag(w.skontoTag) : '—'}</td>
+                    <td class="kein-umbruch">${w.skontoTag ? formatTag(w.skontoTag) : '-'}</td>
                     <td class="kein-umbruch">${formatTag(w.faelligTag)}</td>
                     <td class="kein-umbruch">${esc(k.status)}</td>
                     <td class="kein-umbruch"><small>${k.iban ? esc(formatIban(k.iban)) : '<span class="hinweis">IBAN fehlt</span>'}${
@@ -382,7 +382,7 @@ export default {
               </tr>
             </tbody>
           </table>
-        </div>` : '<p class="hinweis">Keine offenen Kreditoren — alles bezahlt.</p>'}`;
+        </div>` : '<p class="hinweis">Keine offenen Kreditoren, alles bezahlt.</p>'}`;
     }
 
     async function zeichneTabelle() {
@@ -492,7 +492,7 @@ export default {
           </label>
           <p class="hinweis" data-rolle="beleg-hinweis">${
             kreditor && belegAnzahl(kreditor)
-              ? `${belegAnzahl(kreditor)} Beleg${belegAnzahl(kreditor) > 1 ? 'e' : ''} vorhanden — neue kommen dazu.`
+              ? `${belegAnzahl(kreditor)} Beleg${belegAnzahl(kreditor) > 1 ? 'e' : ''} vorhanden, neue kommen dazu.`
               : 'Noch kein Beleg gewählt.'}</p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Rechnung speichern</button>
@@ -560,9 +560,9 @@ export default {
       const vonHand = Boolean(formular.dataset.vorsteuerHand);
       const soll = leer('netto') ? 0 : prozentVonRappen(rappen(el.netto.value), satz);
       hinweis.innerHTML = vonHand && rappen(el.vorsteuer.value) !== soll
-        ? `Vorsteuer von Hand (gerechnet wären ${chf(soll / 100)}) —
+        ? `Vorsteuer von Hand (gerechnet wären ${chf(soll / 100)}),
           <button type="button" class="knopf eintrag-loeschen" data-aktion="vorsteuer-rechnen">neu rechnen</button>`
-        : 'Brutto = netto + Vorsteuer — darauf laufen Zahlung, Skonto und Kontoauszug-Abgleich.';
+        : 'Brutto = netto + Vorsteuer, darauf laufen Zahlung, Skonto und Kontoauszug-Abgleich.';
     }
 
     // Live-Hinweise: Fälligkeit/Skontofrist als Datum, IBAN und Referenz geprüft.
@@ -580,9 +580,9 @@ export default {
       const ref = kompakt(el.referenz.value);
       const art = referenzArt(ref);
       formular.querySelector('[data-rolle="bank-pruefung"]').textContent = [
-        iban ? (istGueltigeIban(iban) ? '✓ IBAN gültig' : '✗ IBAN ungültig — bitte prüfen') : '',
+        iban ? (istGueltigeIban(iban) ? '✓ IBAN gültig' : '✗ IBAN ungültig, bitte prüfen') : '',
         ref ? ({ QRR: '✓ QR-Referenz gültig', SCOR: '✓ SCOR-Referenz gültig' }[art]
-          || '⚠ Referenz ohne gültige Prüfziffer — wird als Text abgeglichen') : '',
+          || '⚠ Referenz ohne gültige Prüfziffer, wird als Text abgeglichen') : '',
       ].filter(Boolean).join(' · ');
     }
 
@@ -617,18 +617,18 @@ export default {
       }
       const info = formular.querySelector('[data-rolle="qr-info"]');
       info.hidden = false;
-      info.textContent = `QR gelesen: ${daten.lieferant || '—'} · `
-        + `${daten.waehrung || 'CHF'} ${daten.betrag || '—'} brutto · IBAN ${daten.iban || '—'}`
+      info.textContent = `QR gelesen: ${daten.lieferant || '-'} · `
+        + `${daten.waehrung || 'CHF'} ${daten.betrag || '-'} brutto · IBAN ${daten.iban || '-'}`
         + (daten.skontoProzent ? ` · Skonto ${daten.skontoProzent} % / ${daten.skontoTage} Tage` : '')
-        + ' — netto und Vorsteuer bitte mit der Rechnung prüfen, Kostenart wählen.';
+        + ', netto und Vorsteuer bitte mit der Rechnung prüfen, Kostenart wählen.';
     }
 
     // Scan-Dialog: Kamera live (Handy) oder QR aus einem Foto (Rückfallebene).
     // Nutzt die native BarcodeDetector-API — offline, keine Bibliothek.
     async function oeffneQrScan(formular) {
       if (!('BarcodeDetector' in window)) {
-        alert('Dieses Gerät kann QR-Codes nicht direkt lesen (BarcodeDetector fehlt) '
-          + '— am Handy scannen oder die Werte von Hand eintragen.');
+        alert('Dieses Gerät kann QR-Codes nicht direkt lesen (BarcodeDetector fehlt). '
+          + 'Am Handy scannen oder die Werte von Hand eintragen.');
         return;
       }
       const erkenner = new BarcodeDetector({ formats: ['qr_code'] });
@@ -662,7 +662,7 @@ export default {
       const verarbeite = (rohtext) => {
         const daten = parseSwissQr(rohtext);
         if (!daten) {
-          status.textContent = 'QR-Code gefunden, aber keine Schweizer QR-Rechnung — weiter versuchen.';
+          status.textContent = 'QR-Code gefunden, aber keine Schweizer QR-Rechnung, weiter versuchen.';
           return false;
         }
         uebernehmeQr(formular, daten);
@@ -681,7 +681,7 @@ export default {
           const treffer = await erkenner.detect(bild);
           if (!treffer.length || !verarbeite(treffer[0].rawValue)) {
             status.textContent = treffer.length ? status.textContent
-              : 'Kein QR-Code im Foto gefunden — näher und gerade fotografieren.';
+              : 'Kein QR-Code im Foto gefunden, näher und gerade fotografieren.';
           }
         } catch {
           status.textContent = 'Foto konnte nicht gelesen werden.';
@@ -711,7 +711,7 @@ export default {
         video.addEventListener('loadeddata', starteSuche, { once: true });
         setTimeout(starteSuche, 1000); // Rückfallebene, falls das Ereignis ausbleibt
       } catch {
-        status.textContent = 'Keine Kamera verfügbar — «Aus Foto lesen» nutzen.';
+        status.textContent = 'Keine Kamera verfügbar, «Aus Foto lesen» nutzen.';
       }
     }
 
@@ -730,7 +730,7 @@ export default {
       try {
         const el = formular.elements;
         const satz = mwstSatzAus(el.vorsteuerSatz.value);
-        if (satz === null) throw new Error('Vorsteuer-Satz ungültig — Prozent zwischen 0 und 99.9, z. B. 8.1.');
+        if (satz === null) throw new Error('Vorsteuer-Satz ungültig, Prozent zwischen 0 und 99.9, z. B. 8.1.');
         if (String(el.netto.value).trim() === '') throw new Error('Netto-Betrag fehlt.');
         const nettoRp = rappen(el.netto.value);
         const vorsteuerRp = String(el.vorsteuer.value).trim() === ''
@@ -746,7 +746,7 @@ export default {
           if (doppelt && !confirm(`Achtung: ${lieferant} · ${rechnungsNr} ist bereits `
             + `erfasst (${formatTag(doppelt.tag)}, ${chf(zahl(doppelt.betrag))} inkl. MWST). `
             + 'Trotzdem speichern?')) {
-            meldung.textContent = 'Nicht gespeichert — vermutlich Doppelerfassung.';
+            meldung.textContent = 'Nicht gespeichert, vermutlich Doppelerfassung.';
             return;
           }
         }
@@ -793,7 +793,7 @@ export default {
         }
         schliesseFormular();
         meldungElement.textContent = dateien.length
-          ? `Rechnung gespeichert — ${dateien.length} Beleg${dateien.length > 1 ? 'e' : ''} angehängt.`
+          ? `Rechnung gespeichert, ${dateien.length} Beleg${dateien.length > 1 ? 'e' : ''} angehängt.`
           : 'Rechnung gespeichert.';
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneTabelle();
@@ -872,20 +872,20 @@ export default {
           <h3>Visum · ${esc(kreditor.lieferant)} ${esc(kreditor.rechnungsNr)}</h3>
           <p class="hinweis visum-betrag">netto ${chf(kreditorBetraege(kreditor).netto)} exkl. MWST
             · brutto ${chf(kreditorBetraege(kreditor).brutto)} inkl. MWST</p>
-          <p class="gruppen-label">Lieferschein-Abgleich — Material aus den Tagesrapporten</p>
+          <p class="gruppen-label">Lieferschein-Abgleich: Material aus den Tagesrapporten</p>
           ${gezeigt.length ? `
             <div class="beweis-liste">
               ${gezeigt.map((m) => `
                 <label class="beweis-zeile">
                   <input type="checkbox">
-                  <span>${m.tag ? m.tag.split('-').reverse().join('.') + ' · ' : ''}${esc(m.name || '—')}${
+                  <span>${m.tag ? m.tag.split('-').reverse().join('.') + ' · ' : ''}${esc(m.name || '-')}${
                     [m.menge, m.einheit].filter(Boolean).length
                       ? ' · ' + [m.menge, m.einheit].filter(Boolean).map(esc).join(' ') : ''}</span>
                 </label>`).join('')}
             </div>
             ${materialZeilen.length > gezeigt.length ? `
               <p class="hinweis">… und ${materialZeilen.length - gezeigt.length} ältere Einträge.</p>` : ''}
-            <p class="hinweis">Haken dienen nur dem Abgleich beim Prüfen — gespeichert
+            <p class="hinweis">Haken dienen nur dem Abgleich beim Prüfen, gespeichert
               wird das Visum mit Bemerkung.</p>`
           : '<p class="hinweis">Keine Material-Einträge in den Rapporten dieser Baustelle.</p>'}
           <label>Visum-Bemerkung (optional)<input name="bemerkung" autocomplete="off"
@@ -1007,7 +1007,7 @@ export default {
           const w = kreditorWerte(kreditor);
           if (w.skontoNutzbar) {
             doc.skontoGenutzt = confirm(`Skonto nutzen? ${chf(w.skontoBetrag)} `
-              + `(${zahl(kreditor.skontoProzent)} %) — Frist läuft bis ${formatTag(w.skontoTag)}. `
+              + `(${zahl(kreditor.skontoProzent)} %), Frist läuft bis ${formatTag(w.skontoTag)}. `
               + `Zahlbetrag mit Skonto: ${chf(w.betrag - w.skontoBetrag)}.`);
           }
         }

@@ -15,7 +15,7 @@ function formatDatum(iso) {
 export async function oeffneBericht(baustelle) {
   const eintraege = await abfrage({ typ: 'ereignis', baustelleId: baustelle.baustelleId });
   if (!eintraege.length) {
-    alert('Noch keine Einträge auf dieser Baustelle — kein Bericht möglich.');
+    alert('Noch keine Einträge auf dieser Baustelle, kein Bericht möglich.');
     return;
   }
   const tags = [...new Set(eintraege.map((e) => e.tag).filter(Boolean))];
@@ -74,7 +74,7 @@ export async function oeffneBericht(baustelle) {
 
 async function zeigeDruckansicht(baustelle, eintraege, { von, bis }) {
   const zeitraum = von || bis
-    ? `${von ? formatDatum(von) : 'Anfang'} – ${bis ? formatDatum(bis) : 'heute'}`
+    ? `${von ? formatDatum(von) : 'Anfang'} bis ${bis ? formatDatum(bis) : 'heute'}`
     : 'alle Einträge';
 
   const ansicht = document.createElement('div');
@@ -90,7 +90,7 @@ async function zeigeDruckansicht(baustelle, eintraege, { von, bis }) {
 
     <div class="bericht">
       <header class="bericht-kopf">
-        <h1>Fotobericht ${esc(baustelle.ktr)} — ${esc(baustelle.name)}</h1>
+        <h1>Fotobericht ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h1>
         <p>
           ${baustelle.ort ? esc(baustelle.ort) + ' · ' : ''}${
             baustelle.bauherr ? 'Bauherr: ' + esc(baustelle.bauherr) + ' · ' : ''}
@@ -147,7 +147,7 @@ async function zeigeDruckansicht(baustelle, eintraege, { von, bis }) {
   const status = ansicht.querySelector('[data-rolle="lade-status"]');
   const einheit = (anzahl, einzahl, mehrzahl) =>
     `${anzahl} ${anzahl === 1 ? einzahl : mehrzahl}`;
-  status.textContent = `Bereit — ${einheit(eintraege.length, 'Eintrag', 'Einträge')}, ${
+  status.textContent = `Bereit: ${einheit(eintraege.length, 'Eintrag', 'Einträge')}, ${
     einheit(bilder.length, 'Foto', 'Fotos')}.`;
 }
 
@@ -184,7 +184,7 @@ function druckOverlay(inhalt) {
 }
 
 function druckZeile(name, wert, klasse = '') {
-  return `<div class="druck-zeile${klasse ? ` ${klasse}` : ''}"><span>${esc(name || '—')}</span>
+  return `<div class="druck-zeile${klasse ? ` ${klasse}` : ''}"><span>${esc(name || '-')}</span>
     <span class="punkte"></span><span class="druck-wert">${esc(wert)}</span></div>`;
 }
 
@@ -206,7 +206,7 @@ export function zeigeRapportDruck(baustelle, rapport, t, bilder = []) {
   const regieArbeiten = (rapport.arbeiten || []).filter((a) => a.regie);
   druckOverlay(`
     <header class="bericht-kopf">
-      <h1>Tagesrapport ${esc(baustelle.ktr)} — ${esc(baustelle.name)}</h1>
+      <h1>Tagesrapport ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h1>
       <p>${formatTagLang(rapport.tag)}${
         rapport.mitarbeiter ? ' · ' + esc(rapport.mitarbeiter) : ''}${
         rapport.wetter ? ' · ' + esc(rapport.wetter) : ''}${
@@ -215,7 +215,7 @@ export function zeigeRapportDruck(baustelle, rapport, t, bilder = []) {
 
     ${(rapport.arbeiten || []).map((arbeit, i) => `
       <section class="bericht-eintrag">
-        <h2>${i + 1}. ${esc(arbeit.text || '—')}${
+        <h2>${i + 1}. ${esc(arbeit.text || '-')}${
           arbeit.regie ? ' <span class="chip">Regie</span>' : ''}</h2>
         ${zeilenGruppe('Personen', arbeit.personen, 'stunden')}
         ${zeilenGruppe('Maschinen', arbeit.maschinen, 'stunden')}
@@ -234,12 +234,12 @@ export function zeigeRapportDruck(baustelle, rapport, t, bilder = []) {
 
     ${t.regie > 0 ? `
       <section class="regie-block">
-        <h2>Regie — separat ausgewiesen</h2>
+        <h2>Regie, separat ausgewiesen</h2>
         ${regieArbeiten.map((arbeit) => {
           const stunden = ['personen', 'maschinen', 'fremdleistungen']
             .flatMap((g) => arbeit[g] || [])
             .reduce((s, z) => s + (parseFloat(String(z.stunden ?? '').replace(',', '.')) || 0), 0);
-          return druckZeile(arbeit.text || '—', stundenText(stunden));
+          return druckZeile(arbeit.text || '-', stundenText(stunden));
         }).join('')}
         <div class="druck-zeile regie-total-zeile"><span><strong>Total Regie</strong></span>
           <span class="punkte"></span><span class="druck-wert"><strong>${
@@ -256,9 +256,9 @@ export function zeigeRapportDruck(baustelle, rapport, t, bilder = []) {
       <section class="bericht-eintrag">
         <h2>Absenzen & Reisezeit (LMV)</h2>
         ${(rapport.absenzen || []).map((a) =>
-          druckZeile(`${a.name} — ${a.art}`, `${a.stunden} h`)).join('')}
+          druckZeile(`${a.name}, ${a.art}`, `${a.stunden} h`)).join('')}
         ${(rapport.reisezeiten || []).map((z) =>
-          druckZeile(`${z.name} — Reisezeit`, `${z.minuten} min`)).join('')}
+          druckZeile(`${z.name}, Reisezeit`, `${z.minuten} min`)).join('')}
       </section>` : ''}
 
     ${bilder.length ? `
@@ -299,7 +299,7 @@ export function zeigeOffertDruck(offerte, lv) {
     </section>
 
     <div class="unterschriften">
-      <div>Lünse — Tobias Vogel</div>
+      <div>Lünse, Tobias Vogel</div>
       <div>Auftraggeber</div>
     </div>`);
 }
@@ -312,7 +312,7 @@ export function zeigeOffertDruck(offerte, lv) {
 export function zeigeProtokollDruck(baustelle, optionen) {
   druckOverlay(`
     <header class="bericht-kopf">
-      <h1>${esc(optionen.titel)} · ${esc(baustelle.ktr)} — ${esc(baustelle.name)}</h1>
+      <h1>${esc(optionen.titel)} · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h1>
       ${optionen.untertitel ? `<p>${esc(optionen.untertitel)}</p>` : ''}
     </header>
 
@@ -372,8 +372,8 @@ export function zeigeProtokollDruck(baustelle, optionen) {
 export function zeigeWochenDruck(baustelle, woche) {
   druckOverlay(`
     <header class="bericht-kopf">
-      <h1>Wochenrapport KW ${woche.kw} · ${esc(baustelle.ktr)} — ${esc(baustelle.name)}</h1>
-      <p>${esc(woche.von)} – ${esc(woche.bis)}${
+      <h1>Wochenrapport KW ${woche.kw} · ${esc(baustelle.ktr)} ${esc(baustelle.name)}</h1>
+      <p>${esc(woche.von)} bis ${esc(woche.bis)}${
         baustelle.ort ? ' · ' + esc(baustelle.ort) : ''}</p>
     </header>
 
@@ -390,7 +390,7 @@ export function zeigeWochenDruck(baustelle, woche) {
             <td class="zahl">${stundenText(z.personen)}</td>
             <td class="zahl">${stundenText(z.maschinen)}</td>
             <td class="zahl">${stundenText(z.fremdleistungen)}</td>
-            <td class="zahl">${z.regie ? stundenText(z.regie) : '—'}</td>
+            <td class="zahl">${z.regie ? stundenText(z.regie) : '-'}</td>
           </tr>`).join('')}
       </tbody>
       <tfoot>

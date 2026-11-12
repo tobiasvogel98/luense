@@ -44,7 +44,7 @@ export default {
       <section class="personal">
         <h2>Personal & LMV-Stunden</h2>
         <p class="hinweis">Baustellenübergreifend. Lohnklasse und Modell sind
-          Angaben nach LMV 2026 — Löhne rechnet der Treuhänder, Lünse liefert
+          Angaben nach LMV 2026. Löhne rechnet der Treuhänder, Lünse liefert
           die Stunden.</p>
 
         <form class="karte formular" data-rolle="mitarbeiter-formular">
@@ -65,8 +65,8 @@ export default {
               inputmode="decimal" step="0.05" min="0" value="${SOLL_PRO_TAG}"></label>
           </div>
           <p class="hinweis">Der Name muss den Personen-Einträgen in den
-            Tagesrapporten entsprechen — daraus entsteht das Stundenkonto.
-            Soll = Arbeitstage (Mo–Fr) × Tagessoll.</p>
+            Tagesrapporten entsprechen, daraus entsteht das Stundenkonto.
+            Soll = Arbeitstage (Mo bis Fr) × Tagessoll.</p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Speichern</button>
             <button type="button" class="knopf" data-aktion="abbrechen" hidden>Abbrechen</button>
@@ -80,7 +80,7 @@ export default {
         <details class="karte import">
           <summary>Geräte / Inventar pflegen</summary>
           <p class="hinweis">Die Geräteliste erscheint im Tagesrapport als
-            Antipp-Matrix — einheitliche Namen statt Tipperei. Auch
+            Antipp-Matrix, einheitliche Namen statt Tipperei. Auch
             Fremdleistungen (z. B. Lastwagen mit Chauffeur) können hier stehen.</p>
           <div data-rolle="geraete-liste"></div>
           <form class="feld-reihe geraet-form" data-rolle="geraet-form">
@@ -90,7 +90,7 @@ export default {
           </form>
           <details class="katalog-wahl" data-rolle="katalog-wahl">
             <summary>Aus Katalog übernehmen</summary>
-            <p class="hinweis">Übliche Maschinen, Geräte und Fremdleistungen —
+            <p class="hinweis">Übliche Maschinen, Geräte und Fremdleistungen,
               antippen, dann übernehmen. Bereits erfasste sind ausgegraut.</p>
             <label class="katalog-suche">Suchen<input type="search" data-rolle="katalog-suche"
               autocomplete="off" placeholder="z. B. Bagger, Lastwagen"></label>
@@ -136,7 +136,7 @@ export default {
         return `
           <article class="karte baustelle${m.archiviert ? ' archiviert' : ''}">
             <div class="baustelle-kopf">
-              <strong>${esc(m.name)}</strong> Lohnklasse ${esc(m.lohnklasse || '—')}
+              <strong>${esc(m.name)}</strong> Lohnklasse ${esc(m.lohnklasse || '-')}
               ${m.archiviert ? '<span class="chip">archiviert</span>' : ''}
             </div>
             <p class="hinweis">${modellLabel} (${von}…+${bis} h) ·
@@ -308,7 +308,7 @@ export default {
         <div class="karte">
           <h3>Stundenkonto · ${esc(mitarbeiter.name)}</h3>
           <p class="hinweis">${modellLabel} (Bandbreite ${von}…+${bis} h) ·
-            Soll ${soll} h je Arbeitstag Mo–Fr · Kumulation ab
+            Soll ${soll} h je Arbeitstag Mo bis Fr · Kumulation ab
             ${String(startMonat).padStart(2, '0')}.${jahr} (erster Monat mit Einträgen).</p>
           <label>Monat<input type="month" data-rolle="konto-monat" value="${monat}"></label>
           <div class="kachel-reihe">
@@ -321,7 +321,7 @@ export default {
               <span class="kachel-wert${ausserhalb ? ' verlust' : ''}">${saldo >= 0 ? '+' : ''}${stundenText(saldo)}</span></div>
           </div>
           ${ausserhalb ? `<p class="hinweis ueberfaellig">⚠ Saldo ausserhalb der
-            LMV-Bandbreite (${von}…+${bis} h) — Stunden ausgleichen oder auszahlen.</p>` : ''}
+            LMV-Bandbreite (${von}…+${bis} h), Stunden ausgleichen oder auszahlen.</p>` : ''}
           <p class="hinweis">${monatSamstag ? `Samstagsstunden im Monat:
             <b>${stundenText(monatSamstag)}</b> (25 % Zuschlag, meldepflichtig) · ` : ''}
             Reisezeit im Monat: ${monatReise} min (separat vom Konto, LMV-Staffel).</p>
@@ -336,10 +336,10 @@ export default {
                       <td class="kein-umbruch">${e.tag.split('-').reverse().join('.')}${
                         e.samstag ? ' <span class="skonto-chance">Sa</span>' : ''}</td>
                       <td class="kein-umbruch">${esc(e.ktr)}</td>
-                      <td class="zahl">${e.stunden ? stundenText(e.stunden) : '—'}</td>
+                      <td class="zahl">${e.stunden ? stundenText(e.stunden) : '-'}</td>
                       <td>${e.absenzen.length ? e.absenzen
-                        .map((a) => `${esc(a.art)} ${zahl(a.stunden)} h`).join(', ') : '—'}</td>
-                      <td class="zahl">${e.reiseMin ? `${e.reiseMin} min` : '—'}</td>
+                        .map((a) => `${esc(a.art)} ${zahl(a.stunden)} h`).join(', ') : '-'}</td>
+                      <td class="zahl">${e.reiseMin ? `${e.reiseMin} min` : '-'}</td>
                     </tr>`).join('')}
                   <tr class="summen-zeile">
                     <td colspan="2"><b>Total Monat</b></td>
@@ -415,8 +415,8 @@ export default {
       if (fremde.size) {
         listeElement.insertAdjacentHTML('beforeend', `
           <p class="hinweis">⚠ Namen in Rapporten ohne Mitarbeiter-Stamm:
-            ${[...fremde].slice(0, 10).map(esc).join(', ')}${fremde.size > 10 ? ' …' : ''}
-            — gleich schreiben wie hier, sonst fehlen die Stunden im Konto.</p>`);
+            ${[...fremde].slice(0, 10).map(esc).join(', ')}${fremde.size > 10 ? ' …' : ''}.
+            Gleich schreiben wie hier, sonst fehlen die Stunden im Konto.</p>`);
       }
     }
 
@@ -529,7 +529,7 @@ export default {
           .map((el) => ({ name: el.value, art: el.dataset.art }));
         const namen = gewaehlte.map((g) => g.name);
         if (!namen.length) {
-          katalogMeldung.textContent = 'Nichts ausgewählt — zuerst Einträge antippen.';
+          katalogMeldung.textContent = 'Nichts ausgewählt, zuerst Einträge antippen.';
           return;
         }
         const vorhanden = new Set((await ladeGeraete()).map((g) => g.name.trim().toLowerCase()));

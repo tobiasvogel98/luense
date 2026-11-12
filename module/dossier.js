@@ -17,7 +17,7 @@ function zahl(wert) {
 }
 
 function prozentText(anteil) {
-  return anteil === null || !Number.isFinite(anteil) ? '—'
+  return anteil === null || !Number.isFinite(anteil) ? '-'
     : `${(anteil * 100).toLocaleString('de-CH', { maximumFractionDigits: 1 })} %`;
 }
 
@@ -124,10 +124,10 @@ export default {
 
           <div class="kachel-reihe">
             <div class="karte kachel"><span class="kachel-titel">Leistung (A13)</span>
-              <span class="kachel-wert">${kenn ? chfGanz(kenn.a13) : '—'}</span></div>
+              <span class="kachel-wert">${kenn ? chfGanz(kenn.a13) : '-'}</span></div>
             <div class="karte kachel ${kenn?.k1 > 0 ? 'kachel-gruen' : ''}">
               <span class="kachel-titel">Ergebnis (K1)</span>
-              <span class="kachel-wert ${kenn?.k1 < 0 ? 'verlust' : ''}">${kenn ? prozentText(kenn.k1) : '—'}</span></div>
+              <span class="kachel-wert ${kenn?.k1 < 0 ? 'verlust' : ''}">${kenn ? prozentText(kenn.k1) : '-'}</span></div>
           </div>
           <div class="kachel-reihe">
             <div class="karte kachel"><span class="kachel-titel">NT offen (${ntOffen.length})</span>
@@ -149,14 +149,14 @@ export default {
                 <p class="balken-label">Leistung ${prozentText(leistungAnteil)}</p>
                 <div class="balken"><div class="balken-fuellung" style="width:${leistungAnteil * 100}%"></div></div>` : ''}
               ${zeitAnteil !== null ? `
-                <p class="balken-label">Zeit ${prozentText(zeitAnteil)} (Start ${formatTag(start)} – Bauende ${formatTag(bauende)})</p>
+                <p class="balken-label">Zeit ${prozentText(zeitAnteil)} (Start ${formatTag(start)} bis Bauende ${formatTag(bauende)})</p>
                 <div class="balken"><div class="balken-fuellung balken-zeit" style="width:${zeitAnteil * 100}%"></div></div>` : ''}
             </div>` : ''}
 
           <div class="karte">
             <h3>Offene Posten ${sprungKnopf('Nachträge')} ${sprungKnopf('Pendenzen')} ${sprungKnopf('Kreditoren')}</h3>
             ${ntOffen.length ? `<p class="gruppen-label">Nachträge</p>${ntOffen.map((n) => `
-              <p class="hinweis">• ${esc(n.nummer)} ${esc(n.titel)} — ${esc(n.status)}${
+              <p class="hinweis">• ${esc(n.nummer)} ${esc(n.titel)}, ${esc(n.status)}${
                 zahl(n.summe) ? ` · ${chf(zahl(n.summe))}` : ''}</p>`).join('')}` : ''}
             ${pendenzenOffen.length ? `<p class="gruppen-label">Pendenzen</p>${pendenzenOffen.slice(0, 8).map((p) => `
               <p class="hinweis">• ${esc(p.text)}${p.termin ? ` · bis ${formatTag(p.termin)}` : ''}</p>`).join('')}${
@@ -171,7 +171,7 @@ export default {
                 <p class="hinweis">• ${esc(k.lieferant)} ${esc(k.rechnungsNr)} · ${chf(zahl(k.betrag))} (${esc(k.status)})</p>`).join('')}` : ''}
             ${!ntOffen.length && !pendenzenOffen.length && !abnahmeMaengel.length
               && !regieOhneNachtrag.length && !kreditorenUeberfaellig.length
-              ? '<p class="hinweis">Nichts offen — sauber. ✓</p>' : ''}
+              ? '<p class="hinweis">Nichts offen, sauber. ✓</p>' : ''}
           </div>
 
           <div class="karte">
@@ -217,7 +217,7 @@ export default {
             <h3>Letzte Journal-Ereignisse ${sprungKnopf('Journal')}</h3>
             ${letzteEreignisse.length ? letzteEreignisse.map((e) => `
               <p class="hinweis">• ${esc(e.tag)} · ${formatDatumZeit(e.datum)}${
-                e.notiz ? ` — ${esc(e.notiz.slice(0, 60))}` : ''}</p>`).join('')
+                e.notiz ? `, ${esc(e.notiz.slice(0, 60))}` : ''}</p>`).join('')
               : '<p class="hinweis">Noch keine Einträge.</p>'}
           </div>
         </section>`;
@@ -232,10 +232,10 @@ export default {
           ].filter(Boolean).join(' · '),
           abschnitte: [
             { art: 'felder', titel: 'Kennzahlen', zeilen: [
-              { label: 'Leistung (A13)', wert: kenn ? chfGanz(kenn.a13) : '—' },
-              { label: 'Selbstkosten (S6)', wert: kenn ? chfGanz(kenn.s6) : '—' },
-              { label: 'Ergebnis (K1)', wert: kenn ? prozentText(kenn.k1) : '—' },
-              { label: 'Restbausumme (K3)', wert: kenn ? chfGanz(kenn.k3) : '—' },
+              { label: 'Leistung (A13)', wert: kenn ? chfGanz(kenn.a13) : '-' },
+              { label: 'Selbstkosten (S6)', wert: kenn ? chfGanz(kenn.s6) : '-' },
+              { label: 'Ergebnis (K1)', wert: kenn ? prozentText(kenn.k1) : '-' },
+              { label: 'Restbausumme (K3)', wert: kenn ? chfGanz(kenn.k3) : '-' },
               { label: 'Nachträge offen', wert: `${ntOffen.length} · ${chfGanz(ntOffenSumme)}` },
               { label: 'Pendenzen offen', wert: String(pendenzenOffen.length) },
               { label: 'Rechnungen gestellt, nicht bezahlt (inkl. MWST)',
@@ -248,20 +248,20 @@ export default {
               zeilen: ntOffen.map((n) => [n.nummer, n.titel, n.status, chf(zahl(n.summe))]) } : null,
             pendenzenOffen.length ? { art: 'tabelle', titel: 'Offene Pendenzen',
               spalten: ['Pendenz', 'Verantwortlich', 'Termin'],
-              zeilen: pendenzenOffen.map((p) => [p.text, p.verantwortlich || '—', formatTag(p.termin) || '—']) } : null,
+              zeilen: pendenzenOffen.map((p) => [p.text, p.verantwortlich || '-', formatTag(p.termin) || '-']) } : null,
             kreditorenUeberfaellig.length ? { art: 'tabelle', titel: 'Kreditoren überfällig',
               spalten: ['Lieferant', 'Rechnungs-Nr.', 'Status', 'Betrag'],
               zeilen: kreditorenUeberfaellig.map((k) => [k.lieferant, k.rechnungsNr,
                 k.status, chf(offenerBetrag(k))]) } : null,
             meilensteine.length ? { art: 'tabelle', titel: 'Meilensteine',
               spalten: ['Meilenstein', 'Termin', 'Status'],
-              zeilen: meilensteine.map((m) => [m.titel, formatTag(m.termin) || '—', m.erledigt ? 'erledigt' : 'offen']) } : null,
+              zeilen: meilensteine.map((m) => [m.titel, formatTag(m.termin) || '-', m.erledigt ? 'erledigt' : 'offen']) } : null,
             d.kontakte.length ? { art: 'tabelle', titel: 'Kontakte',
               spalten: ['Name', 'Rolle/Firma', 'Telefon'],
-              zeilen: d.kontakte.map((k) => [k.name, k.rolle || '—', k.telefon || '—']) } : null,
+              zeilen: d.kontakte.map((k) => [k.name, k.rolle || '-', k.telefon || '-']) } : null,
             letzteEreignisse.length ? { art: 'felder', titel: 'Letzte Journal-Ereignisse',
               zeilen: letzteEreignisse.map((e) => ({
-                label: `${e.tag} · ${formatDatumZeit(e.datum)}`, wert: e.notiz || '—',
+                label: `${e.tag} · ${formatDatumZeit(e.datum)}`, wert: e.notiz || '-',
               })) } : null,
           ].filter(Boolean),
           unterschriften: ['Bauführer'],

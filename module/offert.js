@@ -125,7 +125,7 @@ async function speichereOfferte(offerte) {
     let altKopie = null;
     try { altKopie = offerte._id ? await get(offerte._id) : null; } catch { altKopie = null; }
     if (!istGesperrt(altKopie)) {
-      throw new Error('Eine Kopie ist Arbeitsversion und kann nicht angenommen werden — '
+      throw new Error('Eine Kopie ist Arbeitsversion und kann nicht angenommen werden, '
         + 'Vertragsstand bleibt das Original.');
     }
   }
@@ -133,7 +133,7 @@ async function speichereOfferte(offerte) {
     let alt = null;
     try { alt = await get(offerte._id); } catch { alt = null; }
     if (istGesperrt(alt) && inhalt(alt) !== inhalt(offerte)) {
-      throw new Error(`Offerte ${alt.nummer} ist angenommen und gesperrt — `
+      throw new Error(`Offerte ${alt.nummer} ist angenommen und gesperrt, `
         + 'bitte eine Kopie erstellen.');
     }
     if (alt && !istGesperrt(alt) && istGesperrt(offerte)) {
@@ -183,7 +183,7 @@ export function ausmassSumme(zeilen) {
 function ausmassFormel(zeile) {
   const teile = [zeile.anzahl, zeile.laenge, zeile.breite, zeile.hoehe]
     .filter((wert) => String(wert ?? '').trim() !== '');
-  return teile.length ? teile.join(' × ') : '—';
+  return teile.length ? teile.join(' × ') : '-';
 }
 
 // ---------- Gliederung ----------
@@ -341,7 +341,7 @@ function mengeKnopfHtml(position, attribut, { gesperrt = false } = {}) {
   const formel = herkunft === 'rechenweg' ? ` · ${position.mengeFormel}` : '';
   return `<button type="button" class="lv-menge-knopf" ${attribut}
       title="${gesperrt ? 'Menge und Ausmass ansehen (gesperrt)' : 'Menge und Ausmass bearbeiten'}${esc(formel)}"
-      aria-label="Menge ${leer ? (gesperrt ? 'leer' : 'erfassen') : mengeText(zahl(position.menge))}${HERKUNFT_TEXT[herkunft]} — ${gesperrt ? 'ansehen' : 'Ausmass öffnen'}">
+      aria-label="Menge ${leer ? (gesperrt ? 'leer' : 'erfassen') : mengeText(zahl(position.menge))}${HERKUNFT_TEXT[herkunft]}, ${gesperrt ? 'ansehen' : 'Ausmass öffnen'}">
       <span class="lv-menge-wert">${leer ? 'Menge …' : mengeText(zahl(position.menge))}</span>
       ${HERKUNFT_MARKE[herkunft]}
     </button>`;
@@ -457,7 +457,7 @@ function oeffneAusmassFenster({
       aria-label="Menge ${esc(titel)}">
       <h3>Menge · ${esc(titel)}</h3>
       ${untertitel ? `<p class="hinweis">${esc(untertitel)}</p>` : ''}
-      ${nurLesen ? `<p class="sperre-hinweis" role="note">🔒 Offerte angenommen · gesperrt —
+      ${nurLesen ? `<p class="sperre-hinweis" role="note">🔒 Offerte angenommen · gesperrt:
         nur Ansicht. Für Mengen eine Kopie der Offerte erstellen.</p>` : ''}
       <div class="menge-wege" role="tablist" aria-label="Menge ermitteln">
         ${WEGE.map(([schluessel, label]) => `<button type="button" class="chip-knopf"
@@ -476,7 +476,7 @@ function oeffneAusmassFenster({
         </div>
 
         <div data-panel="zeilen" role="tabpanel">
-          <p class="hinweis">Anzahl × Länge × Breite × Höhe — leere Felder zählen
+          <p class="hinweis">Anzahl × Länge × Breite × Höhe, leere Felder zählen
             nicht mit. Die Summe wird zur Menge${ehKlammer}.</p>
           <div class="ausmass-editor-kopf" aria-hidden="true">
             <span class="az-kopf-bez">Bezeichnung</span><span>Anz.</span><span>Länge</span>
@@ -582,7 +582,7 @@ function oeffneAusmassFenster({
       const einzel = ausmassZeileWert({ anzahl: wert('anzahl'), laenge: wert('laenge'),
         breite: wert('breite'), hoehe: wert('hoehe') });
       block.querySelector('[data-rolle="az-wert"]').textContent =
-        einzel ? mengeText(Math.round(einzel * 1000) / 1000) : '—';
+        einzel ? mengeText(Math.round(einzel * 1000) / 1000) : '-';
     });
     const ausmass = sammle();
     const summe = ausmassSumme(ausmass);
@@ -596,7 +596,7 @@ function oeffneAusmassFenster({
     const weichtAb = mitZeilen && hand && Math.abs(zahl(mengeEingabe.value) - summe) > 0.0005;
     abweichung.hidden = !weichtAb;
     abweichung.textContent = weichtAb
-      ? `⚠ Menge weicht vom Ausmass ab (Summe ${mengeText(summe)}${eh}) — in der Offerte als «≠ Ausmass» markiert.`
+      ? `⚠ Menge weicht vom Ausmass ab (Summe ${mengeText(summe)}${eh}), in der Offerte als «≠ Ausmass» markiert.`
       : '';
   }
 
@@ -638,8 +638,8 @@ function oeffneAusmassFenster({
       graben: ` · ${(GRABEN_GROESSEN[graben.groesse] || '').split(' (')[0]}`,
     }[weg];
     feld('menge-ergebnis').textContent = e.fehler
-      ? '—' : `${mengeText(zahl(e.menge))}${eh}${zusatz}`;
-    feld('betrag').textContent = e.fehler ? '—' : chf(zahl(e.menge) * zahl(ep));
+      ? '-' : `${mengeText(zahl(e.menge))}${eh}${zusatz}`;
+    feld('betrag').textContent = e.fehler ? '-' : chf(zahl(e.menge) * zahl(ep));
     const knopf = formular.querySelector('[type="submit"]');
     if (knopf) knopf.disabled = Boolean(e.fehler);
   }
@@ -799,9 +799,9 @@ export default {
     container.innerHTML = `
       <section class="offerten">
         <h2>Offerten</h2>
-        <p class="hinweis">Baustellenunabhängig — eine angenommene Offerte wird
+        <p class="hinweis">Baustellenunabhängig, eine angenommene Offerte wird
           per Klick zur neuen Baustelle; die Positionen gehen als Kopie ins
-          Ausmass. Angenommene Offerten sind gesperrt (Vertragsstand) —
+          Ausmass. Angenommene Offerten sind gesperrt (Vertragsstand),
           für Mengen eine Kopie erstellen und dort weiterarbeiten.</p>
 
         <div class="knopfzeile" data-rolle="neu-zeile">
@@ -838,7 +838,7 @@ export default {
       katalogListe.innerHTML = katalog.length
         ? katalog.map((k) => `
             <div class="fo-zeile dossier-zeile">
-              <span class="fo-label">${esc(k.pos)} · ${esc(k.text)} · ${esc(k.einheit || '—')}
+              <span class="fo-label">${esc(k.pos)} · ${esc(k.text)} · ${esc(k.einheit || '-')}
                 · EP ${chf(zahl(k.ep))}</span>
               <button type="button" class="knopf zeile-weg" data-katalog-weg="${esc(k._id)}"
                 aria-label="Katalogposition löschen">×</button>
@@ -1029,7 +1029,7 @@ export default {
 
     async function oeffneFormular(offerte, { hinweis = '' } = {}) {
       if (istGesperrt(offerte)) {
-        alert(`Offerte ${offerte.nummer} ist angenommen und gesperrt — bitte eine Kopie erstellen.`);
+        alert(`Offerte ${offerte.nummer} ist angenommen und gesperrt, bitte eine Kopie erstellen.`);
         return;
       }
       inBearbeitung = offerte || null;
@@ -1055,7 +1055,7 @@ export default {
             </select></label>
           </div>
           ${offerte?.kopieVon ? `<p class="hinweis">Kopie = Arbeitsversion: Status nur Entwurf oder
-            eingereicht — annehmen (sperren) lässt sich nur das Original.</p>` : ''}
+            eingereicht, annehmen (sperren) lässt sich nur das Original.</p>` : ''}
           <label>Bezeichnung (Name der Offerte, z. B. für die Ausmass-Version)
             <input name="titel" autocomplete="off" value="${esc(offerte?.titel ?? '')}"
               placeholder="leer = Objekt"></label>
@@ -1084,7 +1084,7 @@ export default {
               value="${esc(offerte?.skonto ?? '')}" placeholder="0"></label>
           </div>
           <div class="rapport-totale" data-rolle="zusammenzug"></div>
-          <p class="hinweis">MWST-Satz ${esc(formatSatz(satz))} — ${offerte
+          <p class="hinweis">MWST-Satz ${esc(formatSatz(satz))}, ${offerte
             ? 'an dieser Offerte festgehalten' : 'aus den Firmendaten, wird beim Speichern festgehalten'}.</p>
 
           <div class="knopfzeile">
@@ -1276,7 +1276,7 @@ export default {
                 <p class="hinweis">${esc(o.kunde)}${o.titel ? ` · ${esc(o.objekt)}` : ''} · ${anzahl} Positionen
                   · ${chf(z.inklMwst)} inkl. MWST</p>
                 ${gesperrt ? `<p class="hinweis">Vertragsstand${o.angenommenAm
-                  ? ` seit ${datumText(o.angenommenAm)}` : ''} — nicht mehr änderbar.
+                  ? ` seit ${datumText(o.angenommenAm)}` : ''}, nicht mehr änderbar.
                   Mengen in einer Kopie erfassen.</p>` : ''}
                 ${o.kopieVon ? `<p class="hinweis">Kopie von Offerte ${esc(original?.nummer || '(gelöscht)')}${
                   o.kopieErstelltAm ? ` vom ${datumText(o.kopieErstelltAm)}` : ''}</p>` : ''}
@@ -1286,7 +1286,7 @@ export default {
                   <div class="tabellen-scroll">${lvTabelleHtml(gliederung, { interaktiv: true, gesperrt })}</div>
                   <p class="hinweis">${gesperrt
                     ? 'Menge antippen zeigt Ausmass und Rechenweg der Position (nur Ansicht).'
-                    : 'Menge antippen: direkt tippen, Rechenweg, Ausmass-Zeilen oder Grabenrechner — und direkt speichern.'}</p>
+                    : 'Menge antippen: direkt tippen, Rechenweg, Ausmass-Zeilen oder Grabenrechner, und direkt speichern.'}</p>
                 </details>
                 <div class="knopfzeile">
                   ${naechster && !gesperrt ? `<button type="button" class="knopf" data-aktion="weiter"
@@ -1324,7 +1324,7 @@ export default {
           const gliederung = gliederungVon(aktuell).map((g) => ({ ...g }));
           const ziel = gliederung[index];
           if (!ziel || ziel.art !== 'position' || ziel.nr !== zeile.nr) {
-            throw new Error('Die Offerte wurde inzwischen geändert — bitte neu öffnen.');
+            throw new Error('Die Offerte wurde inzwischen geändert, bitte neu öffnen.');
           }
           gliederung[index] = wendeMengeAn(ziel, felder);
           const neu = { ...aktuell, gliederung };
@@ -1367,7 +1367,7 @@ export default {
           if (!kopie) return;
           await zeichneListe({ offenId: kopie._id });
           await oeffneFormular(kopie, {
-            hinweis: `Kopie ${kopie.nummer} erstellt — Name, Mengen und Positionen hier anpassen.`,
+            hinweis: `Kopie ${kopie.nummer} erstellt, Name, Mengen und Positionen hier anpassen.`,
           });
         } else if (aktion === 'loeschen') {
           if (istGesperrt(offerte)) return;
@@ -1418,7 +1418,7 @@ export default {
       await speichereOfferte({ ...offerte, baustelleErstellt: true,
         zielBaustelleId: neueBaustelle.baustelleId });
       document.dispatchEvent(new CustomEvent('luense:daten'));
-      alert(`Baustelle ${ktr.trim()} erstellt — ${positionen.length} `
+      alert(`Baustelle ${ktr.trim()} erstellt, ${positionen.length} `
         + 'Positionen als Ausmass-Kopie übernommen. Die Offerte bleibt unverändert.');
       document.dispatchEvent(new CustomEvent('luense:baustelleWechseln', {
         detail: { baustelleId: neueBaustelle.baustelleId },

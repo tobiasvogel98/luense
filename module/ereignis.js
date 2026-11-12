@@ -142,7 +142,7 @@ export default {
 
     function zeigeFotoInfo() {
       fotoInfo.textContent = gewaehlteFotos.length
-        ? `${gewaehlteFotos.length} Foto${gewaehlteFotos.length > 1 ? 's' : ''} bereit — ` +
+        ? `${gewaehlteFotos.length} Foto${gewaehlteFotos.length > 1 ? 's' : ''} bereit, ` +
           'nochmals antippen für ein weiteres.'
         : '';
     }
@@ -186,7 +186,7 @@ export default {
         <p>${treffer
           ? `Regie-Hinweis erkannt: «${esc(treffer)}». Als Regie erfassen? Beim Speichern
              entstehen dann Nachtrag (erkannt) und Pendenz.`
-          : `Leitungsschaden («${esc(schaden)}») – Regie prüfen? War die Leitung nicht
+          : `Leitungsschaden («${esc(schaden)}»): Regie prüfen? War die Leitung nicht
              ersichtlich oder nicht im Plan, Tag «Regie» wählen.`}</p>
         <div class="knopfzeile">
           <button type="button" class="knopf knopf-primaer" data-aktion="regie-uebernehmen">
@@ -202,7 +202,7 @@ export default {
       if (!knopf) return;
       if (knopf.dataset.aktion === 'regie-uebernehmen') {
         formular.querySelector('input[name="tag"][value="Regie"]').checked = true;
-        meldung.textContent = 'Tag «Regie» gewählt — beim Speichern entstehen Nachtrag und Pendenz.';
+        meldung.textContent = 'Tag «Regie» gewählt, beim Speichern entstehen Nachtrag und Pendenz.';
       } else {
         regieAbgelehnt = vorschlag.dataset.treffer;
         meldung.textContent = '';
@@ -222,7 +222,7 @@ export default {
     function regieKartenHinweis(e) {
       const treffer = e.tag !== 'Regie' && regieTreffer(e.notiz);
       if (!treffer || treffer === e.regieHinweisAbgelehnt) return '';
-      return `<p class="regie-erkannt regie-warnung">⚠ Regie-Hinweis «${esc(treffer)}» —
+      return `<p class="regie-erkannt regie-warnung">⚠ Regie-Hinweis «${esc(treffer)}»,
         Tag ist «${esc(e.tag)}».
         <button type="button" class="knopf eintrag-loeschen" data-aktion="eintrag-bearbeiten"
           data-id="${esc(e._id)}">Prüfen</button></p>`;
@@ -328,7 +328,7 @@ export default {
               ${eintraege.map((e) => karteHtml(e, nachtraege, pendenzen)).join('')}
             </section>`).join('')
         : `<p class="hinweis">${
-            !alle.length ? 'Noch keine Einträge auf dieser Baustelle — unten rechts «+ Eintrag».'
+            !alle.length ? 'Noch keine Einträge auf dieser Baustelle, unten rechts «+ Eintrag».'
               : suche ? 'Keine Einträge zu dieser Suche.'
                 : 'Keine Einträge zu dieser Tag-Auswahl.'}</p>`;
 
@@ -459,7 +459,7 @@ export default {
       zeigeFotoInfo();
       regieAbgelehnt = ereignis?.regieHinweisAbgelehnt || '';
       zeigeRegieVorschlag();
-      meldung.textContent = ereignis ? 'Bearbeiten — vorhandene Fotos bleiben erhalten.' : '';
+      meldung.textContent = ereignis ? 'Bearbeiten, vorhandene Fotos bleiben erhalten.' : '';
     }
 
     // Antippen daneben schliesst nur, wenn nichts verloren geht.
@@ -479,7 +479,7 @@ export default {
       knopf.addEventListener('click', schliesseBlatt));
     schleier.addEventListener('click', () => {
       if (hatEingaben()) {
-        meldung.textContent = 'Noch nicht gespeichert — «Eintrag speichern» oder «Abbrechen».';
+        meldung.textContent = 'Noch nicht gespeichert, «Eintrag speichern» oder «Abbrechen».';
         return;
       }
       schliesseBlatt();
@@ -663,7 +663,7 @@ export default {
         document.body.classList.remove('blatt-offen');
         fuelleFormular(null);
         zeigeListenMeldung(neuRegie
-          ? `Eintrag ${warBearbeitung ? 'aktualisiert' : 'gespeichert'} — Nachtrag ${nummer} (erkannt) und Pendenz erstellt.`
+          ? `Eintrag ${warBearbeitung ? 'aktualisiert' : 'gespeichert'}, Nachtrag ${nummer} (erkannt) und Pendenz erstellt.`
           : warBearbeitung ? 'Eintrag aktualisiert.' : 'Eintrag gespeichert.');
         document.dispatchEvent(new CustomEvent('luense:daten'));
         if (warBearbeitung) {

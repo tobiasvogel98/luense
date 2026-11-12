@@ -148,7 +148,7 @@ export default {
             placeholder="Was ist passiert, warum ausservertraglich?">${esc(nachtrag?.sachverhalt ?? '')}</textarea></label>
           <label>Basis (SIA 118)<input name="basis" autocomplete="off"
             value="${esc(nachtrag?.basis ?? '')}"
-            placeholder="z. B. Art. 87 SIA 118 — Bestellungsänderung"></label>
+            placeholder="z. B. Art. 87 SIA 118, Bestellungsänderung"></label>
           <label>Status<select name="status">
             ${NACHTRAG_STATUS.map((s) => `<option${(nachtrag?.status || 'erkannt') === s ? ' selected' : ''}>${s}</option>`).join('')}
           </select></label>
@@ -243,7 +243,7 @@ export default {
                     .map((re) => `${esc(re.nummer)} (${esc(re.status)})`).join(', ')}</p>` : ''}
                 ${direktVerrechnet.length && !verlinkte.length && n.status !== 'verrechnet' ? `
                   <p class="hinweis verknuepfung">↳ Regierapport ${direktVerrechnet
-                    .map((r) => formatTag(r.tag)).join(', ')} bereits direkt verrechnet —
+                    .map((r) => formatTag(r.tag)).join(', ')} bereits direkt verrechnet,
                     Rechnung bei Bedarf ohne diese Stunden im Modul Rechnungen erfassen.</p>` : ''}
                 <div class="knopfzeile">
                   ${naechster ? `
@@ -348,7 +348,7 @@ export default {
               step="any" min="0" value="${esc(zahl(nachtrag.summe))}"></label>
             <p class="hinweis">Die MWST kommt auf der Rechnung dazu (Satz aus den Firmendaten).</p>
             <label>Titel<input name="titel" autocomplete="off"
-              value="${esc(`Nachtrag ${nachtrag.nummer} — ${nachtrag.titel}`)}"></label>
+              value="${esc(`Nachtrag ${nachtrag.nummer}: ${nachtrag.titel}`)}"></label>
             <div class="knopfzeile">
               <button type="submit" class="knopf knopf-primaer">Rechnung erstellen</button>
               <button type="button" class="knopf" data-aktion="dialog-abbrechen">Abbrechen</button>
@@ -371,7 +371,7 @@ export default {
           document.dispatchEvent(new CustomEvent('luense:daten'));
           await zeichneListe();
           listeElement.insertAdjacentHTML('afterbegin',
-            `<p class="meldung">Rechnung ${esc(rechnung.nummer)} erstellt — im Modul Rechnungen stellen.</p>`);
+            `<p class="meldung">Rechnung ${esc(rechnung.nummer)} erstellt, im Modul Rechnungen stellen.</p>`);
         });
       } else if (knopf.dataset.aktion === 'pdf') {
         // Versandfertiges Nachtrags-PDF: Begründung + automatische
@@ -400,15 +400,15 @@ export default {
           }
         }
         zeigeProtokollDruck(baustelle, {
-          titel: `Nachtrag ${nachtrag.nummer} — ${nachtrag.titel}`,
+          titel: `Nachtrag ${nachtrag.nummer}: ${nachtrag.titel}`,
           untertitel: [
             baustelle.bauherr ? `Bauherr: ${baustelle.bauherr}` : '',
             `Status: ${nachtrag.status}`,
           ].filter(Boolean).join(' · '),
           abschnitte: [
             { art: 'felder', titel: 'Begründung', zeilen: [
-              { label: 'Sachverhalt', wert: nachtrag.sachverhalt || '—' },
-              { label: 'Basis', wert: nachtrag.basis || '—' },
+              { label: 'Sachverhalt', wert: nachtrag.sachverhalt || '-' },
+              { label: 'Basis', wert: nachtrag.basis || '-' },
               { label: 'Forderung', wert: chf(zahl(nachtrag.summe)) },
             ] },
             nachtrag.statusHistorie?.length ? { art: 'felder',
@@ -419,7 +419,7 @@ export default {
             bEreignisse.length ? { art: 'felder', titel: 'Beweise: Journal-Ereignisse',
               zeilen: bEreignisse.map((e) => ({
                 label: `${e.tag} · ${formatDatumZeit(e.datum)}`,
-                wert: `${e.ortKv ? e.ortKv + ' · ' : ''}${e.notiz || '—'}${
+                wert: `${e.ortKv ? e.ortKv + ' · ' : ''}${e.notiz || '-'}${
                   Object.keys(e._attachments || {}).length
                     ? ` (${Object.keys(e._attachments).length} Foto${
                         Object.keys(e._attachments).length > 1 ? 's' : ''})` : ''}`,
@@ -427,14 +427,14 @@ export default {
             bRapporte.length ? { art: 'tabelle', titel: 'Beweise: Tagesrapporte',
               spalten: ['Datum', 'Mitarbeiter', 'Regie', 'Arbeiten'],
               zeilen: bRapporte.map((r) => [
-                formatTag(r.tag), r.mitarbeiter || '—',
-                zahl(r.davonRegie) ? `${r.davonRegie} h` : '—',
+                formatTag(r.tag), r.mitarbeiter || '-',
+                zahl(r.davonRegie) ? `${r.davonRegie} h` : '-',
                 (r.arbeiten || []).map((a) => a.text).filter(Boolean).join('; ').slice(0, 60),
               ]) } : null,
             bPositionen.length ? { art: 'tabelle', titel: 'Beweise: Ausmass-Positionen',
               spalten: ['NPK', 'Text', 'Vertrag', 'Ausgemessen', 'EP'],
               zeilen: bPositionen.map((p) => [
-                p.pos, p.text.slice(0, 40), p.vertragsmenge || '—', p.menge || '—', p.ep || '—',
+                p.pos, p.text.slice(0, 40), p.vertragsmenge || '-', p.menge || '-', p.ep || '-',
               ]) } : null,
           ].filter(Boolean),
           bilder,

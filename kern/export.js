@@ -146,7 +146,7 @@ export async function entferneAltImport() {
 export async function oeffneAltPendenzenImport(daten, { nachImport = () => {} } = {}) {
   const ziele = await alleBaustellen();
   if (!ziele.length) {
-    alert('Zuerst in Lünse die Baustellen mit KTR-Nr. anlegen — danach importieren.');
+    alert('Zuerst in Lünse die Baustellen mit KTR-Nr. anlegen, danach importieren.');
     return;
   }
   const altBaustellen = daten.baustellen
@@ -163,12 +163,12 @@ export async function oeffneAltPendenzenImport(daten, { nachImport = () => {} } 
     <form class="karte formular dialog" data-rolle="alt-import">
       <h3>Pendenzen aus der bisherigen App importieren</h3>
       <p class="hinweis">${daten.items.length} Pendenzen gefunden. Ordne jeder
-        bisherigen Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu — nicht
+        bisherigen Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu, nicht
         zugeordnete werden übersprungen.</p>
       ${altBaustellen.map((b) => `
         <label>${esc(b.name)} (${b.anzahl} Pendenz${b.anzahl > 1 ? 'en' : ''})
           <select name="ziel-${esc(b.id)}">
-            <option value="">— nicht importieren —</option>
+            <option value="">(nicht importieren)</option>
             ${ziele.map((z) => `
               <option value="${esc(z.baustelleId)}"
                 ${z.name.trim().toLowerCase() === String(b.name || '').trim().toLowerCase()
@@ -302,7 +302,7 @@ export async function oeffneAltRapportImport(daten, { nachImport = () => {} } = 
   const liste = altRapportListe(daten);
   const ziele = await alleBaustellen();
   if (!ziele.length) {
-    alert('Zuerst in Lünse die Baustellen mit KTR-Nr. anlegen — danach importieren.');
+    alert('Zuerst in Lünse die Baustellen mit KTR-Nr. anlegen, danach importieren.');
     return;
   }
   // Gruppieren nach dem Freitext-Feld «Baustelle» des Alt-Tools.
@@ -319,12 +319,12 @@ export async function oeffneAltRapportImport(daten, { nachImport = () => {} } = 
     <form class="karte formular dialog" data-rolle="alt-rapport-import">
       <h3>Tagesrapporte aus dem bisherigen Rapport-Programm importieren</h3>
       <p class="hinweis">${liste.length} Rapport${liste.length > 1 ? 'e' : ''} gefunden.
-        Ordne jeder bisherigen Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu —
+        Ordne jeder bisherigen Baustelle die richtige Lünse-Baustelle (KTR-Nr.) zu,
         nicht Zugeordnetes wird übersprungen.</p>
       ${[...projekte.entries()].map(([name, rapporte], index) => `
         <label>${esc(name)} (${rapporte.length} Rapport${rapporte.length > 1 ? 'e' : ''})
           <select name="ziel-${index}" data-projekt="${esc(name)}">
-            <option value="">— nicht importieren —</option>
+            <option value="">(nicht importieren)</option>
             ${ziele.map((z) => `
               <option value="${esc(z.baustelleId)}"
                 ${z.name.trim().toLowerCase() === name.trim().toLowerCase() ? 'selected' : ''}>
@@ -427,8 +427,8 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
     entfernenKnopf.hidden = !altImportVorhanden();
     status.textContent = letzter
       ? `Letztes Backup: ${new Date(letzter).toLocaleDateString('de-CH')}${
-          faellig ? ' — Backup fällig!' : ''}`
-      : 'Noch kein Backup — jetzt eines erstellen.';
+          faellig ? ', Backup fällig!' : ''}`
+      : 'Noch kein Backup, jetzt eines erstellen.';
   }
 
   backupKnopf.addEventListener('click', async () => {
@@ -484,7 +484,7 @@ export function renderBackupZeile(container, { nachImport = () => {} } = {}) {
           `Import: ${ergebnis.neu} neu, ${ergebnis.uebersprungen} schon vorhanden.${
             ergebnis.regieHinweise
               ? ` ⚠ ${ergebnis.regieHinweise} Rapport${ergebnis.regieHinweise > 1 ? 'e' : ''} mit `
-                + 'Regie-Hinweis ohne Regie-Häkchen — unter Rapporte prüfen.'
+                + 'Regie-Hinweis ohne Regie-Häkchen, unter Rapporte prüfen.'
               : ''}`;
         status.textContent = letzteImportMeldung;
         nachImport();
