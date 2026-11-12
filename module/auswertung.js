@@ -19,7 +19,7 @@ import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { berechneAbschluss } from '../kern/fo.js';
 import { alleBaustellen } from '../kern/stamm.js';
 import { chfGanz, esc } from '../kern/ui.js';
-import { zahlungen } from '../kern/zahlung.js';
+import { zahlungen, kreditorBetraege } from '../kern/zahlung.js';
 
 const W_ZEILEN = [
   ['w1', 'W1', 'ursprüngliche Werkvertragssumme'],
@@ -425,9 +425,13 @@ export default {
       const eingang = flussBis(rechnungen, 'betrag');
       const ausgang = flussBis(kreditoren, 'betrag');
       const skontoErtrag = flussBis(kreditoren, 'skonto');
-      const kreditorenTotal = summe(anerkannt);
+      // Kosten NETTO (exkl. MWST): die Vorsteuer holt man bei der ESTV
+      // zurück — sie ist kein Aufwand der Baustelle.
+      const summeNetto = (liste2) => liste2
+        .reduce((s, k) => s + kreditorBetraege(k).nettoRappen, 0) / 100;
+      const kreditorenTotal = summeNetto(anerkannt);
       const jeKostenart = [...new Set(anerkannt.map((k) => k.kostenart))]
-        .map((art) => ({ art, betrag: summe(anerkannt.filter((k) => k.kostenart === art)) }));
+        .map((art) => ({ art, betrag: summeNetto(anerkannt.filter((k) => k.kostenart === art)) }));
       // W1: Betrag aus dem Werkvertragstext der Baustelle (z. B. aus der Offerte).
       const w1V = zahl((String(baustelle.werkvertrag || '').match(/[\d'’]+(?:\.\d+)?/) || [''])[0]);
       const zeile = (label, wert, feld, hinweis = '') => `
@@ -448,13 +452,13 @@ export default {
         ${zeile('B2 — Regiefakturen', b2V, 'b2',
           `${fakturiert.filter((r) => r.basis?.art === 'regierapport').length} Rechnungen, netto exkl. MWST`)}
         ${zeile('S1 — Kreditoren visiert/bezahlt', kreditorenTotal, 's1',
-          `${anerkannt.length} Lieferantenrechnungen`)}
+          `${anerkannt.length} Lieferantenrechnungen, netto exkl. MWST`)}
         ${jeKostenart.map((k) => zeile(`&nbsp;&nbsp;davon ${esc(k.art)}`, k.betrag, '')).join('')}
         ${eingang || ausgang ? `
           <p class="hinweis">Erfasste Zahlungen bis Stichtag (Kontoauszug/von Hand), nur zur Information:</p>
           ${zeile('Zahlungseingang Debitoren', eingang, '', 'inkl. MWST')}
           ${zeile('Zahlungsausgang Kreditoren', ausgang, '',
-            skontoErtrag ? `Skonto genutzt ${chfGanz(skontoErtrag)}` : '')}` : ''}`;
+            `inkl. MWST${skontoErtrag ? ` · Skonto genutzt ${chfGanz(skontoErtrag)}` : ''}`)}` : ''}`;
     }
 
     formularBereich.addEventListener('click', (klick) => {

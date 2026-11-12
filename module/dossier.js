@@ -138,7 +138,7 @@ export default {
               (${gestellteRechnungen.length}) · inkl. MWST</span>
               <span class="kachel-wert">${chfGanz(gestellteSumme)}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Kreditoren offen
-              (${kreditorenOffen.length})</span>
+              (${kreditorenOffen.length}) · inkl. MWST</span>
               <span class="kachel-wert">${chfGanz(kreditorenOffenSumme)}</span></div>
           </div>
 
@@ -240,7 +240,7 @@ export default {
               { label: 'Pendenzen offen', wert: String(pendenzenOffen.length) },
               { label: 'Rechnungen gestellt, nicht bezahlt (inkl. MWST)',
                 wert: `${gestellteRechnungen.length} · ${chfGanz(gestellteSumme)}` },
-              { label: 'Kreditoren offen',
+              { label: 'Kreditoren offen (inkl. MWST)',
                 wert: `${kreditorenOffen.length} · ${chfGanz(kreditorenOffenSumme)}` },
             ] },
             ntOffen.length ? { art: 'tabelle', titel: 'Offene Nachträge',

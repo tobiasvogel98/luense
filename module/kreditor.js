@@ -12,6 +12,14 @@
 // (camt.053/054, kern/bank.js) oder von Hand — mit Teilzahlung und Skonto.
 // Dazu die Übersicht offener Kreditoren über alle Baustellen, sortiert
 // nach der nächsten Frist (Skonto oder Fälligkeit).
+//
+// Beträge: erfasst wird NETTO (exkl. MWST), dazu Vorsteuer-Satz (Standard
+// 8.1 %, je Lieferant änderbar, 0 erlaubt) und Vorsteuer in CHF (exakt
+// gerechnet, von Hand übersteuerbar — massgebend ist die Lieferanten-
+// rechnung). «betrag» = brutto = netto + Vorsteuer: darauf laufen Zahlung,
+// Skonto, Restbetrag und Kontoauszug. Der QR-Scan liefert das Brutto —
+// netto und Vorsteuer werden zum Satz abgeleitet und sind korrigierbar.
+// Controlling (S1) rechnet netto. Details: kern/zahlung.js.
 
 import {
   put, abfrage, entferneDokument, haengeAnhangAn, holeAnhang, entferneAnhang,
@@ -22,7 +30,8 @@ import { chf, esc, zeigeBildVollbild } from '../kern/ui.js';
 import {
   zahl, heuteTag, formatTag, plusTage, kreditorWerte, zahlungen, bezahltSumme,
   offenerBetrag, kompakt, istGueltigeIban, formatIban, referenzArt, formatReferenz,
-  ZAHLUNGSFRIST_TAGE,
+  ZAHLUNGSFRIST_TAGE, rappen, prozentVonRappen, nettoAusBruttoRappen, mwstSatzAus,
+  kreditorBetraege, formatSatz, VORSTEUER_SATZ_STANDARD,
 } from '../kern/zahlung.js';
 import { oeffneKontoauszug, zeigeZahlungen } from '../kern/bank.js';
 import { alleBaustellen } from '../kern/stamm.js';
@@ -44,6 +53,17 @@ function vorherigerStatus(k) {
   }
   return KREDITOR_STATUS[KREDITOR_STATUS.indexOf(k.status) - 1] || '';
 }
+
+// Betrag-Zelle: netto, Vorsteuer, zuletzt brutto (fett) — wie bei den Rechnungen.
+function betragZelle(k) {
+  const b = kreditorBetraege(k);
+  return `<span class="mwst-stapel">
+    <small>netto ${chf(b.netto)}</small>
+    <small>${b.satz > 0 || b.vorsteuer ? `Vorsteuer ${formatSatz(b.satz)} ${chf(b.vorsteuer)}` : 'ohne Vorsteuer'}</small>
+    <b>${chf(b.brutto)}</b></span>`;
+}
+
+const fix2 = (rp) => (rp / 100).toFixed(2);
 
 function mitHistorie(kreditor, neuerStatus) {
   return {
@@ -161,8 +181,13 @@ export default {
       return alle.sort((a, b) => (b.tag || '').localeCompare(a.tag || ''));
     }
 
+    // Brutto (inkl. MWST, zu zahlen) bzw. netto (Kosten), exakt in Rappen.
     function summe(liste) {
-      return liste.reduce((s, k) => s + zahl(k.betrag), 0);
+      return liste.reduce((s, k) => s + kreditorBetraege(k).bruttoRappen, 0) / 100;
+    }
+
+    function summeNetto(liste) {
+      return liste.reduce((s, k) => s + kreditorBetraege(k).nettoRappen, 0) / 100;
     }
 
     function summeOffen(liste) {
@@ -179,7 +204,7 @@ export default {
       ];
       kachelnElement.innerHTML = kacheln.map((k) => `
           <div class="karte kachel${k.gruen ? ' kachel-gruen' : ''}">
-            <span class="kachel-titel">${k.titel} (${k.liste.length})</span>
+            <span class="kachel-titel">${k.titel} (${k.liste.length}) · inkl. MWST</span>
             <span class="kachel-wert">${chf(k.wert(k.liste))}</span>
           </div>`).join('');
       // Skonto-Überwachung: laufende Fristen und mögliche Ersparnis.
@@ -217,7 +242,7 @@ export default {
           <table class="uebersicht-tabelle">
             <thead><tr>
               <th>Lieferant · Rg.-Nr.</th><th>Datum</th><th>Kostenart</th>
-              <th class="zahl">Betrag</th><th class="zahl">Offen</th><th>Skonto bis</th><th>Fällig</th>
+              <th class="zahl">Betrag</th><th class="zahl">Offen inkl. MWST</th><th>Skonto bis</th><th>Fällig</th>
               <th>Status</th><th></th>
             </tr></thead>
             <tbody>
@@ -232,7 +257,7 @@ export default {
                       <small class="hinweis">${esc(k.rechnungsNr)}</small></td>
                     <td class="kein-umbruch">${formatTag(k.tag)}</td>
                     <td class="kein-umbruch">${esc(k.kostenart)}</td>
-                    <td class="zahl">${chf(w.betrag)}</td>
+                    <td class="zahl">${betragZelle(k)}</td>
                     <td class="zahl">${k.status === 'bezahlt' ? '—' : chf(w.rest)}</td>
                     <td class="kein-umbruch">${w.skontoTag
                       ? `${formatTag(w.skontoTag)}${w.skontoNutzbar
@@ -269,7 +294,8 @@ export default {
               }).join('')}
               <tr class="summen-zeile">
                 <td colspan="3"><b>Total (${kreditoren.length})</b></td>
-                <td class="zahl"><b>${chf(summe(kreditoren))}</b></td>
+                <td class="zahl"><span class="mwst-stapel"><small>netto ${chf(summeNetto(kreditoren))}</small>
+                  <b>${chf(summe(kreditoren))}</b></span></td>
                 <td class="zahl"><b>${chf(summeOffen(kreditoren))}</b></td>
                 <td colspan="4">davon bezahlt ${chf(summe(kreditoren.filter((k) => k.status === 'bezahlt'))
                   + kreditoren.filter((k) => k.status !== 'bezahlt').reduce((s, k) => s + bezahltSumme(k), 0))}</td>
@@ -301,7 +327,7 @@ export default {
       const mitKreditoren = baustellen.filter((b) => alle.some((k) => k.baustelleId === b.baustelleId));
       kachelnElement.innerHTML = `
         <div class="karte kachel">
-          <span class="kachel-titel">Offene Kreditoren (${offene.length})</span>
+          <span class="kachel-titel">Offene Kreditoren (${offene.length}) · inkl. MWST</span>
           <span class="kachel-wert">${chf(total)}</span>
         </div>
         <div class="karte kachel">
@@ -326,7 +352,7 @@ export default {
           <table class="uebersicht-tabelle">
             <thead><tr>
               <th>Nächste Frist</th><th>Baustelle</th><th>Lieferant · Rg.-Nr.</th>
-              <th class="zahl">Offen</th><th>Skonto bis</th><th>Fällig</th><th>Status</th><th>Zahlung an</th><th></th>
+              <th class="zahl">Offen inkl. MWST</th><th>Skonto bis</th><th>Fällig</th><th>Status</th><th>Zahlung an</th><th></th>
             </tr></thead>
             <tbody>
               ${offene.map(({ k, w, frist }) => {
@@ -381,8 +407,18 @@ export default {
       const alleKreditoren = await abfrage({ typ: 'kreditor' });
       const lieferanten = [...new Set(alleKreditoren.map((k) => k.lieferant).filter(Boolean))]
         .sort((a, b) => a.localeCompare(b, 'de-CH'));
+      // Startwerte netto / Satz / Vorsteuer / brutto (alte Kreditoren ohne
+      // netto: aus dem Brutto zu 8.1 % abgeleitet).
+      const kb = kreditor ? kreditorBetraege(kreditor) : null;
+      const start = kb ? {
+        netto: fix2(kb.nettoRappen), satz: kb.satz,
+        vorsteuer: fix2(kb.vorsteuerRappen), brutto: fix2(kb.bruttoRappen),
+      } : { netto: '', satz: VORSTEUER_SATZ_STANDARD, vorsteuer: '', brutto: '' };
+      const vonHand = Boolean(kb && !kb.abgeleitet
+        && kb.vorsteuerRappen !== prozentVonRappen(kb.nettoRappen, kb.satz));
       formularBereich.innerHTML = `
-        <form class="karte formular" data-rolle="kreditor-formular">
+        <form class="karte formular" data-rolle="kreditor-formular"
+          data-vorsteuer-hand="${vonHand ? '1' : ''}">
           <h3>${kreditor ? `Rechnung ${esc(kreditor.rechnungsNr)} bearbeiten`
             : 'Neue Lieferantenrechnung'}</h3>
           <div class="knopfzeile">
@@ -404,13 +440,24 @@ export default {
           <div class="feld-reihe">
             <label>Rechnungsdatum *<input name="tag" type="date" required
               value="${esc(kreditor?.tag || heuteTag())}"></label>
-            <label>Betrag [CHF] *<input name="betrag" type="number" required
-              inputmode="decimal" step="any" min="0"
-              value="${esc(kreditor?.betrag ?? '')}" placeholder="0.00"></label>
             <label>Zahlungsfrist [Tage]<input name="zahlungsfrist" type="number"
               inputmode="numeric" min="0" step="1"
               value="${esc(kreditor?.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE)}"></label>
           </div>
+          <div class="feld-reihe">
+            <label class="feld-breit">Netto exkl. MWST [CHF] *<input name="netto" type="number" required
+              inputmode="decimal" step="any" value="${esc(start.netto)}" placeholder="0.00"></label>
+            <label class="feld-schmal">Vorsteuer [%]<input name="vorsteuerSatz" type="number"
+              inputmode="decimal" step="any" min="0" max="99.9" aria-label="Vorsteuer-Satz in Prozent"
+              value="${esc(start.satz)}"></label>
+          </div>
+          <div class="feld-reihe">
+            <label>Vorsteuer [CHF]<input name="vorsteuer" type="number" inputmode="decimal"
+              step="any" value="${esc(start.vorsteuer)}" placeholder="0.00"></label>
+            <label>Brutto inkl. MWST [CHF]<input name="brutto" type="number" inputmode="decimal"
+              step="any" value="${esc(start.brutto)}" placeholder="0.00"></label>
+          </div>
+          <p class="hinweis" data-rolle="betrag-hinweis" role="status"></p>
           <div class="feld-reihe">
             <label>Skonto [%]<input name="skontoProzent" type="number"
               inputmode="decimal" step="any" min="0"
@@ -454,7 +501,17 @@ export default {
           <p class="meldung" role="status"></p>
         </form>`;
       const formular = formularBereich.querySelector('form');
-      formular.addEventListener('input', () => pruefeFormular(formular));
+      formular.addEventListener('input', (eingabe) => {
+        rechneBetraege(formular, eingabe.target.name);
+        pruefeFormular(formular);
+      });
+      formular.addEventListener('click', (klick) => {
+        if (klick.target.closest('[data-aktion="vorsteuer-rechnen"]')) {
+          formular.dataset.vorsteuerHand = '';
+          rechneBetraege(formular, 'netto');
+        }
+      });
+      rechneBetraege(formular, null);
       pruefeFormular(formular);
       const belegEingabe = formularBereich.querySelector('[data-rolle="beleg-eingabe"]');
       belegEingabe.addEventListener('change', () => {
@@ -464,6 +521,48 @@ export default {
             : 'Noch kein Beleg gewählt.';
       });
       formularBereich.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Netto / Vorsteuer / Brutto gegenseitig nachführen (exakt in Rappen):
+    //   netto oder Satz geändert → Vorsteuer = netto × Satz (ausser von Hand),
+    //   Vorsteuer getippt        → von Hand, brutto = netto + Vorsteuer,
+    //   brutto getippt (QR-Scan) → netto und Vorsteuer zum Satz abgeleitet.
+    function rechneBetraege(formular, feld) {
+      const el = formular.elements;
+      if (!['netto', 'vorsteuerSatz', 'vorsteuer', 'brutto', null].includes(feld)) return;
+      const satz = mwstSatzAus(el.vorsteuerSatz.value) ?? 0;
+      const leer = (name) => String(el[name].value).trim() === '';
+      if (feld === 'brutto') {
+        formular.dataset.vorsteuerHand = '';
+        if (leer('brutto')) {
+          el.netto.value = '';
+          el.vorsteuer.value = '';
+        } else {
+          const bruttoRp = rappen(el.brutto.value);
+          const nettoRp = nettoAusBruttoRappen(bruttoRp, satz);
+          el.netto.value = fix2(nettoRp);
+          el.vorsteuer.value = fix2(bruttoRp - nettoRp);
+        }
+      } else if (feld === 'vorsteuer') {
+        formular.dataset.vorsteuerHand = leer('vorsteuer') ? '' : '1';
+        if (!leer('netto')) el.brutto.value = fix2(rappen(el.netto.value) + rappen(el.vorsteuer.value));
+      } else if (feld !== null) {
+        if (leer('netto')) {
+          el.vorsteuer.value = '';
+          el.brutto.value = '';
+        } else {
+          const nettoRp = rappen(el.netto.value);
+          if (!formular.dataset.vorsteuerHand) el.vorsteuer.value = fix2(prozentVonRappen(nettoRp, satz));
+          el.brutto.value = fix2(nettoRp + rappen(el.vorsteuer.value));
+        }
+      }
+      const hinweis = formular.querySelector('[data-rolle="betrag-hinweis"]');
+      const vonHand = Boolean(formular.dataset.vorsteuerHand);
+      const soll = leer('netto') ? 0 : prozentVonRappen(rappen(el.netto.value), satz);
+      hinweis.innerHTML = vonHand && rappen(el.vorsteuer.value) !== soll
+        ? `Vorsteuer von Hand (gerechnet wären ${chf(soll / 100)}) —
+          <button type="button" class="knopf eintrag-loeschen" data-aktion="vorsteuer-rechnen">neu rechnen</button>`
+        : 'Brutto = netto + Vorsteuer — darauf laufen Zahlung, Skonto und Kontoauszug-Abgleich.';
     }
 
     // Live-Hinweise: Fälligkeit/Skontofrist als Datum, IBAN und Referenz geprüft.
@@ -500,7 +599,11 @@ export default {
         if (wert) formular.elements[name].value = wert;
       };
       setze('lieferant', daten.lieferant);
-      setze('betrag', daten.betrag);
+      if (daten.betrag) {
+        // QR liefert das Brutto: netto und Vorsteuer zum Satz ableiten.
+        setze('brutto', daten.betrag);
+        rechneBetraege(formular, 'brutto');
+      }
       setze('rechnungsNr', daten.rechnungsNr || daten.referenz);
       setze('tag', daten.rechnungsTag);
       setze('skontoProzent', daten.skontoProzent);
@@ -515,9 +618,9 @@ export default {
       const info = formular.querySelector('[data-rolle="qr-info"]');
       info.hidden = false;
       info.textContent = `QR gelesen: ${daten.lieferant || '—'} · `
-        + `${daten.waehrung || 'CHF'} ${daten.betrag || '—'} · IBAN ${daten.iban || '—'}`
+        + `${daten.waehrung || 'CHF'} ${daten.betrag || '—'} brutto · IBAN ${daten.iban || '—'}`
         + (daten.skontoProzent ? ` · Skonto ${daten.skontoProzent} % / ${daten.skontoTage} Tage` : '')
-        + ' — bitte prüfen und Kostenart wählen.';
+        + ' — netto und Vorsteuer bitte mit der Rechnung prüfen, Kostenart wählen.';
     }
 
     // Scan-Dialog: Kamera live (Handy) oder QR aus einem Foto (Rückfallebene).
@@ -625,6 +728,13 @@ export default {
       const formular = abschicken.target;
       const meldung = formular.querySelector('.meldung');
       try {
+        const el = formular.elements;
+        const satz = mwstSatzAus(el.vorsteuerSatz.value);
+        if (satz === null) throw new Error('Vorsteuer-Satz ungültig — Prozent zwischen 0 und 99.9, z. B. 8.1.');
+        if (String(el.netto.value).trim() === '') throw new Error('Netto-Betrag fehlt.');
+        const nettoRp = rappen(el.netto.value);
+        const vorsteuerRp = String(el.vorsteuer.value).trim() === ''
+          ? prozentVonRappen(nettoRp, satz) : rappen(el.vorsteuer.value);
         const lieferant = formular.elements.lieferant.value.trim();
         const rechnungsNr = formular.elements.rechnungsNr.value.trim();
         // Doppelerfassungs-Schutz: gleiche Rechnung schon irgendwo erfasst?
@@ -634,7 +744,7 @@ export default {
             k.lieferant.trim().toLowerCase() === lieferant.toLowerCase()
             && k.rechnungsNr.trim().toLowerCase() === rechnungsNr.toLowerCase());
           if (doppelt && !confirm(`Achtung: ${lieferant} · ${rechnungsNr} ist bereits `
-            + `erfasst (${formatTag(doppelt.tag)}, ${chf(zahl(doppelt.betrag))}). `
+            + `erfasst (${formatTag(doppelt.tag)}, ${chf(zahl(doppelt.betrag))} inkl. MWST). `
             + 'Trotzdem speichern?')) {
             meldung.textContent = 'Nicht gespeichert — vermutlich Doppelerfassung.';
             return;
@@ -654,7 +764,10 @@ export default {
           rechnungsNr,
           tag: formular.elements.tag.value,
           datum: `${formular.elements.tag.value}T12:00:00.000Z`,
-          betrag: formular.elements.betrag.value.trim(),
+          netto: fix2(nettoRp),
+          vorsteuerSatz: satz,
+          vorsteuer: fix2(vorsteuerRp),
+          betrag: fix2(nettoRp + vorsteuerRp), // brutto
           zahlungsfristTage: parseInt(formular.elements.zahlungsfrist.value, 10)
             || ZAHLUNGSFRIST_TAGE,
           skontoProzent: formular.elements.skontoProzent.value.trim(),
@@ -756,8 +869,9 @@ export default {
       dialog.className = 'vollbild dialog-hintergrund';
       dialog.innerHTML = `
         <form class="karte formular dialog" data-rolle="visum-dialog">
-          <h3>Visum · ${esc(kreditor.lieferant)} ${esc(kreditor.rechnungsNr)}
-            · ${chf(zahl(kreditor.betrag))}</h3>
+          <h3>Visum · ${esc(kreditor.lieferant)} ${esc(kreditor.rechnungsNr)}</h3>
+          <p class="hinweis visum-betrag">netto ${chf(kreditorBetraege(kreditor).netto)} exkl. MWST
+            · brutto ${chf(kreditorBetraege(kreditor).brutto)} inkl. MWST</p>
           <p class="gruppen-label">Lieferschein-Abgleich — Material aus den Tagesrapporten</p>
           ${gezeigt.length ? `
             <div class="beweis-liste">
@@ -835,7 +949,8 @@ export default {
           .map((b) => [b.baustelleId, b.ktr]));
         exportiereCsv(
           ansicht === 'alle' ? 'luense-offene-kreditoren.csv' : `luense-kreditoren-${baustelle.ktr}.csv`,
-          ['KTR', 'Lieferant', 'Rechnungs-Nr.', 'Datum', 'Kostenart', 'Betrag CHF',
+          ['KTR', 'Lieferant', 'Rechnungs-Nr.', 'Datum', 'Kostenart', 'Netto exkl. MWST CHF',
+            'Vorsteuer-Satz %', 'Vorsteuer CHF', 'Brutto inkl. MWST CHF',
             'Bezahlt CHF', 'Offen CHF',
             'Skonto %', 'Skonto bis', 'Skonto CHF', 'Fällig', 'Status',
             'Bezahlt am', 'Skonto genutzt', 'IBAN', 'Referenz',
@@ -843,7 +958,7 @@ export default {
           kreditoren.slice().reverse().map((k) => {
             const w = kreditorWerte(k);
             return [ktrVon.get(k.baustelleId) || '', k.lieferant, k.rechnungsNr, formatTag(k.tag),
-              k.kostenart, w.betrag, w.bezahlt, w.rest, zahl(k.skontoProzent) || '', formatTag(w.skontoTag),
+              k.kostenart, w.netto, w.vorsteuerSatz, w.vorsteuer, w.betrag, w.bezahlt, w.rest, zahl(k.skontoProzent) || '', formatTag(w.skontoTag),
               w.skontoBetrag || '', formatTag(w.faelligTag), k.status,
               formatTag(k.bezahltAm), k.skontoGenutzt ? 'ja' : '',
               k.iban || '', k.referenz || '',

@@ -109,6 +109,60 @@ export function rechnungsBetraege(doc) {
   };
 }
 
+// Netto aus einem Brutto-Betrag (Rappen) bei «satz» Prozent, exakt
+// (BigInt) und kaufmännisch auf den Rappen: 10'810.00 bei 8.1 % → 10'000.00.
+// Die Differenz brutto − netto ist die Steuer, damit die Summe aufgeht.
+// Gebraucht vom Kreditoren-Formular (QR-Scan liefert brutto) und der
+// Nachführung alter Kreditoren (kern/migration.js).
+export function nettoAusBruttoRappen(bruttoRappen, satz) {
+  const s = BigInt(ganzzahl(satz, 4)); // Prozent × 10'000
+  if (s <= 0n) return bruttoRappen;
+  const brutto = BigInt(bruttoRappen);
+  const negativ = brutto < 0n;
+  const b = negativ ? -brutto : brutto;
+  const nenner = 1000000n + s;
+  const netto = Number((b * 1000000n * 2n + nenner) / (nenner * 2n));
+  return negativ && netto ? -netto : netto;
+}
+
+// ---------- Kreditoren: netto + Vorsteuer = brutto ----------
+// Lieferantenrechnungen werden NETTO erfasst, die Vorsteuer (MWST des
+// Lieferanten) als eigenes Feld: netto, vorsteuerSatz (Standard 8.1,
+// je Kreditor änderbar, 0 erlaubt), vorsteuer (exakt gerechnet, aber von
+// Hand übersteuerbar — massgebend ist die Rechnung des Lieferanten).
+// «betrag» bleibt das BRUTTO (= netto + vorsteuer) — darauf laufen
+// Zahlungen, Kontoauszug-Abgleich, Restbetrag, Skonto und der QR-Zahlteil.
+// Kosten (Controlling) rechnen mit netto. Alte Kreditoren ohne netto: das
+// erfasste «betrag» gilt als brutto, netto zu 8.1 % abgeleitet (siehe
+// kern/migration.js, die das einmal festschreibt).
+export const VORSTEUER_SATZ_STANDARD = 8.1;
+
+export function kreditorBetraege(k) {
+  const bruttoRp = rappen(k?.betrag);
+  const satzEigen = mwstSatzAus(k?.vorsteuerSatz);
+  const satz = satzEigen ?? VORSTEUER_SATZ_STANDARD;
+  let nettoRp;
+  let vorsteuerRp;
+  if (String(k?.netto ?? '').trim() !== '') {
+    nettoRp = rappen(k.netto);
+    vorsteuerRp = String(k?.vorsteuer ?? '').trim() !== ''
+      ? rappen(k.vorsteuer) : bruttoRp - nettoRp;
+  } else {
+    nettoRp = nettoAusBruttoRappen(bruttoRp, satz);
+    vorsteuerRp = bruttoRp - nettoRp;
+  }
+  return {
+    satz,
+    nettoRappen: nettoRp,
+    vorsteuerRappen: vorsteuerRp,
+    bruttoRappen: bruttoRp,
+    netto: nettoRp / 100,
+    vorsteuer: vorsteuerRp / 100,
+    brutto: bruttoRp / 100,
+    abgeleitet: String(k?.netto ?? '').trim() === '',
+  };
+}
+
 // Geschuldeter Betrag in Rappen: Rechnung = Total inkl. MWST,
 // Kreditor = Rechnungsbetrag des Lieferanten (wie erfasst).
 export function sollRappen(doc) {
@@ -277,8 +331,12 @@ export function kreditorWerte(k, heute = heuteTag()) {
     ? plusTage(k.tag, skontoTage) : '';
   const skontoBetrag = skontoTag ? prozentVonRappen(betragRappen, k.skontoProzent) / 100 : 0;
   const offen = k.status !== 'bezahlt';
+  const kb = kreditorBetraege(k);
   return {
-    betrag,
+    betrag, // brutto inkl. MWST — Zahlungen, Skonto, Rest
+    netto: kb.netto,
+    vorsteuer: kb.vorsteuer,
+    vorsteuerSatz: kb.satz,
     faelligTag,
     ueberfaellig: offen && !!faelligTag && faelligTag < heute,
     skontoTag,

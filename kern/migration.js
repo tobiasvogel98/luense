@@ -8,7 +8,9 @@
 // keine Baustellen-Zuordnung, nur das fehlende Feld.
 
 import { abfrage, put } from './speicher.js';
-import { mwstSatzAus, MWST_SATZ_STANDARD } from './zahlung.js';
+import {
+  mwstSatzAus, MWST_SATZ_STANDARD, rappen, nettoAusBruttoRappen, VORSTEUER_SATZ_STANDARD,
+} from './zahlung.js';
 
 // MWST-Satz an Rechnungen und Offerten (Tobias: fest 8.1 %, nicht der
 // aktuelle Firmensatz — diese Dokumente stammen aus der Zeit vor der
@@ -25,9 +27,38 @@ async function mwstSatzNachfuehren() {
   return anzahl;
 }
 
+// Kreditoren netto + Vorsteuer (Tobias): alte Kreditoren hatten nur
+// «betrag» — das gilt als BRUTTO und bleibt unverändert (Zahlungen,
+// Abgleich). Festgeschrieben werden vorsteuerSatz 8.1, netto = brutto /
+// 1.081 auf den Rappen und vorsteuer = brutto − netto (Summe exakt).
+const fix2 = (rp) => (rp / 100).toFixed(2);
+
+async function kreditorNettoNachfuehren() {
+  let anzahl = 0;
+  for (const doc of await abfrage({ typ: 'kreditor' })) {
+    const hatNetto = String(doc.netto ?? '').trim() !== '';
+    const hatSatz = mwstSatzAus(doc.vorsteuerSatz) !== null;
+    if (hatNetto && hatSatz) continue;
+    const neu = { ...doc };
+    if (!hatSatz) neu.vorsteuerSatz = VORSTEUER_SATZ_STANDARD;
+    if (!hatNetto) {
+      const bruttoRp = rappen(doc.betrag);
+      const nettoRp = nettoAusBruttoRappen(bruttoRp, neu.vorsteuerSatz);
+      neu.netto = fix2(nettoRp);
+      neu.vorsteuer = fix2(bruttoRp - nettoRp);
+    }
+    await put(neu);
+    anzahl++;
+  }
+  return anzahl;
+}
+
 export async function fuehreDatenNach() {
   const ergebnis = {};
-  for (const [name, schritt] of [['mwstSatz', mwstSatzNachfuehren]]) {
+  for (const [name, schritt] of [
+    ['mwstSatz', mwstSatzNachfuehren],
+    ['kreditorNetto', kreditorNettoNachfuehren],
+  ]) {
     try {
       ergebnis[name] = await schritt();
     } catch (fehler) {

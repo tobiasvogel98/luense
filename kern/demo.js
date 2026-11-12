@@ -290,7 +290,7 @@ export async function ladeBeispielbaustelle() {
   await speichere({
     typ: 'kreditor', baustelleId: B, lieferant: 'Kieswerk Beispiel AG (Beispiel)',
     rechnungsNr: 'KW-0001', tag: arbeitstagZurueck(3), datum: `${arbeitstagZurueck(3)}T12:00:00.000Z`,
-    betrag: '8640.50', zahlungsfristTage: 30, skontoProzent: '2', skontoTage: '10',
+    netto: '7993.06', vorsteuerSatz: 8.1, vorsteuer: '647.44', betrag: '8640.50', zahlungsfristTage: 30, skontoProzent: '2', skontoTage: '10',
     kostenart: 'Material', notiz: 'Sand 0/4 und Kiessand 0/45', iban: '', referenz: '',
     status: 'visiert', visumNotiz: 'Mengen mit Rapporten abgeglichen',
     statusHistorie: [{ status: 'offen', datum: arbeitstagZurueck(3) },
@@ -299,7 +299,7 @@ export async function ladeBeispielbaustelle() {
   await speichere({
     typ: 'kreditor', baustelleId: B, lieferant: 'Muster Transporte GmbH (Beispiel)',
     rechnungsNr: 'MT-0815', tag: arbeitstagZurueck(8), datum: `${arbeitstagZurueck(8)}T12:00:00.000Z`,
-    betrag: '3920', zahlungsfristTage: 30, skontoProzent: '', skontoTage: '',
+    netto: '3626.27', vorsteuerSatz: 8.1, vorsteuer: '293.73', betrag: '3920.00', zahlungsfristTage: 30, skontoProzent: '', skontoTage: '',
     kostenart: 'Fremdleistung', notiz: 'Abtransport Aushub', iban: '', referenz: '',
     status: 'bezahlt', bezahltAm: arbeitstagZurueck(1), skontoGenutzt: false,
     statusHistorie: [{ status: 'offen', datum: arbeitstagZurueck(8) },
