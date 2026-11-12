@@ -10,6 +10,7 @@ import { berechneAbschluss } from '../kern/fo.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { chf, chfGanz, esc, formatDatumZeit } from '../kern/ui.js';
 import { offenerBetrag } from '../kern/zahlung.js';
+import { ladeFirma, mwstPflichtig } from '../kern/stamm.js';
 
 function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
@@ -79,6 +80,8 @@ export default {
       // Offene Beträge nach Zahlungen (Kontoauszug/Teilzahlung): Restbetrag.
       // Forderung = was der Bauherr schuldet, also inkl. MWST (wie die
       // offenen Kreditoren). Umsatz-/Ergebniszahlen bleiben netto.
+      // Nicht pflichtige Firma: Beschriftung ohne «inkl. MWST».
+      const mwstText = mwstPflichtig(await ladeFirma()) ? ' · inkl. MWST' : '';
       const gestellteRechnungen = d.rechnungen.filter((r) => ['gestellt', 'teilbezahlt'].includes(r.status));
       const gestellteSumme = gestellteRechnungen.reduce((s, r) => s + offenerBetrag(r), 0);
       const kreditorenOffen = d.kreditoren.filter((k) => k.status !== 'bezahlt');
@@ -135,10 +138,10 @@ export default {
             <div class="karte kachel"><span class="kachel-titel">Pendenzen offen</span>
               <span class="kachel-wert">${pendenzenOffen.length}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Gestellt, nicht bezahlt
-              (${gestellteRechnungen.length}) · inkl. MWST</span>
+              (${gestellteRechnungen.length})${mwstText}</span>
               <span class="kachel-wert">${chfGanz(gestellteSumme)}</span></div>
             <div class="karte kachel"><span class="kachel-titel">Kreditoren offen
-              (${kreditorenOffen.length}) · inkl. MWST</span>
+              (${kreditorenOffen.length})${mwstText}</span>
               <span class="kachel-wert">${chfGanz(kreditorenOffenSumme)}</span></div>
           </div>
 
@@ -238,9 +241,9 @@ export default {
               { label: 'Restbausumme (K3)', wert: kenn ? chfGanz(kenn.k3) : '-' },
               { label: 'Nachträge offen', wert: `${ntOffen.length} · ${chfGanz(ntOffenSumme)}` },
               { label: 'Pendenzen offen', wert: String(pendenzenOffen.length) },
-              { label: 'Rechnungen gestellt, nicht bezahlt (inkl. MWST)',
+              { label: `Rechnungen gestellt, nicht bezahlt${mwstText ? ' (inkl. MWST)' : ''}`,
                 wert: `${gestellteRechnungen.length} · ${chfGanz(gestellteSumme)}` },
-              { label: 'Kreditoren offen (inkl. MWST)',
+              { label: `Kreditoren offen${mwstText ? ' (inkl. MWST)' : ''}`,
                 wert: `${kreditorenOffen.length} · ${chfGanz(kreditorenOffenSumme)}` },
             ] },
             ntOffen.length ? { art: 'tabelle', titel: 'Offene Nachträge',

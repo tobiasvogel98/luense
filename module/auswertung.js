@@ -17,9 +17,9 @@ import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { berechneAbschluss } from '../kern/fo.js';
-import { alleBaustellen } from '../kern/stamm.js';
+import { alleBaustellen, ladeFirma, mwstPflichtig } from '../kern/stamm.js';
 import { chfGanz, esc } from '../kern/ui.js';
-import { zahlungen, kreditorBetraege } from '../kern/zahlung.js';
+import { zahlungen, kreditorKostenRappen } from '../kern/zahlung.js';
 
 const W_ZEILEN = [
   ['w1', 'W1', 'ursprüngliche Werkvertragssumme'],
@@ -403,15 +403,18 @@ export default {
       const formular = formularBereich.querySelector('[data-rolle="fo-formular"]');
       const liste = formular.querySelector('[data-rolle="vorschlags-liste"]');
       const stichtag = formular.elements.stichtag.value || heuteTag();
-      const [rechnungen, kreditoren] = await Promise.all([
+      const [rechnungen, kreditoren, firma] = await Promise.all([
         abfrage({ typ: 'rechnung', baustelleId: baustelle.baustelleId }),
         abfrage({ typ: 'kreditor', baustelleId: baustelle.baustelleId }),
+        ladeFirma(),
       ]);
+      const pflichtig = mwstPflichtig(firma);
       const bisStichtag = (liste2) => liste2.filter((d) => (d.tag || '') <= stichtag);
       const summe = (liste2) => liste2.reduce((s, d) => s + zahl(d.betrag), 0);
       // Debitoren: gestellt, teilbezahlt oder bezahlt zählt als fakturiert.
       // Fakturiert = Rechnungsbetrag NETTO (exkl. MWST): Die MWST ist kein
       // Ertrag, sondern geht an die ESTV — verglichen wird mit Kosten.
+      // Nicht pflichtig: neue Rechnungen haben 0 %, netto = Total.
       const fakturiert = bisStichtag(rechnungen.filter((r) => ['gestellt', 'teilbezahlt', 'bezahlt'].includes(r.status)));
       const b1V = summe(fakturiert.filter((r) => r.basis?.art !== 'regierapport'));
       const b2V = summe(fakturiert.filter((r) => r.basis?.art === 'regierapport'));
@@ -426,9 +429,12 @@ export default {
       const ausgang = flussBis(kreditoren, 'betrag');
       const skontoErtrag = flussBis(kreditoren, 'skonto');
       // Kosten NETTO (exkl. MWST): die Vorsteuer holt man bei der ESTV
-      // zurück — sie ist kein Aufwand der Baustelle.
+      // zurück — sie ist kein Aufwand der Baustelle. Nicht pflichtige
+      // Firma: Vorsteuer nicht abziehbar, Kosten = Bruttobetrag (auch bei
+      // älteren Kreditoren mit erfasster Vorsteuer, kern/zahlung.js).
       const summeNetto = (liste2) => liste2
-        .reduce((s, k) => s + kreditorBetraege(k).nettoRappen, 0) / 100;
+        .reduce((s, k) => s + kreditorKostenRappen(k, pflichtig), 0) / 100;
+      const ertragText = pflichtig ? ', netto exkl. MWST' : '';
       const kreditorenTotal = summeNetto(anerkannt);
       const jeKostenart = [...new Set(anerkannt.map((k) => k.kostenart))]
         .map((art) => ({ art, betrag: summeNetto(anerkannt.filter((k) => k.kostenart === art)) }));
@@ -448,17 +454,18 @@ export default {
           (ohne Löhne und Inventar-Verrechnung), S1 danach ergänzen.</p>
         ${w1V ? zeile('W1: Werkvertrag der Baustelle', w1V, 'w1') : ''}
         ${zeile('B1: fakturiert (Ausmass/Nachtrag/manuell)', b1V, 'b1',
-          `${fakturiert.filter((r) => r.basis?.art !== 'regierapport').length} Rechnungen gestellt/bezahlt, netto exkl. MWST`)}
+          `${fakturiert.filter((r) => r.basis?.art !== 'regierapport').length} Rechnungen gestellt/bezahlt${ertragText}`)}
         ${zeile('B2: Regiefakturen', b2V, 'b2',
-          `${fakturiert.filter((r) => r.basis?.art === 'regierapport').length} Rechnungen, netto exkl. MWST`)}
+          `${fakturiert.filter((r) => r.basis?.art === 'regierapport').length} Rechnungen${ertragText}`)}
         ${zeile('S1: Kreditoren visiert/bezahlt', kreditorenTotal, 's1',
-          `${anerkannt.length} Lieferantenrechnungen, netto exkl. MWST`)}
+          `${anerkannt.length} Lieferantenrechnungen, ${pflichtig ? 'netto exkl. MWST' : 'Kosten (Vorsteuer nicht abziehbar)'}`)}
         ${jeKostenart.map((k) => zeile(`&nbsp;&nbsp;davon ${esc(k.art)}`, k.betrag, '')).join('')}
         ${eingang || ausgang ? `
           <p class="hinweis">Erfasste Zahlungen bis Stichtag (Kontoauszug/von Hand), nur zur Information:</p>
-          ${zeile('Zahlungseingang Debitoren', eingang, '', 'inkl. MWST')}
+          ${zeile('Zahlungseingang Debitoren', eingang, '', pflichtig ? 'inkl. MWST' : '')}
           ${zeile('Zahlungsausgang Kreditoren', ausgang, '',
-            `inkl. MWST${skontoErtrag ? ` · Skonto genutzt ${chfGanz(skontoErtrag)}` : ''}`)}` : ''}`;
+            [pflichtig ? 'inkl. MWST' : '', skontoErtrag ? `Skonto genutzt ${chfGanz(skontoErtrag)}` : '']
+              .filter(Boolean).join(' · '))}` : ''}`;
     }
 
     formularBereich.addEventListener('click', (klick) => {
