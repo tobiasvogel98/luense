@@ -13,7 +13,8 @@ import { istBeispielDokument } from './demo.js';
 const MERKER = 'luense.letzterExport'; // nur UI-Zustand (Datum), keine Daten
 const ERINNERUNG_TAGE = 7;
 
-function ladeHerunter(datei) {
+// Datei herunterladen (auch module/rechnung.js: PDF für den Mail-Versand am Laptop).
+export function ladeHerunter(datei) {
   const url = URL.createObjectURL(datei);
   const link = document.createElement('a');
   link.href = url;

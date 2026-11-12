@@ -380,6 +380,54 @@ async function verbuche(p, zielId) {
   return { doc, doppelt, bewertung };
 }
 
+// ---------- Stand des letzten Kontoauszugs ----------
+// Vor dem Mahnen prüft module/rechnung.js, ob die Zahlungen aktuell
+// verbucht sind (Entscheid Tobias: niemand mahnen, der schon bezahlt hat).
+// Massgebend ist das Datum, bis zu dem die Bank Buchungen geliefert hat,
+// nicht der Tag des Einlesens: ein alter Auszug heute eingelesen ist
+// trotzdem alt. Je verbuchter Datei hält ein Dokument «kontoauszug» den
+// Stand fest: Ende des Auszugszeitraums (FrToDt/ToDtTm), sonst das späteste
+// Buchungsdatum, sonst das Erstelldatum der Datei. Für Auszüge, die vor
+// dieser Version eingelesen wurden, zählt das späteste Buchungsdatum der
+// «bankbuchung»-Dokumente.
+export const AUSZUG_HOECHSTALTER_TAGE = 3;
+
+function standTagAus(gelesen) {
+  const tage = gelesen.konten.map((k) => k.bis).filter(Boolean);
+  if (!tage.length) tage.push(...gelesen.posten.map((p) => p.buchungsDatum).filter(Boolean));
+  if (!tage.length) tage.push(...gelesen.konten.map((k) => k.erstellt).filter(Boolean));
+  return tage.sort().pop() || '';
+}
+
+async function merkeAuszug(gelesen, dateiname) {
+  const standTag = standTagAus(gelesen);
+  if (!standTag) return;
+  await put({
+    typ: 'kontoauszug',
+    baustelleId: 'bank',
+    datum: `${standTag}T12:00:00.000Z`,
+    standTag,
+    art: gelesen.version || gelesen.art,
+    dateiname,
+    konten: gelesen.konten,
+    anzahlBuchungen: gelesen.posten.length,
+    importiertAm: heuteTag(),
+  });
+}
+
+// { tag: 'JJJJ-MM-TT' | '', veraltet, alterTage }: Stand der verbuchten
+// Bankdaten. veraltet, wenn nie eingelesen oder älter als
+// AUSZUG_HOECHSTALTER_TAGE Tage.
+export async function kontoauszugStand(heute = heuteTag()) {
+  const [auszuege, buchungen] = await Promise.all([
+    abfrage({ typ: 'kontoauszug' }), abfrage({ typ: 'bankbuchung' })]);
+  const tag = [...auszuege.map((a) => a.standTag), ...buchungen.map((b) => b.buchungsDatum)]
+    .filter(Boolean).sort().pop() || '';
+  const alterTage = tag
+    ? Math.round((new Date(`${heute}T12:00:00`) - new Date(`${tag}T12:00:00`)) / 86400000) : null;
+  return { tag, alterTage, veraltet: !tag || alterTage > AUSZUG_HOECHSTALTER_TAGE };
+}
+
 // ---------- Ansicht: Kontoauszug-Dialog ----------
 function zielText(ziel) {
   const d = ziel.doc;
@@ -440,6 +488,7 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
   const verbuchenKnopf = dialog.querySelector('[data-aktion="verbuchen"]');
   let posten = [];
   let offeneZiele = [];
+  let gelesen = []; // [{ camt, dateiname }] für den Stand des Auszugs
 
   dialog.addEventListener('click', (klick) => {
     if (klick.target === dialog || klick.target.closest('[data-aktion="zu"]')) dialog.remove();
@@ -448,8 +497,10 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
   function zaehleAuswahl() {
     const n = [...vorschau.querySelectorAll('[data-wahl]')].filter((el) =>
       (el.type === 'checkbox' ? el.checked : el.value)).length;
-    verbuchenKnopf.hidden = !posten.length;
-    verbuchenKnopf.disabled = n === 0;
+    // Auch ohne Auswahl verbuchbar: der Stand des Auszugs (bis wann die
+    // Bank geliefert hat) zählt für die Prüfung vor dem Mahnen.
+    verbuchenKnopf.hidden = !gelesen.length;
+    verbuchenKnopf.disabled = false;
     verbuchenKnopf.textContent = `Auswahl verbuchen (${n})`;
   }
 
@@ -510,8 +561,8 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
     if (!dateien.length) return;
     meldung.textContent = 'Datei wird gelesen …';
     try {
-      const gelesen = [];
-      for (const datei of dateien) gelesen.push(leseCamt(await datei.text(), datei.name));
+      gelesen = [];
+      for (const datei of dateien) gelesen.push({ ...leseCamt(await datei.text(), datei.name), dateiname: datei.name });
       const [rechnungen, kreditoren, baustellen, bankbuchungen, firma] = await Promise.all([
         abfrage({ typ: 'rechnung' }), abfrage({ typ: 'kreditor' }),
         alleBaustellen({ mitArchivierten: true }), abfrage({ typ: 'bankbuchung' }), ladeFirma(),
@@ -539,6 +590,7 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
       meldung.textContent = fehler.message;
       vorschau.innerHTML = '';
       posten = [];
+      gelesen = [];
       zaehleAuswahl();
     } finally {
       wechsel.target.value = '';
@@ -569,6 +621,8 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
           else zaehler.teil++;
         }
       }
+      for (const g of gelesen) await merkeAuszug(g, g.dateiname);
+      const stand = gelesen.map(standTagAus).filter(Boolean).sort().pop();
       const teile = [
         zaehler.voll ? `${zaehler.voll} bezahlt` : '',
         zaehler.teil ? `${zaehler.teil} Teilzahlung${zaehler.teil > 1 ? 'en' : ''}` : '',
@@ -578,7 +632,8 @@ export function oeffneKontoauszug({ richtung = 'CRDT', nachBuchung = () => {} } 
       ].filter(Boolean);
       document.dispatchEvent(new CustomEvent('luense:daten'));
       dialog.remove();
-      nachBuchung(`Kontoauszug verbucht: ${teile.join(' · ') || 'nichts ausgewählt'}.`);
+      nachBuchung(`Kontoauszug verbucht: ${teile.join(' · ') || 'nichts ausgewählt'}.${
+        stand ? ` Stand der Bankdaten: ${formatTag(stand)}.` : ''}`);
     } catch (fehler) {
       meldung.textContent = `Fehler beim Verbuchen: ${fehler.message}`;
       verbuchenKnopf.disabled = false;
