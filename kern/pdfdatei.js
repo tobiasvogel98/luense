@@ -234,9 +234,11 @@ export class PdfDokument {
 // ---------- Brief mit Abschnitten (gleiches Modell wie zeigeProtokollDruck) ----------
 // brief: { titel, absender: [Zeilen], empfaenger: [Zeilen], ortDatum,
 //   abschnitte: [{ art: 'text' | 'felder' | 'summen', titel, absaetze | zeilen }],
-//   zahlteil: Elemente aus zahlteilElemente() oder null, zahlteilHinweis }
-// Der Zahlteil steht unten auf der letzten Seite (105 mm hoch); passt der
-// Brief nicht darüber, kommt er auf eine eigene Seite.
+//   zahlteil: Elemente aus zahlteilElemente() oder null, zahlteilHinweis,
+//   zahlteilEigeneSeite }
+// Der Zahlteil steht unten auf der letzten Seite (105 mm hoch); mit
+// zahlteilEigeneSeite oder wenn der Brief nicht darüber passt, unten auf
+// einer eigenen Seite.
 export function briefPdf(brief) {
   const doc = new PdfDokument({ titel: brief.titel, autor: brief.absender?.[0] || '' });
   const LINKS = 20;
@@ -320,7 +322,7 @@ export function briefPdf(brief) {
 
   if (brief.zahlteil) {
     const OBEN = SEITE.h - 105;
-    if (y > OBEN - 8) {
+    if (brief.zahlteilEigeneSeite || y > OBEN - 8) {
       seite = doc.neueSeite();
       if (brief.zahlteilHinweis) seite.text(LINKS, 20, brief.zahlteilHinweis, { groesse: 9, grau: 0.3 });
     }

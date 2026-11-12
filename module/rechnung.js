@@ -449,13 +449,18 @@ export default {
       inBearbeitung = rechnung || null;
       neuZeile.hidden = true;
       const nummer = rechnung?.nummer || await naechsteRechnungsnummer();
-      const deb = rechnung?.debitor || { name: baustelle.bauherr || '' };
-      // Neue Rechnung: E-Mail von der letzten Rechnung dieser Baustelle.
+      let deb = rechnung?.debitor || { name: baustelle.bauherr || '' };
+      // Neue Rechnung: ganze Rechnungsadresse inkl. E-Mail von der letzten
+      // Rechnung dieser Baustelle (Entscheid Tobias). Hat jene keine
+      // E-Mail, kommt sie von der letzten Rechnung mit E-Mail.
       if (!rechnung) {
-        const letzte = (await ladeRechnungen())
-          .filter((r) => r.debitor?.email)
+        const neuste = (liste) => liste
           .sort((a, b) => `${b.tag || ''}${b.nummer || ''}`.localeCompare(`${a.tag || ''}${a.nummer || ''}`))[0];
-        if (letzte) deb.email = letzte.debitor.email;
+        const alle = await ladeRechnungen();
+        const mitAdresse = neuste(alle.filter((r) => r.debitor
+          && ['name', 'strasse', 'plz', 'ort', 'email'].some((feld) => String(r.debitor[feld] ?? '').trim())));
+        if (mitAdresse) deb = { ...mitAdresse.debitor, name: mitAdresse.debitor.name || deb.name };
+        if (!deb.email) deb.email = neuste(alle.filter((r) => r.debitor?.email))?.debitor.email || '';
       }
       // Neue Rechnung: Satz der Firmendaten; bestehende: ihr eigener Satz.
       const firma = await ladeFirma();
@@ -878,6 +883,7 @@ export default {
         ortDatum: [brief.firma?.ort, formatTag(mahnung.datum)].filter(Boolean).join(', '),
         abschnitte: brief.abschnitte,
         zahlteil: brief.zahlteil,
+        zahlteilEigeneSeite: true, // Entscheid Tobias: Zahlteil immer auf eigener Seite
         zahlteilHinweis: brief.zahlteilHinweis,
       });
       const dateiname = `${brief.name.replace(/\. /g, '-').replace(/\s+/g, '-')}-${rechnung.nummer}.pdf`
@@ -1050,7 +1056,7 @@ export default {
             <label>Betreff<input name="betreff" autocomplete="off" value="${esc(vorlage.betreff)}"></label>
             <label>Text<textarea name="text" rows="9">${esc(vorlage.text)}</textarea></label>
             <p class="hinweis" data-rolle="versand-weg">${teilen
-              ? 'Das Teilen-Menü öffnet sich: dort das Mail-Programm wählen. Den Empfänger bitte im Mail-Programm eintragen, falls er fehlt.'
+              ? 'Das Teilen-Menü öffnet sich: dort das Mail-Programm wählen. Die Empfängeradresse kommt in die Zwischenablage, in der Mail-App ins Feld An einfügen.'
               : 'Dieses Gerät kann das PDF nicht direkt ans Mail-Programm geben: Das PDF wird heruntergeladen und eine neue Mail geöffnet. Bitte das PDF dort von Hand anhängen.'}</p>
             <div class="knopfzeile">
               <button type="submit" class="knopf knopf-primaer">${neu ? 'Erstellen und senden' : 'Erneut senden'}</button>
@@ -1074,7 +1080,15 @@ export default {
             f.email.focus();
             return;
           }
-          schliesse({ email, betreff: f.betreff.value.trim() || vorlage.betreff, text: f.text.value });
+          // Adresse im selben Tipp-Ereignis in die Zwischenablage: das
+          // Teilen-Menü kann den Empfänger nicht vorbelegen. Fehler still.
+          let kopiert = Promise.resolve(false);
+          if (teilen) {
+            try {
+              kopiert = navigator.clipboard.writeText(email).then(() => true, () => false);
+            } catch { /* ohne Zwischenablage */ }
+          }
+          schliesse({ email, betreff: f.betreff.value.trim() || vorlage.betreff, text: f.text.value, kopiert });
         });
         formular.elements.email.focus();
       });
@@ -1175,6 +1189,7 @@ export default {
           mahnungen: [...liste.slice(0, -1), { ...eintrag, ...versand }] });
       }
       const ergebnis = await uebergebeMail({ datei, ...angaben });
+      const kopiert = ergebnis !== 'mailto' && await angaben.kopiert;
       if (ergebnis === 'geteilt') {
         await aendereLetzteStufe(gespeichert._id, { versendetAm: heuteTag(), versandWeg: 'teilen' });
       } else if (ergebnis === 'mailto') {
@@ -1188,7 +1203,7 @@ export default {
         abgebrochen: `Teilen abgebrochen: ${name} zu Rechnung ${rechnung.nummer} ist festgehalten, aber noch nicht versendet. «Erneut senden» in der Zeile.`,
         mailto: `${name} zu Rechnung ${rechnung.nummer}: PDF «${datei.name}» heruntergeladen und neue Mail an ${angaben.email} geöffnet. `
           + 'Bitte das PDF von Hand anhängen und nach dem Senden «Als versendet markieren».',
-      })[ergebnis] + qr;
+      })[ergebnis] + qr + (kopiert ? ` Adresse kopiert: ${angaben.email}. In der Mail-App ins Feld An einfügen.` : '');
     }
 
     // Mahnung erstellen (fällige Stufe festhalten + PDF), PDF der letzten
