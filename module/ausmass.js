@@ -156,8 +156,33 @@ export default {
       meldung.textContent = '';
     }
 
+    // Verknüpfung zur Offerte (nur über Dokumente, ohne Code des Offert-
+    // Moduls): Positionen tragen offertId/offertPosNr; ältere bzw. Beispiel-
+    // Positionen finden ihre Offerte über zielBaustelleId und die NPK-Nr.
+    let offertLinks = new Map(); // ausmass-_id → { offertId, posNr }
+
+    async function ladeOffertLinks(positionen) {
+      const offerten = (await abfrage({ typ: 'offerte', baustelleId: 'offertwesen' }))
+        .filter((o) => o.zielBaustelleId === baustelle.baustelleId && !o.kopieVon);
+      const nrn = (o) => new Set((o.gliederung || o.positionen || [])
+        .filter((z) => (z.art ?? 'position') === 'position')
+        .map((z) => String(z.nr ?? z.pos ?? '').trim()));
+      const links = new Map();
+      for (const p of positionen) {
+        const nr = String(p.offertPosNr ?? p.pos ?? '').trim();
+        if (p.offertId) {
+          links.set(p._id, { offertId: p.offertId, posNr: nr });
+        } else {
+          const offerte = offerten.find((o) => nrn(o).has(nr));
+          if (offerte) links.set(p._id, { offertId: offerte._id, posNr: nr });
+        }
+      }
+      return links;
+    }
+
     function positionsKarte(p) {
       const w = positionsWerte(p);
+      const link = offertLinks.get(p._id);
       return `
         <article class="karte position${w.ueberVertrag ? ' ueber-vertrag' : ''}">
           <div class="rapport-kopf">
@@ -178,6 +203,10 @@ export default {
             <span>EP ${chf(w.ep)}</span>
             <span class="position-betrag">${chf(w.betrag)}</span>
           </div>
+          ${link ? `<div class="knopfzeile offert-sprung">
+            <button type="button" class="knopf" data-aktion="offert-ausmass" data-id="${esc(p._id)}"
+              aria-label="Offert-Ausmass der Position ${esc(p.pos)} öffnen">Offert-Ausmass öffnen ↗</button>
+          </div>` : ''}
         </article>`;
     }
 
@@ -195,6 +224,11 @@ export default {
         s.vertragsbetrag += w.vertragsbetrag;
         return s;
       }, { betrag: 0, vertragsbetrag: 0 });
+      try {
+        offertLinks = await ladeOffertLinks(positionen);
+      } catch {
+        offertLinks = new Map();
+      }
       summenElement.hidden = false;
       summenElement.innerHTML = `
         <div class="fo-zeile fo-berechnet"><span class="fo-nr"></span>
@@ -242,7 +276,15 @@ export default {
       const positionen = await ladePositionen();
       const position = positionen.find((p) => p._id === knopf.dataset.id);
       if (!position) return;
-      if (knopf.dataset.aktion === 'bearbeiten') {
+      if (knopf.dataset.aktion === 'offert-ausmass') {
+        // Sprung ins Offert-Ausmass (Mengen-Fenster der Offert-Position);
+        // die Offerte wählt selbst ihre Arbeitsversion (Kopie).
+        const link = offertLinks.get(position._id);
+        if (!link) return;
+        document.dispatchEvent(new CustomEvent('luense:modulWechseln', {
+          detail: { name: 'Offerten', offertId: link.offertId, posNr: link.posNr },
+        }));
+      } else if (knopf.dataset.aktion === 'bearbeiten') {
         fuelleFormular(position);
         formular.scrollIntoView({ behavior: 'smooth' });
       } else if (knopf.dataset.aktion === 'loeschen') {

@@ -212,7 +212,9 @@
       aktivesModul = index;
       localStorage.setItem(MODUL_MERKER, MODULE[index].name);
       window.scrollTo(0, 0);
-      zeigeModul();
+      // Weitere Angaben im detail (z. B. offertId/posNr) reicht die Shell
+      // unverändert als Sprungziel ans Zielmodul weiter — sie kennt sie nicht.
+      zeigeModul({ ziel: ereignis.detail });
       if (ereignis.detail?.fokusId) fokussiere(ereignis.detail.fokusId);
     });
 
@@ -244,7 +246,9 @@
       zeigeModul();
     });
 
-    async function zeigeModul() {
+    // optionen.ziel: Sprungziel aus luense:modulWechseln — das Modul darf
+    // es als dritten render-Parameter auswerten oder ignorieren.
+    async function zeigeModul(optionen = {}) {
       const baustellen = await alleBaustellen();
       const baustelle = baustellen.find((b) => b.baustelleId === auswahl.value);
       if (!baustelle) {
@@ -255,7 +259,7 @@
       aktuelleBaustelle = baustelle;
       modulNav.hidden = false;
       zeichneModulNav();
-      MODULE[aktivesModul].render(modulbereich, baustelle);
+      MODULE[aktivesModul].render(modulbereich, baustelle, { ziel: optionen.ziel || null });
     }
 
     function zeigeStamm() {

@@ -3237,3 +3237,121 @@ details.katalog-wahl > summary {
     border-left-color: #4ade80;
   }
 }
+
+/* Offerte: Sperre nach Annahme, Kopie, Menge direkt/Rechenweg/Grabenrechner */
+.offert-gesperrt {
+  border-left: 4px solid var(--tag-fortschritt);
+}
+
+.chip-gesperrt {
+  font-weight: 600;
+  color: var(--tag-fortschritt);
+  background: var(--tag-fortschritt-flaeche);
+  border-color: var(--tag-fortschritt);
+}
+
+.sperre-hinweis {
+  margin: var(--abstand-2) 0;
+  padding: var(--abstand-2) var(--abstand-3);
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--tag-fortschritt);
+  background: var(--tag-fortschritt-flaeche);
+  border-radius: var(--radius);
+}
+
+.kopie-hinweis {
+  font-weight: 600;
+  color: var(--farbe-akzent);
+}
+
+.menge-wege {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--abstand-2);
+  margin: var(--abstand-2) 0 var(--abstand-3);
+}
+
+.menge-wege .chip-knopf {
+  flex: 1 1 auto;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.menge-feldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.menge-feldset:disabled input,
+.menge-feldset:disabled select {
+  opacity: 1;
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+  -webkit-text-fill-color: var(--farbe-text);
+}
+
+.rechenweg-feld {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.formular input[aria-invalid="true"] {
+  border-color: var(--tag-mangel);
+  outline-color: var(--tag-mangel);
+}
+
+.rechenweg-fehler {
+  margin: var(--abstand-1) 0 var(--abstand-2);
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--tag-mangel);
+}
+
+.menge-eingabe-zeile {
+  display: flex;
+  gap: var(--abstand-2);
+  align-items: stretch;
+}
+
+.menge-eingabe-zeile input {
+  flex: 1 1 6rem;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.menge-rechner-knopf {
+  flex: 0 0 auto;
+  padding: 0 var(--abstand-3);
+  white-space: nowrap;
+}
+
+.menge-status {
+  min-height: 1.2em;
+  font-size: var(--schrift-klein);
+  font-variant-numeric: tabular-nums;
+  color: var(--farbe-text-gedaempft);
+}
+
+.graben-teil-kurz {
+  margin-top: var(--abstand-3);
+  padding-top: var(--abstand-2);
+  border-top: 1px dashed var(--farbe-linie);
+}
+
+.graben-teil-ergebnis {
+  font-variant-numeric: tabular-nums;
+}
+
+.offert-sprung {
+  margin-top: var(--abstand-2);
+}
+
+/* Editor: Mengenfeld mit Rechner-Knopf braucht Platz — auf dem Handy
+   eine eigene Zeile, EP bricht darunter um */
+.feld-reihe .lv-menge-feld {
+  flex: 2 1 17rem;
+  min-width: 0;
+}
