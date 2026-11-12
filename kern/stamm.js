@@ -174,7 +174,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
           </div>
           <div class="feld-reihe">
             <label class="feld-breit">MWST-Nr.<input name="mwstNr" autocomplete="off" placeholder="CHE-123.456.789 MWST"></label>
-            <label class="feld-schmal">MWST-Satz [%]<input name="mwstSatz" type="number" inputmode="decimal"
+            <label class="feld-schmal">MWST [%]<input name="mwstSatz" aria-label="MWST-Satz in Prozent" type="number" inputmode="decimal"
               step="any" min="0" max="99.9" placeholder="${MWST_SATZ_STANDARD}"></label>
           </div>
           <p class="hinweis">Der MWST-Satz gilt für neue Rechnungen und wird dort beim
