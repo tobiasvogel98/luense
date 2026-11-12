@@ -93,9 +93,12 @@ export function qrInhalt({ firma, debitor, betrag, waehrung = 'CHF', referenz, m
   ].join('\n');
 }
 
-// ---------- Darstellung (SVG, Masse in mm) ----------
+// ---------- Darstellung (Masse in mm) ----------
+// Der Zahlteil wird einmal als Liste von Grafik-Elementen beschrieben
+// (zahlteilElemente) und daraus als SVG (Bildschirm, Druckansicht) oder
+// als PDF-Vektorgrafik (kern/pdfdatei.js, Mail-Anhang) gezeichnet.
 const SCHRIFT = 'Helvetica, Arial, "Liberation Sans", sans-serif';
-const PT = 0.3528; // 1 pt in mm
+export const PT = 0.3528; // 1 pt in mm
 
 function x(text) {
   return String(text ?? '').replace(/[&<>"]/g, (c) =>
@@ -126,11 +129,17 @@ export function betragZahlteil(betrag) {
   return `${ganz.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}.${rappen}`;
 }
 
+const text = (xx, y, groesse, inhalt, { fett = false, anker = 'start' } = {}) =>
+  ({ art: 'text', x: xx, y, groesse, text: String(inhalt ?? ''), fett, anker });
+
 function eckmarken(x0, y0, b, h) {
   const l = 3;
-  return `<path d="M${x0} ${y0 + l}V${y0}H${x0 + l} M${x0 + b - l} ${y0}H${x0 + b}V${y0 + l}
-    M${x0 + b} ${y0 + h - l}V${y0 + h}H${x0 + b - l} M${x0 + l} ${y0 + h}H${x0}V${y0 + h - l}"
-    fill="none" stroke="#000" stroke-width="${0.75 * PT}"/>`;
+  return { art: 'linie', breite: 0.75 * PT, pfade: [
+    [[x0, y0 + l], [x0, y0], [x0 + l, y0]],
+    [[x0 + b - l, y0], [x0 + b, y0], [x0 + b, y0 + l]],
+    [[x0 + b, y0 + h - l], [x0 + b, y0 + h], [x0 + b - l, y0 + h]],
+    [[x0 + l, y0 + h], [x0, y0 + h], [x0, y0 + h - l]],
+  ] };
 }
 
 // Textblock: Abschnitte aus Überschrift + Zeilen, ab Position (x0, y0).
@@ -139,7 +148,7 @@ function block(x0, y0, abschnitte, { titelPt, wertPt, zeilenPt, breite }) {
   const teile = [];
   for (const abschnitt of abschnitte) {
     y += titelPt * PT;
-    teile.push(`<text x="${x0}" y="${y.toFixed(2)}" font-size="${titelPt * PT}" font-weight="700">${x(abschnitt.titel)}</text>`);
+    teile.push(text(x0, y, titelPt * PT, abschnitt.titel, { fett: true }));
     if (abschnitt.leer) {
       y += 1;
       teile.push(eckmarken(x0, y, abschnitt.leer[0], abschnitt.leer[1]));
@@ -147,12 +156,12 @@ function block(x0, y0, abschnitte, { titelPt, wertPt, zeilenPt, breite }) {
     } else {
       for (const zeile of abschnitt.zeilen.flatMap((z) => umbrechen(z, breite, wertPt))) {
         y += zeilenPt * PT;
-        teile.push(`<text x="${x0}" y="${y.toFixed(2)}" font-size="${wertPt * PT}">${x(zeile)}</text>`);
+        teile.push(text(x0, y, wertPt * PT, zeile));
       }
     }
     y += zeilenPt * PT * 0.9; // Leerzeile zwischen den Abschnitten
   }
-  return teile.join('');
+  return teile;
 }
 
 function adressText(a) {
@@ -167,15 +176,20 @@ function schweizerkreuz(mx, my) {
   const innen = 6;
   const balkenB = 1.17;
   const balkenL = 3.9;
-  return `<rect x="${mx - s / 2}" y="${my - s / 2}" width="${s}" height="${s}" fill="#fff"/>
-    <rect x="${mx - innen / 2}" y="${my - innen / 2}" width="${innen}" height="${innen}" fill="#000"/>
-    <rect x="${mx - balkenB / 2}" y="${my - balkenL / 2}" width="${balkenB}" height="${balkenL}" fill="#fff"/>
-    <rect x="${mx - balkenL / 2}" y="${my - balkenB / 2}" width="${balkenL}" height="${balkenB}" fill="#fff"/>`;
+  return [
+    { art: 'rechteck', x: mx - s / 2, y: my - s / 2, b: s, h: s, farbe: '#fff' },
+    { art: 'rechteck', x: mx - innen / 2, y: my - innen / 2, b: innen, h: innen, farbe: '#000' },
+    { art: 'rechteck', x: mx - balkenB / 2, y: my - balkenL / 2, b: balkenB, h: balkenL, farbe: '#fff' },
+    { art: 'rechteck', x: mx - balkenL / 2, y: my - balkenB / 2, b: balkenL, h: balkenB, farbe: '#fff' },
+  ];
 }
 
-// Zahlteil + Empfangsschein als SVG-Text. Wirft einen Fehler, wenn die
+// Zahlteil + Empfangsschein als Grafik-Elemente in mm (210 × 105):
+// rechteck { x, y, b, h, farbe }, linie { pfade, breite, strich },
+// text { x, y, groesse (mm), text, fett, anker }, schere { x, y, groesse,
+// drehung }, qr { x, y, modul, matrix }. Wirft einen Fehler, wenn die
 // Angaben nicht genügen (vorher pruefeZahlteil nutzen).
-export function zahlteilSvg(angaben) {
+export function zahlteilElemente(angaben) {
   const maengel = pruefeZahlteil(angaben);
   if (maengel.length) throw new Error(maengel.join(' '));
   const inhalt = qrInhalt(angaben);
@@ -184,6 +198,7 @@ export function zahlteilSvg(angaben) {
   const debitor = adresseVollstaendig(angaben.debitor) ? adresse(angaben.debitor) : null;
   const ref = kompakt(angaben.referenz);
   const betrag = betragZahlteil(angaben.betrag);
+  const waehrung = angaben.waehrung || 'CHF';
   const konto = [formatIban(angaben.firma.iban), ...adressText(firma)];
 
   // Empfangsschein (62 mm)
@@ -209,33 +224,64 @@ export function zahlteilSvg(angaben) {
   const qrY = 17;
   const modul = 46 / qr.groesse;
 
+  return [
+    { art: 'rechteck', x: 0, y: 0, b: 210, h: 105, farbe: '#fff' },
+    { art: 'linie', breite: 0.2, strich: [1, 0.8], pfade: [[[0, 0.2], [210, 0.2]], [[62, 0], [62, 105]]] },
+    { art: 'schere', x: 8, y: 1.5, groesse: 4, drehung: 0 },
+    { art: 'schere', x: 62, y: 10, groesse: 4, drehung: 90 },
+
+    text(5, 5 + 11 * PT, 11 * PT, 'Empfangsschein', { fett: true }),
+    ...block(5, 12, empfang, { titelPt: 6, wertPt: 8, zeilenPt: 9, breite: 52 }),
+    text(5, 68 + 6 * PT, 6 * PT, 'Währung', { fett: true }),
+    text(17, 68 + 6 * PT, 6 * PT, 'Betrag', { fett: true }),
+    text(5, 68 + 6 * PT + 9 * PT, 8 * PT, waehrung),
+    text(17, 68 + 6 * PT + 9 * PT, 8 * PT, betrag),
+    text(57, 82 + 6 * PT, 6 * PT, 'Annahmestelle', { fett: true, anker: 'end' }),
+
+    text(67, 5 + 11 * PT, 11 * PT, 'Zahlteil', { fett: true }),
+    { art: 'rechteck', x: qrX - 1, y: qrY - 1, b: 48, h: 48, farbe: '#fff' },
+    { art: 'qr', x: qrX, y: qrY, modul, matrix: qr },
+    ...schweizerkreuz(qrX + 23, qrY + 23),
+    text(67, 68 + 8 * PT, 8 * PT, 'Währung', { fett: true }),
+    text(81, 68 + 8 * PT, 8 * PT, 'Betrag', { fett: true }),
+    text(67, 68 + 8 * PT + 11 * PT, 10 * PT, waehrung),
+    text(81, 68 + 8 * PT + 11 * PT, 10 * PT, betrag),
+    ...block(118, 5, angabenZahlteil, { titelPt: 8, wertPt: 10, zeilenPt: 11, breite: 87 }),
+  ];
+}
+
+const z2 = (n) => Number(n.toFixed(3)).toString();
+
+function elementSvg(e) {
+  if (e.art === 'rechteck') {
+    return `<rect x="${z2(e.x)}" y="${z2(e.y)}" width="${z2(e.b)}" height="${z2(e.h)}" fill="${e.farbe}"/>`;
+  }
+  if (e.art === 'linie') {
+    const d = e.pfade.map((p) => p.map(([px, py], i) => `${i ? 'L' : 'M'}${z2(px)} ${z2(py)}`).join('')).join(' ');
+    return `<path d="${d}" fill="none" stroke="#000" stroke-width="${z2(e.breite)}"${
+      e.strich ? ` stroke-dasharray="${e.strich.join(' ')}"` : ''}/>`;
+  }
+  if (e.art === 'text') {
+    return `<text x="${z2(e.x)}" y="${z2(e.y)}" font-size="${z2(e.groesse)}"${e.fett ? ' font-weight="700"' : ''}${
+      e.anker !== 'start' ? ` text-anchor="${e.anker}"` : ''}>${x(e.text)}</text>`;
+  }
+  if (e.art === 'schere') {
+    return `<text x="${e.x}" y="${e.y}" font-size="${e.groesse}" text-anchor="middle" dominant-baseline="middle"${
+      e.drehung ? ` transform="rotate(${e.drehung} ${e.x} ${e.y})"` : ''}>✂</text>`;
+  }
+  if (e.art === 'qr') {
+    return `<g transform="translate(${e.x} ${e.y}) scale(${e.modul})"><path d="${qrPfad(e.matrix)}"/></g>`;
+  }
+  return '';
+}
+
+// Zahlteil + Empfangsschein als SVG-Text. Wirft einen Fehler, wenn die
+// Angaben nicht genügen (vorher pruefeZahlteil nutzen).
+export function zahlteilSvg(angaben) {
+  const elemente = zahlteilElemente(angaben);
   return `<svg class="zahlteil-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 105"
     width="210mm" height="105mm" font-family='${SCHRIFT}' fill="#000" role="img"
     aria-label="QR-Rechnung: Zahlteil und Empfangsschein">
-    <rect x="0" y="0" width="210" height="105" fill="#fff"/>
-    <path d="M0 0.2H210 M62 0V105" stroke="#000" stroke-width="0.2" stroke-dasharray="1 0.8"/>
-    <text x="8" y="1.5" font-size="4" text-anchor="middle" dominant-baseline="middle">✂</text>
-    <text x="62" y="10" font-size="4" text-anchor="middle" dominant-baseline="middle"
-      transform="rotate(90 62 10)">✂</text>
-
-    <text x="5" y="${(5 + 11 * PT).toFixed(2)}" font-size="${11 * PT}" font-weight="700">Empfangsschein</text>
-    ${block(5, 12, empfang, { titelPt: 6, wertPt: 8, zeilenPt: 9, breite: 52 })}
-    <text x="5" y="${(68 + 6 * PT).toFixed(2)}" font-size="${6 * PT}" font-weight="700">Währung</text>
-    <text x="17" y="${(68 + 6 * PT).toFixed(2)}" font-size="${6 * PT}" font-weight="700">Betrag</text>
-    <text x="5" y="${(68 + 6 * PT + 9 * PT).toFixed(2)}" font-size="${8 * PT}">${x(angaben.waehrung || 'CHF')}</text>
-    <text x="17" y="${(68 + 6 * PT + 9 * PT).toFixed(2)}" font-size="${8 * PT}">${x(betrag)}</text>
-    <text x="57" y="${(82 + 6 * PT).toFixed(2)}" font-size="${6 * PT}" font-weight="700" text-anchor="end">Annahmestelle</text>
-
-    <text x="67" y="${(5 + 11 * PT).toFixed(2)}" font-size="${11 * PT}" font-weight="700">Zahlteil</text>
-    <rect x="${qrX - 1}" y="${qrY - 1}" width="48" height="48" fill="#fff"/>
-    <g transform="translate(${qrX} ${qrY}) scale(${modul})">
-      <path d="${qrPfad(qr)}"/>
-    </g>
-    ${schweizerkreuz(qrX + 23, qrY + 23)}
-    <text x="67" y="${(68 + 8 * PT).toFixed(2)}" font-size="${8 * PT}" font-weight="700">Währung</text>
-    <text x="81" y="${(68 + 8 * PT).toFixed(2)}" font-size="${8 * PT}" font-weight="700">Betrag</text>
-    <text x="67" y="${(68 + 8 * PT + 11 * PT).toFixed(2)}" font-size="${10 * PT}">${x(angaben.waehrung || 'CHF')}</text>
-    <text x="81" y="${(68 + 8 * PT + 11 * PT).toFixed(2)}" font-size="${10 * PT}">${x(betrag)}</text>
-    ${block(118, 5, angabenZahlteil, { titelPt: 8, wertPt: 10, zeilenPt: 11, breite: 87 })}
+    ${elemente.map(elementSvg).join('\n    ')}
   </svg>`;
 }

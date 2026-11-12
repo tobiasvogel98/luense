@@ -32,6 +32,7 @@ const DATEIEN = [
   './kern/rechenweg.js',
   './kern/migration.js',
   './kern/mahnung.js',
+  './kern/pdfdatei.js',
   './module/ereignis.js',
   './module/pendenzen.js',
   './module/rapport.js',
