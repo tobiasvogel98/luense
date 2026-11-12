@@ -90,6 +90,18 @@ export function formatSatz(satz) {
   return `${Number(satz).toLocaleString('de-CH', { maximumFractionDigits: 4 })} %`;
 }
 
+// Darstellung ohne MWST: Firma nicht mehrwertsteuerpflichtig (Firmendaten,
+// kern/stamm.js mwstPflichtig) und das Dokument ohne Satz (0 %). Dann
+// keine MWST-Zeile und keine Begriffe «exkl./inkl. MWST», nur «Total»,
+// auf dem PDF darunter OHNE_MWST_SATZ. Ein Dokument mit festgehaltenem
+// Satz > 0 bleibt ein Beleg mit ausgewiesener MWST und zeigt sie weiter.
+// Gebraucht von module/rechnung.js und module/offert.js.
+export const OHNE_MWST_SATZ = 'Nicht mehrwertsteuerpflichtig.';
+
+export function ohneMwstAnzeige(satz, pflichtig) {
+  return !pflichtig && !(Number(satz) > 0);
+}
+
 // Beträge einer Debitoren-Rechnung: «betrag» ist netto (exkl. MWST), der
 // Satz steht an der Rechnung (mwstSatz). MWST exakt in Rappen, kaufmännisch
 // auf 0.01 — keine 5-Rappen-Rundung.
@@ -161,6 +173,18 @@ export function kreditorBetraege(k) {
     brutto: bruttoRp / 100,
     abgeleitet: String(k?.netto ?? '').trim() === '',
   };
+}
+
+// Kosten eines Kreditors fürs Controlling (S1, Kosten je Kostenart):
+// pflichtige Firma netto (Vorsteuer holt man bei der ESTV zurück), nicht
+// pflichtige Firma BRUTTO (betrag), weil die Vorsteuer nicht abziehbar ist
+// und damit zu den Kosten gehört. Gilt auch für ältere Kreditoren mit
+// erfasster Vorsteuer: sie bleiben unverändert gespeichert, gerechnet
+// wird mit dem Bruttobetrag. Gebraucht von module/auswertung.js und
+// module/kreditor.js (Summen, Excel-Export).
+export function kreditorKostenRappen(k, pflichtig) {
+  const b = kreditorBetraege(k);
+  return pflichtig ? b.nettoRappen : b.bruttoRappen;
 }
 
 // ---------- Verzugszins aus dem Mahnwesen ----------

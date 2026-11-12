@@ -96,9 +96,23 @@ export function mahnFristenFirma(firma) {
   return MAHN_FELDER.map((feld, i) => mahnTageAus(firma?.[feld]) ?? MAHN_TAGE_STANDARD[i]);
 }
 
-// MWST-Satz der Firma in Prozent (leer → Standard 8.1 %). Gilt für neue
-// Rechnungen und Offerten (dort bei Erstellung festgehalten).
+// MWST-Pflicht der Firma (Schalter in den Firmendaten, Feld mwstPflichtig).
+// Fehlt das Feld (Firmendaten vor v59, noch keine Firmendaten), gilt die
+// Firma als pflichtig: Verhalten wie bisher. Nicht pflichtig (Umsatz unter
+// CHF 100'000, nicht im MWST-Register) heisst: neue Rechnungen und Offerten
+// ohne MWST (ausgewiesene Steuer wäre nach Art. 27 MWSTG trotzdem
+// geschuldet), Vorsteuer nicht abziehbar, Kosten brutto.
+// Gebraucht von allen Modulen mit Beträgen und von kern/rechnung.js.
+export function mwstPflichtig(firma) {
+  return firma?.mwstPflichtig !== false;
+}
+
+// MWST-Satz der Firma in Prozent (leer → Standard 8.1 %, nicht pflichtig
+// → 0). Gilt für neue Rechnungen und Offerten (dort bei Erstellung
+// festgehalten). Der in den Firmendaten eingetragene Satz bleibt auch bei
+// ausgeschaltetem Schalter gespeichert und gilt wieder, sobald er an ist.
 export function mwstSatzFirma(firma) {
+  if (!mwstPflichtig(firma)) return 0;
   return mwstSatzAus(firma?.mwstSatz) ?? MWST_SATZ_STANDARD;
 }
 
@@ -129,6 +143,13 @@ export async function speichereFirma(felder) {
     ? { ...vorhanden }
     : { _id: FIRMA_ID, typ: 'firma', baustelleId: 'firma' };
   for (const feld of FIRMA_FELDER) doc[feld] = String(felder[feld] ?? '').trim();
+  // Schalter MWST-pflichtig: nur ändern, wenn er mitkommt (true/false oder
+  // Formularwert «on»/«ja»); sonst bleibt der bisherige Wert, Standard true.
+  if (felder.mwstPflichtig !== undefined) {
+    doc.mwstPflichtig = [true, 'true', 'on', 'ja', '1', 1].includes(felder.mwstPflichtig);
+  } else if (typeof doc.mwstPflichtig !== 'boolean') {
+    doc.mwstPflichtig = true;
+  }
   doc.land = (doc.land || 'CH').toUpperCase().slice(0, 2);
   doc.iban = kompakt(doc.iban);
   doc.datum = new Date().toISOString();
@@ -203,6 +224,12 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
             <label>Telefon<input name="telefon" type="tel" autocomplete="tel"></label>
             <label>E-Mail<input name="email" type="email" autocomplete="email"></label>
           </div>
+          <label class="schalter-zeile">
+            <input type="checkbox" name="mwstPflichtig" data-rolle="mwst-pflichtig" role="switch">
+            <span><b>MWST-pflichtig</b>
+              <small class="hinweis" data-rolle="mwst-pflichtig-text"></small></span>
+          </label>
+          <div data-rolle="mwst-felder">
           <div class="feld-reihe">
             <label class="feld-breit">MWST-Nr.<input name="mwstNr" autocomplete="off" placeholder="CHE-123.456.789 MWST"></label>
             <label class="feld-schmal">MWST [%]<input name="mwstSatz" aria-label="MWST-Satz in Prozent" type="number" inputmode="decimal"
@@ -212,6 +239,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
           <p class="hinweis">Der MWST-Satz gilt für neue Rechnungen und Offerten und wird
             dort beim Erstellen festgehalten, bestehende behalten ihren Satz.
             0 = ohne MWST.</p>
+          </div>
           <fieldset class="mahn-fristen">
             <legend>Mahnfristen [Tage ab Rechnungsdatum]</legend>
             <div class="feld-reihe">
@@ -398,8 +426,19 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
     }
   };
   const mwstWarnung = firmaFormular.querySelector('[data-rolle="mwst-nr-warnung"]');
+  const pflichtSchalter = firmaFormular.elements.mwstPflichtig;
+  const mwstFelder = firmaFormular.querySelector('[data-rolle="mwst-felder"]');
+  const pflichtText = firmaFormular.querySelector('[data-rolle="mwst-pflichtig-text"]');
+  // Nicht pflichtig: MWST-Nr. und Satz ausgeblendet (Werte bleiben
+  // gespeichert, falls die Firma später pflichtig wird), keine Warnung.
   const pruefeMwstNr = () => {
+    const pflichtig = pflichtSchalter.checked;
+    mwstFelder.hidden = !pflichtig;
+    pflichtText.textContent = pflichtig
+      ? 'Pflichtig: Rechnungen und Offerten mit MWST, Vorsteuer abziehbar.'
+      : 'Nicht pflichtig: Rechnungen und Offerten ohne MWST, Vorsteuer nicht abziehbar.';
     const text = mwstNrWarnung({
+      mwstPflichtig: pflichtig,
       mwstNr: firmaFormular.elements.mwstNr.value,
       mwstSatz: firmaFormular.elements.mwstSatz.value,
     });
@@ -408,6 +447,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
   };
   firmaFormular.elements.mwstNr.addEventListener('input', pruefeMwstNr);
   firmaFormular.elements.mwstSatz.addEventListener('input', pruefeMwstNr);
+  pflichtSchalter.addEventListener('change', pruefeMwstNr);
   ladeFirma().then((firma) => {
     for (const feld of FIRMA_FELDER) {
       firmaFormular.elements[feld].value = feld === 'iban'
@@ -417,6 +457,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
       firmaFormular.elements.mwstSatz.value = String(MWST_SATZ_STANDARD);
     }
     if (!firma) firmaFormular.elements.land.value = 'CH';
+    pflichtSchalter.checked = mwstPflichtig(firma);
     mahnFristenFirma(firma).forEach((tage, i) => {
       const feld = firmaFormular.elements[MAHN_FELDER[i]];
       if (!String(feld.value).trim()) feld.value = String(tage);
@@ -429,7 +470,8 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
     ereignis.preventDefault();
     const meldung = firmaFormular.querySelector('.meldung');
     try {
-      await speichereFirma(Object.fromEntries(new FormData(firmaFormular)));
+      await speichereFirma({ ...Object.fromEntries(new FormData(firmaFormular)),
+        mwstPflichtig: pflichtSchalter.checked });
       meldung.textContent = 'Firmendaten gespeichert.';
       pruefeIban();
     } catch (fehler) {

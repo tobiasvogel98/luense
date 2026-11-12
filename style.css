@@ -3568,3 +3568,80 @@ details.katalog-wahl > summary {
   font-weight: 600;
   border-color: var(--farbe-linie);
 }
+
+/* Firmendaten: Schalter MWST-pflichtig (ganze Zeile antippbar, 44 px) */
+.formular label.schalter-zeile {
+  display: flex;
+  align-items: center;
+  gap: var(--abstand-3);
+  min-height: var(--touch-ziel);
+  padding: var(--abstand-2) var(--abstand-3);
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  background: var(--farbe-hintergrund);
+  color: var(--farbe-text);
+  font-size: var(--schrift-basis);
+  cursor: pointer;
+}
+
+.schalter-zeile > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.schalter-zeile small.hinweis {
+  margin: 0;
+  font-weight: 400;
+}
+
+.formular .schalter-zeile input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 60px;
+  height: var(--touch-ziel);
+  min-height: var(--touch-ziel);
+  margin: 0;
+  padding: 0;
+  border: 2px solid var(--farbe-linie);
+  border-radius: 22px;
+  background: var(--farbe-flaeche);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.formular .schalter-zeile input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--farbe-text-gedaempft);
+  transition: transform 0.15s;
+}
+
+.formular .schalter-zeile input[type="checkbox"]:checked {
+  background: var(--farbe-akzent);
+  border-color: var(--farbe-akzent);
+}
+
+.formular .schalter-zeile input[type="checkbox"]:checked::before {
+  transform: translateX(16px);
+  background: var(--farbe-akzent-kontrast);
+}
+
+/* Entwurf mit MWST bei nicht pflichtiger Firma: Hinweis mit Knopf */
+.ohne-mwst-hinweis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--abstand-2);
+}
+
+.ohne-mwst-hinweis .knopf {
+  white-space: normal;
+}
