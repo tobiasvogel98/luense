@@ -41,6 +41,10 @@
   --tag-mangel-text: #ffffff;
   --tag-regie: #b45309;
   --tag-regie-text: #ffffff;
+
+  /* Mahnwesen: fällige Mahnstufe — folgt dem Regie-Ton (hell und dunkel) */
+  --mahn-flaeche: var(--tag-regie);
+  --mahn-text: var(--tag-regie-text);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -3472,4 +3476,31 @@ details.katalog-wahl > summary {
 .feld-reihe label.mahn-tage {
   flex: 1 1 7rem;
   min-width: 0;
+}
+
+/* Mahnwesen: fällige Stufe als Marke, Verlauf der erstellten Stufen */
+.mahn-faellig {
+  display: block;
+  width: fit-content;
+  margin: var(--abstand-1) 0 0;
+  padding: 2px var(--abstand-2);
+  font-size: var(--schrift-klein);
+  font-weight: 700;
+  color: var(--mahn-text);
+  background: var(--mahn-flaeche);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.mahn-verlauf {
+  display: block;
+  margin-top: var(--abstand-1);
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+}
+
+.knopf.mahn-knopf {
+  color: var(--farbe-text);
+  border-color: var(--mahn-flaeche);
+  font-weight: 700;
 }

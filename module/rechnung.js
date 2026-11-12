@@ -18,6 +18,19 @@
 // 8.1 % erhalten (kern/migration.js). Keine Rundung auf 5 Rappen.
 // Fehlt in den Firmendaten die MWST-Nr. bei Satz > 0, warnt das Formular
 // (blockiert nicht, MWST bleibt).
+//
+// Mahnwesen (Bauplan 6, Schritt 3): drei Stufen — Zahlungserinnerung,
+// 1. Mahnung, 2. Mahnung —, fällig nach Tagen ab RECHNUNGSDATUM (Firmendaten,
+// Standard 30/60/75). Die App verschickt nichts: sie zeigt die fällige Stufe
+// und hält eine erstellte Stufe an der Rechnung fest:
+//   mahnungen: [{ stufe: 1 | 2 | 3, datum, offenRappen, zinsRappen,
+//     zinsVon, zinsBis, zinsProzent, fristTage }]
+// Keine Mahngebühr (nach OR nur mit Vertragsabrede). Verzugszins 5 % p. a.
+// (Art. 104 Abs. 1 OR) ab der Zahlungserinnerung (gilt als Mahnung nach
+// Art. 102 Abs. 1 OR) bis zum Datum der jeweiligen Mahnung, auf dem offenen
+// Betrag inkl. MWST, Tage effektiv / 365, kaufmännisch auf den Rappen. Der
+// Zins steht nur auf der Mahnung (eigene Zeile, im QR-Betrag enthalten) —
+// er verändert weder den offenen Betrag noch den Status der Rechnung.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import {
@@ -26,10 +39,13 @@ import {
 import {
   formatTag, scorAusNummer, formatReferenz, formatIban, offenerBetrag,
   bezahltSumme, rechnungFaellig, zahlungen, rechnungsBetraege, formatSatz,
+  offenRappen, plusTage,
 } from '../kern/zahlung.js';
 import { zahlteilSvg, pruefeZahlteil, adresseVollstaendig } from '../kern/qrrechnung.js';
 import { oeffneKontoauszug, zeigeZahlungen } from '../kern/bank.js';
-import { alleBaustellen, ladeFirma, mwstSatzFirma, mwstNrWarnung } from '../kern/stamm.js';
+import {
+  alleBaustellen, ladeFirma, mwstSatzFirma, mwstNrWarnung, mahnFristenFirma,
+} from '../kern/stamm.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { chf, esc } from '../kern/ui.js';
@@ -85,6 +101,152 @@ function betragZelle(r) {
 function tageUeberfaellig(faellig, heute) {
   if (!faellig || faellig >= heute) return 0;
   return Math.round((new Date(`${heute}T12:00:00`) - new Date(`${faellig}T12:00:00`)) / 86400000);
+}
+
+// ---------- Mahnwesen ----------
+// Stufen in fester Reihenfolge; keine darf übersprungen werden.
+const MAHN_STUFEN = ['Zahlungserinnerung', '1. Mahnung', '2. Mahnung'];
+const MAHN_ZAHLUNGSFRIST_TAGE = 10;
+const VERZUGSZINS_PROZENT = 5; // Art. 104 Abs. 1 OR
+
+// Standardtexte je Stufe — hier anpassen. Platzhalter in geschweiften
+// Klammern: {rechnung} {rechnungsdatum} {beglichen} {betrag} {frist}
+// {erinnerung} {mahnung1} {firma}. Jeder Eintrag ist ein Absatz. Der Gruss
+// steht im PDF nach den Beträgen.
+const VERZUG_TEXT = 'Mit unserer Zahlungserinnerung sind Sie in Verzug geraten '
+  + '(Art. 102 Abs. 1 OR). Ab diesem Datum ist der Verzugszins von 5 % pro Jahr '
+  + 'geschuldet (Art. 104 Abs. 1 OR); er ist unten bis zum Datum dieser Mahnung ausgewiesen.';
+const MAHN_GRUSS = 'Freundliche Grüsse\n{firma}';
+const MAHN_TEXTE = {
+  1: [
+    'Sehr geehrte Damen und Herren',
+    'Bei der Durchsicht unserer offenen Posten haben wir festgestellt, dass unsere '
+      + 'Rechnung {rechnung} vom {rechnungsdatum} {beglichen} ist. Möglicherweise '
+      + 'haben Sie die Rechnung übersehen.',
+    'Wir bitten Sie freundlich, den offenen Betrag von {betrag} bis zum {frist} '
+      + 'mit dem beiliegenden QR-Zahlteil zu überweisen.',
+    'Sollte sich Ihre Zahlung mit diesem Schreiben gekreuzt haben, betrachten Sie '
+      + 'diese Erinnerung bitte als gegenstandslos. Für Fragen stehen wir Ihnen gerne '
+      + 'zur Verfügung.',
+  ],
+  2: [
+    'Sehr geehrte Damen und Herren',
+    'Unsere Rechnung {rechnung} vom {rechnungsdatum} ist trotz unserer '
+      + 'Zahlungserinnerung vom {erinnerung} {beglichen}.',
+    VERZUG_TEXT,
+    'Wir fordern Sie auf, den Betrag von {betrag} einschliesslich Verzugszins '
+      + 'bis zum {frist} mit dem beiliegenden QR-Zahlteil zu bezahlen.',
+    'Sollte sich Ihre Zahlung mit diesem Schreiben gekreuzt haben, betrachten Sie '
+      + 'diese Mahnung bitte als gegenstandslos.',
+  ],
+  3: [
+    'Sehr geehrte Damen und Herren',
+    'Unsere Rechnung {rechnung} vom {rechnungsdatum} ist trotz unserer '
+      + 'Zahlungserinnerung vom {erinnerung} und unserer 1. Mahnung vom {mahnung1} '
+      + '{beglichen}.',
+    VERZUG_TEXT,
+    'Wir fordern Sie letztmals auf, den Betrag von {betrag} einschliesslich '
+      + 'Verzugszins bis zum {frist} mit dem beiliegenden QR-Zahlteil zu bezahlen.',
+    'Geht die Zahlung nicht fristgerecht ein, behalten wir uns weitere Schritte vor, '
+      + 'insbesondere die Einleitung der Betreibung.',
+    'Haben Sie Einwände gegen die Forderung, bitten wir Sie, sich umgehend mit uns '
+      + 'in Verbindung zu setzen. Sollte sich Ihre Zahlung mit diesem Schreiben '
+      + 'gekreuzt haben, betrachten Sie diese Mahnung bitte als gegenstandslos.',
+  ],
+};
+
+function stufenName(stufe) {
+  return MAHN_STUFEN[stufe - 1] || '';
+}
+
+function tageZwischen(vonIso, bisIso) {
+  return Math.round((new Date(`${bisIso}T12:00:00`) - new Date(`${vonIso}T12:00:00`)) / 86400000);
+}
+
+export function mahnungenVon(rechnung) {
+  return Array.isArray(rechnung?.mahnungen) ? rechnung.mahnungen : [];
+}
+
+// Verzugszins in Rappen: offen × Prozent × Tage / (100 × 365), exakt
+// (BigInt) und kaufmännisch auf den Rappen gerundet — nie auf 5 Rappen.
+// Tage effektiv: vom Datum der Zahlungserinnerung bis zum Mahndatum.
+export function verzugszinsRappen(offen, vonIso, bisIso, prozent = VERZUGSZINS_PROZENT) {
+  const tage = vonIso && bisIso ? tageZwischen(vonIso, bisIso) : 0;
+  if (!(tage > 0) || !(offen > 0)) return 0;
+  const satz = BigInt(Math.round(prozent * 10000)); // Prozent × 10'000
+  const zaehler = BigInt(offen) * satz * BigInt(tage);
+  const nenner = 100n * 10000n * 365n;
+  return Number((zaehler * 2n + nenner) / (nenner * 2n));
+}
+
+// Mahnstand einer Rechnung am Tag «heute»: letzte erstellte Stufe und die
+// fällige Stufe (oder null). Fällig nur für gestellte bzw. teilbezahlte
+// Rechnungen mit offenem Betrag, Stufe für Stufe: die nächste Stufe, sobald
+// ihre Frist ab Rechnungsdatum erreicht ist UND die Zahlungsfrist der
+// vorherigen Stufe (10 Tage) abgelaufen ist. Nach der 2. Mahnung keine
+// weitere Stufe.
+export function mahnStand(rechnung, fristen, heute = heuteTag()) {
+  const liste = mahnungenVon(rechnung);
+  const letzte = liste[liste.length - 1] || null;
+  const naechste = liste.length < MAHN_STUFEN.length ? liste.length + 1 : null;
+  const stand = { letzte, naechste, faellig: null, wartetBis: '' };
+  if (!naechste || !FORDERUNG.includes(rechnung?.status) || !rechnung.tag
+    || offenRappen(rechnung) <= 0) return stand;
+  if (tageZwischen(rechnung.tag, heute) < fristen[naechste - 1]) return stand;
+  if (letzte) {
+    const fristEnde = plusTage(letzte.datum, letzte.fristTage ?? MAHN_ZAHLUNGSFRIST_TAGE);
+    if (heute <= fristEnde) {
+      stand.wartetBis = fristEnde;
+      return stand;
+    }
+  }
+  stand.faellig = naechste;
+  return stand;
+}
+
+// Neuer Eintrag für die fällige Stufe: offener Betrag (inkl. MWST, nach
+// Zahlungen) und — ab der 1. Mahnung — Verzugszins seit der Erinnerung.
+export function neueMahnung(rechnung, stufe, heute = heuteTag()) {
+  const offen = offenRappen(rechnung);
+  const erinnerung = mahnungenVon(rechnung).find((m) => m.stufe === 1);
+  const zinsVon = stufe > 1 && erinnerung ? erinnerung.datum : '';
+  return {
+    stufe,
+    datum: heute,
+    offenRappen: offen,
+    zinsRappen: zinsVon ? verzugszinsRappen(offen, zinsVon, heute) : 0,
+    zinsVon,
+    zinsBis: zinsVon ? heute : '',
+    zinsProzent: zinsVon ? VERZUGSZINS_PROZENT : 0,
+    fristTage: MAHN_ZAHLUNGSFRIST_TAGE,
+  };
+}
+
+function mahnKnoepfe(rechnung, stand, { mitZuruecknehmen = true } = {}) {
+  const id = esc(rechnung._id);
+  return `${stand.faellig ? `
+    <button type="button" class="knopf eintrag-loeschen mahn-knopf" data-aktion="mahnen"
+      data-id="${id}" title="${stufenName(stand.faellig)} festhalten und PDF erstellen">Mahnung erstellen</button>` : ''}${
+    stand.letzte ? `
+    <button type="button" class="knopf eintrag-loeschen" data-aktion="mahn-pdf"
+      data-id="${id}">${stufenName(stand.letzte.stufe)} PDF</button>` : ''}${
+    stand.letzte && mitZuruecknehmen ? `
+    <button type="button" class="knopf eintrag-loeschen" data-aktion="mahn-zurueck"
+      data-id="${id}">${stufenName(stand.letzte.stufe)} zurücknehmen</button>` : ''}`;
+}
+
+function mahnText(absaetze, werte) {
+  return absaetze.map((absatz) => absatz
+    .replace(/\{(\w+)\}/g, (_, name) => werte[name] ?? ''));
+}
+
+// Badge-Zeile für Tabellen: fällige Stufe hervorgehoben, erstellte Stufen
+// mit Datum als Verlauf.
+function mahnBadge(rechnung, stand) {
+  const verlauf = mahnungenVon(rechnung);
+  return `${stand.faellig ? `<span class="mahn-faellig">${stufenName(stand.faellig)} fällig</span>` : ''}${
+    verlauf.length ? `<small class="mahn-verlauf">${verlauf
+      .map((m) => `${stufenName(m.stufe)} ${formatTag(m.datum)}`).join(' → ')}</small>` : ''}`;
 }
 
 export default {
@@ -273,6 +435,7 @@ export default {
         return;
       }
       const heute = heuteTag();
+      const fristen = mahnFristenFirma(await ladeFirma());
       tabelleElement.innerHTML = `
         <div class="tabellen-scroll">
           <table class="uebersicht-tabelle">
@@ -287,6 +450,7 @@ export default {
                 const frist = rechnungFaellig(r);
                 const ueberfaellig = FORDERUNG.includes(r.status) && tageUeberfaellig(frist, heute) > 0;
                 const anzahlZahlungen = zahlungen(r).length;
+                const stand = mahnStand(r, fristen, heute);
                 return `
                   <tr>
                     <td class="kein-umbruch">${esc(r.nummer)}<br>
@@ -297,11 +461,12 @@ export default {
                     <td class="zahl">${betragZelle(r)}</td>
                     <td class="zahl">${r.status === 'bezahlt' ? '—' : chf(offenerBetrag(r))}</td>
                     <td class="status-spalte">${esc(r.status)}${ueberfaellig
-                      ? ' <span class="ueberfaellig">überfällig</span>' : ''}<br>
+                      ? ' <span class="ueberfaellig">überfällig</span>' : ''}${mahnBadge(r, stand)}<br>
                       <small class="hinweis">${(r.statusHistorie || [])
                         .map((h) => `${esc(h.status)} ${formatTag(h.datum)}`).join(' → ')}</small></td>
                     <td class="kein-umbruch">${r.status === 'bezahlt' ? `bezahlt ${formatTag(r.bezahltAm) || ''}`.trim() : formatTag(frist)}</td>
                     <td class="zahl"><span class="rapport-knoepfe">
+                      ${mahnKnoepfe(r, stand)}
                       ${naechster ? `
                         <button type="button" class="knopf eintrag-loeschen" data-aktion="weiter"
                           data-id="${esc(r._id)}">→ ${naechster}</button>` : ''}
@@ -339,15 +504,22 @@ export default {
       ]);
       const ktr = new Map(baustellen.map((b) => [b.baustelleId, b]));
       const heute = heuteTag();
+      const fristen = mahnFristenFirma(await ladeFirma());
       const forderungen = alle
         .filter((r) => FORDERUNG.includes(r.status))
         .filter((r) => !filterBaustelle || r.baustelleId === filterBaustelle)
-        .map((r) => ({ r, faellig: rechnungFaellig(r), tage: tageUeberfaellig(rechnungFaellig(r), heute) }))
+        .map((r) => ({
+          r,
+          faellig: rechnungFaellig(r),
+          tage: tageUeberfaellig(rechnungFaellig(r), heute),
+          stand: mahnStand(r, fristen, heute),
+        }))
         .sort((a, b) => (a.faellig || '').localeCompare(b.faellig || ''));
       const nichtGestellt = alle.filter((r) => r.status === 'offen'
         && (!filterBaustelle || r.baustelleId === filterBaustelle));
       const total = forderungen.reduce((s, f) => s + offenerBetrag(f.r), 0);
       const ueber = forderungen.filter((f) => f.tage > 0);
+      const mahnbar = forderungen.filter((f) => f.stand.faellig);
       const mitRechnungen = baustellen.filter((b) => alle.some((r) => r.baustelleId === b.baustelleId));
       kachelnElement.innerHTML = `
         <div class="karte kachel">
@@ -357,6 +529,10 @@ export default {
         <div class="karte kachel">
           <span class="kachel-titel">davon überfällig (${ueber.length})</span>
           <span class="kachel-wert ${ueber.length ? 'verlust' : ''}">${chf(ueber.reduce((s, f) => s + offenerBetrag(f.r), 0))}</span>
+        </div>
+        <div class="karte kachel" data-rolle="kachel-mahnung">
+          <span class="kachel-titel">Mahnstufe fällig (${mahnbar.length})</span>
+          <span class="kachel-wert ${mahnbar.length ? 'verlust' : ''}">${chf(mahnbar.reduce((s, f) => s + offenerBetrag(f.r), 0))}</span>
         </div>`;
       gesamtElement.textContent = nichtGestellt.length
         ? `Noch nicht gestellt: ${nichtGestellt.length} Rechnung${nichtGestellt.length > 1 ? 'en' : ''}, ${chf(summe(nichtGestellt))}.`
@@ -377,7 +553,7 @@ export default {
               <th class="zahl">Total inkl. MWST</th><th class="zahl">Offen</th><th>Status</th><th></th>
             </tr></thead>
             <tbody>
-              ${forderungen.map(({ r, faellig, tage }) => {
+              ${forderungen.map(({ r, faellig, tage, stand }) => {
                 const b = ktr.get(r.baustelleId);
                 return `
                   <tr class="${tage > 0 ? 'zeile-ueberfaellig' : ''}">
@@ -388,9 +564,11 @@ export default {
                     <td class="text-spalte">${esc(r.titel)}</td>
                     <td class="zahl">${chf(rechnungsBetraege(r).brutto)}</td>
                     <td class="zahl"><b>${chf(offenerBetrag(r))}</b></td>
-                    <td class="kein-umbruch">${esc(r.status)}</td>
-                    <td class="zahl"><button type="button" class="knopf eintrag-loeschen"
-                      data-aktion="zur-baustelle" data-baustelle="${esc(r.baustelleId)}">Öffnen</button></td>
+                    <td class="status-spalte">${esc(r.status)}${mahnBadge(r, stand)}</td>
+                    <td class="zahl"><span class="rapport-knoepfe">
+                      ${mahnKnoepfe(r, stand, { mitZuruecknehmen: false })}
+                      <button type="button" class="knopf eintrag-loeschen"
+                      data-aktion="zur-baustelle" data-baustelle="${esc(r.baustelleId)}">Öffnen</button></span></td>
                   </tr>`;
               }).join('')}
               <tr class="summen-zeile">
@@ -449,6 +627,110 @@ export default {
         }
       }
       return '';
+    }
+
+    // Baustelle einer Rechnung (Offene Posten zeigen auch fremde Baustellen).
+    async function baustelleVon(rechnung) {
+      if (rechnung.baustelleId === baustelle.baustelleId) return baustelle;
+      const alle = await alleBaustellen({ mitArchivierten: true });
+      return alle.find((b) => b.baustelleId === rechnung.baustelleId) || baustelle;
+    }
+
+    // ---------- Mahn-PDF: Briefkopf wie die Rechnung, QR-Zahlteil ----------
+    // Beträge aus dem festgehaltenen Eintrag (Stand am Mahndatum), damit
+    // ein späteres Öffnen dasselbe Dokument ergibt.
+    async function mahnPdf(rechnung, mahnung) {
+      const firma = await ladeFirma();
+      const bs = await baustelleVon(rechnung);
+      const name = stufenName(mahnung.stufe);
+      const referenz = referenzVon(rechnung);
+      const b = rechnungsBetraege(rechnung);
+      const offenRp = mahnung.offenRappen;
+      const zinsRp = mahnung.zinsRappen || 0;
+      const totalRp = offenRp + zinsRp;
+      const bezahltRp = b.bruttoRappen - offenRp;
+      const fristBis = plusTage(mahnung.datum, mahnung.fristTage ?? MAHN_ZAHLUNGSFRIST_TAGE);
+      const frueher = mahnungenVon(rechnung).filter((m) => m.stufe < mahnung.stufe);
+      const datumVon = (stufe) => formatTag(frueher.find((m) => m.stufe === stufe)?.datum);
+      const deb = rechnung.debitor || {};
+      const empfaenger = [deb.name || bs.bauherr, [deb.strasse, deb.hausnummer].filter(Boolean).join(' '),
+        [deb.plz, deb.ort].filter(Boolean).join(' ')].filter(Boolean);
+      const absender = firma ? [firma.name, [firma.strasse, firma.hausnummer].filter(Boolean).join(' '),
+        [firma.plz, firma.ort].filter(Boolean).join(' '),
+        [firma.telefon, firma.email].filter(Boolean).join(' · '),
+        firma.mwstNr].filter(Boolean) : [];
+
+      const angaben = {
+        firma: firma || {},
+        debitor: deb,
+        betrag: totalRp / 100,
+        referenz,
+        mitteilung: `${name} zu Rechnung ${rechnung.nummer}`,
+        rechnungsNr: rechnung.nummer,
+        rechnungsTag: rechnung.tag,
+      };
+      const maengel = pruefeZahlteil(angaben);
+      let svg = '';
+      if (!maengel.length) {
+        try {
+          svg = zahlteilSvg(angaben);
+        } catch (fehler) {
+          maengel.push(fehler.message);
+        }
+      }
+      meldungElement.textContent = maengel.length ? `PDF ohne QR-Zahlteil: ${maengel.join(' ')}` : '';
+
+      const zinsTage = mahnung.zinsVon ? tageZwischen(mahnung.zinsVon, mahnung.zinsBis) : 0;
+      const werte = {
+        rechnung: rechnung.nummer,
+        rechnungsdatum: formatTag(rechnung.tag),
+        beglichen: bezahltRp > 0 ? 'noch nicht vollständig beglichen' : 'noch nicht beglichen',
+        betrag: chf(totalRp / 100),
+        frist: formatTag(fristBis),
+        erinnerung: datumVon(1),
+        mahnung1: datumVon(2),
+        firma: firma?.name || '',
+      };
+
+      zeigeProtokollDruck(bs, {
+        titel: `${name} zu Rechnung ${rechnung.nummer}`,
+        untertitel: [absender[0] ? `Von: ${absender.join(', ')}` : '',
+          `Datum: ${formatTag(mahnung.datum)}`].filter(Boolean).join(' · '),
+        abschnitte: [
+          empfaenger.length ? { art: 'felder', titel: 'Rechnungsempfänger',
+            zeilen: [{ label: 'Adresse', wert: empfaenger.join(', ') }] } : null,
+          { art: 'text', titel: name, absaetze: mahnText(MAHN_TEXTE[mahnung.stufe] || [], werte) },
+          { art: 'felder', titel: 'Rechnung', zeilen: [
+            { label: 'Rechnungs-Nr.', wert: rechnung.nummer },
+            { label: 'Rechnungsdatum', wert: formatTag(rechnung.tag) },
+            ...(rechnung.titel ? [{ label: 'Bezeichnung', wert: rechnung.titel }] : []),
+            { label: b.satz > 0 ? 'Betrag inkl. MWST' : 'Betrag', wert: chf(b.brutto) },
+            { label: 'Bereits bezahlt', wert: chf(bezahltRp / 100) },
+            { label: 'Offen', wert: chf(offenRp / 100) },
+            ...(frueher.length ? [{ label: 'Bisherige Mahnstufen',
+              wert: frueher.map((m) => `${stufenName(m.stufe)} ${formatTag(m.datum)}`).join(', ') }] : []),
+          ] },
+          { art: 'summen', titel: 'Zu bezahlen', zeilen: [
+            { label: 'Offener Rechnungsbetrag', wert: chf(offenRp / 100) },
+            ...(mahnung.stufe > 1 ? [{
+              label: `Verzugszins ${mahnung.zinsProzent || VERZUGSZINS_PROZENT} % p. a. vom ${formatTag(mahnung.zinsVon)} `
+                + `bis ${formatTag(mahnung.zinsBis)} (${zinsTage} Tag${zinsTage === 1 ? '' : 'e'})`,
+              wert: chf(zinsRp / 100),
+            }] : []),
+            { label: 'Total zu bezahlen', wert: chf(totalRp / 100), total: true },
+          ] },
+          { art: 'felder', titel: 'Zahlung', zeilen: [
+            { label: 'Zahlungsfrist', wert: `${mahnung.fristTage ?? MAHN_ZAHLUNGSFRIST_TAGE} Tage` },
+            { label: 'Zahlbar bis', wert: formatTag(fristBis) },
+            ...(firma?.iban ? [{ label: 'IBAN', wert: formatIban(firma.iban) }] : []),
+            { label: 'Referenz', wert: formatReferenz(referenz) },
+          ] },
+          { art: 'text', titel: '', absaetze: mahnText([MAHN_GRUSS], werte) },
+        ].filter(Boolean),
+        unterschriften: [],
+        zahlteilSvg: svg,
+        zahlteilHinweis: `Zahlteil zu ${name} · Rechnung ${rechnung.nummer} · ${bs.ktr} ${bs.name}`,
+      });
     }
 
     // ---------- PDF mit QR-Zahlteil ----------
@@ -524,6 +806,40 @@ export default {
         zahlteilSvg: svg,
         zahlteilHinweis: `Zahlteil zu Rechnung ${rechnung.nummer} · ${baustelle.ktr} ${baustelle.name}`,
       });
+    }
+
+    // Mahnung erstellen (fällige Stufe festhalten + PDF), PDF der letzten
+    // Stufe erneut öffnen, letzte Stufe zurücknehmen (Rückgängig).
+    async function mahnAktion(aktion, id) {
+      const rechnung = (await abfrage({ typ: 'rechnung' })).find((r) => r._id === id);
+      if (!rechnung) return;
+      const liste = mahnungenVon(rechnung);
+      if (aktion === 'mahnen') {
+        const stand = mahnStand(rechnung, mahnFristenFirma(await ladeFirma()));
+        if (!stand.faellig) return;
+        const eintrag = neueMahnung(rechnung, stand.faellig);
+        const name = stufenName(eintrag.stufe);
+        const zins = eintrag.zinsRappen ? `, Verzugszins ${chf(eintrag.zinsRappen / 100)}` : '';
+        if (!confirm(`${name} zu Rechnung ${rechnung.nummer} erstellen?\n`
+          + `Offen ${chf(eintrag.offenRappen / 100)}${zins}. Die Stufe wird an der Rechnung festgehalten.`)) return;
+        const gespeichert = await put({ ...rechnung, mahnungen: [...liste, eintrag] });
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneTabelle();
+        await mahnPdf(gespeichert, eintrag);
+        meldungElement.textContent = `${name} zu Rechnung ${rechnung.nummer} festgehalten.`
+          + (meldungElement.textContent ? ` ${meldungElement.textContent}` : '');
+      } else if (aktion === 'mahn-pdf') {
+        if (liste.length) await mahnPdf(rechnung, liste[liste.length - 1]);
+      } else if (aktion === 'mahn-zurueck') {
+        const letzte = liste[liste.length - 1];
+        if (!letzte) return;
+        const name = stufenName(letzte.stufe);
+        if (!confirm(`${name} vom ${formatTag(letzte.datum)} zu Rechnung ${rechnung.nummer} zurücknehmen?`)) return;
+        await put({ ...rechnung, mahnungen: liste.slice(0, -1) });
+        meldungElement.textContent = `${name} zu Rechnung ${rechnung.nummer} zurückgenommen.`;
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneTabelle();
+      }
     }
 
     // ---------- Aktionen ----------
@@ -636,6 +952,10 @@ export default {
         try { localStorage.setItem(ANSICHT_MERKER, ansicht); } catch { /* egal */ }
         document.dispatchEvent(new CustomEvent('luense:baustelleWechseln',
           { detail: { baustelleId: knopf.dataset.baustelle } }));
+        return;
+      }
+      if (['mahnen', 'mahn-pdf', 'mahn-zurueck'].includes(knopf.dataset.aktion)) {
+        await mahnAktion(knopf.dataset.aktion, knopf.dataset.id);
         return;
       }
       const rechnungen = await ladeRechnungen();

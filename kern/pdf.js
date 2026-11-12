@@ -307,7 +307,8 @@ export function zeigeOffertDruck(offerte, lv) {
 // Protokoll-Druck: neutrales Druckmodell aus der Protokoll-Engine —
 // Felder als Beschriftung/Wert, Tabellen als echte Tabellen, Summen als
 // rechtsbündiger Zusammenzug (letzte Zeile mit «total: true» fett), dazu
-// die typ-eigenen Unterschriftszeilen.
+// die typ-eigenen Unterschriftszeilen. Art «text»: Brieftext in Absätzen
+// (Mahnungen).
 export function zeigeProtokollDruck(baustelle, optionen) {
   druckOverlay(`
     <header class="bericht-kopf">
@@ -319,6 +320,11 @@ export function zeigeProtokollDruck(baustelle, optionen) {
       ? `<section class="bericht-eintrag druck-summen">
           <h2>${esc(abschnitt.titel)}</h2>
           ${abschnitt.zeilen.map((z) => druckZeile(z.label, z.wert, z.total ? 'druck-total' : '')).join('')}
+        </section>`
+      : abschnitt.art === 'text'
+      ? `<section class="bericht-eintrag druck-brief">
+          ${abschnitt.titel ? `<h2>${esc(abschnitt.titel)}</h2>` : ''}
+          ${abschnitt.absaetze.map((a) => `<p class="bericht-notiz">${esc(a)}</p>`).join('')}
         </section>`
       : abschnitt.art === 'felder'
       ? `<section class="bericht-eintrag">
