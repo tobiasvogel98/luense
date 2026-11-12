@@ -171,6 +171,7 @@ export function kreditorBetraege(k) {
 // wieder weg. Entscheid Tobias 12.11.2026: eine Rechnung ist erst bezahlt,
 // wenn Kapital UND verrechneter Verzugszins bezahlt sind. Der Zins ist kein
 // Werkvertrags-Ertrag (Controlling rechnet weiter mit «betrag» netto).
+// Zahlungen decken zuerst den Zins (Art. 85 OR, siehe offenAufteilung).
 export function zinsSollRappen(doc) {
   if (doc?.typ !== 'rechnung' || !Array.isArray(doc.mahnungen) || !doc.mahnungen.length) return 0;
   return Math.max(0, Math.round(Number(doc.mahnungen[doc.mahnungen.length - 1].zinsRappen) || 0));
@@ -329,13 +330,18 @@ export function offenerBetrag(doc) {
   return offenRappen(doc) / 100;
 }
 
-// Offener Betrag aufgeteilt: Zahlungen tilgen zuerst das Kapital (Total
-// inkl. MWST), der verrechnete Verzugszins bleibt als Rest offen.
-// { offen, zins (davon Verzugszins), kapital } — alles in Rappen.
+// Offener Betrag aufgeteilt nach Art. 85 Abs. 1 OR (Entscheid Tobias):
+// Zahlungen (und Skonto) decken zuerst den verrechneten Verzugszins, erst
+// dann das Kapital (Total inkl. MWST). Wer nach einer Mahnung genau das
+// Kapital zahlt, hat damit den Zins gedeckt — der Rest ist Kapital.
+// { offen, zins (davon Verzugszins), kapital, zinsBezahlt } in Rappen.
 export function offenAufteilung(doc) {
   const offen = offenRappen(doc);
-  const zins = Math.min(zinsSollRappen(doc), offen);
-  return { offen, zins, kapital: offen - zins };
+  const bezahlt = bezahltRappen(doc) + skontoRappen(doc);
+  const zinsSoll = zinsSollRappen(doc);
+  const zinsBezahlt = Math.min(Math.max(0, bezahlt), zinsSoll);
+  const zins = Math.min(zinsSoll - zinsBezahlt, offen);
+  return { offen, zins, kapital: offen - zins, zinsBezahlt };
 }
 
 // Fälligkeit einer Debitoren-Rechnung (Rechnungsdatum + Zahlungsfrist).

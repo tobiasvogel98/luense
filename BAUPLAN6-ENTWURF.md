@@ -28,13 +28,15 @@ Voraussetzung vor Schritt 4: schriftliche Vereinbarung mit dem Pilotkunden
     Verzugszins bezahlt sind. Verrechnet ist der Zins der LETZTEN Mahnung
     (jede rechnet ab der Zahlungserinnerung bis zu ihrem Datum, nie
     zusammenzählen). Geschuldet = Total inkl. MWST + dieser Zins; offen =
-    geschuldet − Zahlungen (kern/zahlung.js). Zahlungen tilgen zuerst das
-    Kapital: wer nur das Kapital zahlt, bleibt «teilbezahlt» mit dem Zins
-    als Rest («davon Verzugszins»). Zurücknehmen der Mahnung nimmt den Zins
+    geschuldet − Zahlungen (kern/zahlung.js). Zahlungen decken nach
+    Art. 85 OR zuerst den verrechneten Zins, dann das Kapital: wer nach
+    der Mahnung nur den Kapitalbetrag zahlt, bleibt «teilbezahlt», der Rest
+    ist Kapital. «davon Verzugszins» zeigt den noch offenen Zinsanteil. Zurücknehmen der Mahnung nimmt den Zins
     wieder weg. Der Zins ist kein Werkvertrags-Ertrag: Controlling B1/B2
     bleibt bei den Netto-Rechnungsbeträgen.
-  - Zins der nächsten Mahnung auf dem offenen Kapital am Mahndatum (ohne
-    bereits verrechneten Zins); er fällt nie unter den schon verrechneten.
+  - Zins der nächsten Mahnung auf dem offenen Kapital am Mahndatum nach
+    Anrechnung gemäss Art. 85 OR (ohne Zins, kein Zinseszins); bereits
+    bezahlter Zins wird auf der Mahnung abgezogen; er fällt nie unter den schon verrechneten.
     Ist nur noch Zins offen, wird keine weitere Stufe fällig.
   - Nach der 2. Mahnung: Vermerk «Betreibung eingeleitet» (Datum,
     Betreibungs-Nr., Notiz) an der Rechnung, zurücknehmbar, ändert keine

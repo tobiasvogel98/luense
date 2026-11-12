@@ -23,8 +23,10 @@
 // 1. Mahnung, 2. Mahnung —, fällig nach Tagen ab RECHNUNGSDATUM (Firmendaten,
 // Standard 30/60/75). Die App verschickt nichts: sie zeigt die fällige Stufe
 // und hält eine erstellte Stufe an der Rechnung fest:
-//   mahnungen: [{ stufe: 1 | 2 | 3, datum, offenRappen, zinsRappen,
+//   mahnungen: [{ stufe: 1 | 2 | 3, datum, offenRappen (offenes Kapital),
+//     zinsBasisRappen, bezahltRappen, zinsBezahltRappen, zinsRappen,
 //     zinsVon, zinsBis, zinsProzent, fristTage }]
+// Zahlungen decken zuerst den verrechneten Zins (Art. 85 OR).
 // Keine Mahngebühr (nach OR nur mit Vertragsabrede). Verzugszins 5 % p. a.
 // (Art. 104 Abs. 1 OR) ab der Zahlungserinnerung (gilt als Mahnung nach
 // Art. 102 Abs. 1 OR) bis zum Datum der jeweiligen Mahnung, auf dem offenen
@@ -43,6 +45,7 @@ import {
   formatTag, scorAusNummer, formatReferenz, formatIban, offenerBetrag,
   bezahltSumme, rechnungFaellig, zahlungen, rechnungsBetraege, formatSatz,
   offenRappen, plusTage, offenAufteilung, zinsSollRappen, statusNachZahlungen,
+  bezahltRappen, skontoRappen,
 } from '../kern/zahlung.js';
 import { zahlteilSvg, pruefeZahlteil, adresseVollstaendig } from '../kern/qrrechnung.js';
 import { oeffneKontoauszug, zeigeZahlungen } from '../kern/bank.js';
@@ -230,22 +233,29 @@ export function mahnStand(rechnung, fristen, heute = heuteTag()) {
   return stand;
 }
 
-// Neuer Eintrag für die fällige Stufe: offenes Kapital (Total inkl. MWST
-// nach Zahlungen, OHNE bereits verrechneten Zins — kein Zinseszins) und —
-// ab der 1. Mahnung — Verzugszins seit der Erinnerung. Der Zins ersetzt den
-// der vorherigen Mahnung (zinsSollRappen nimmt immer den letzten); er fällt
-// nie unter den bereits verrechneten Zins (Teilzahlung nach einer Mahnung
-// würde ihn sonst nachträglich kürzen).
+// Neuer Eintrag für die fällige Stufe. Zinsbasis = offenes Kapital nach
+// Anrechnung der Zahlungen gemäss Art. 85 OR (zuerst an den verrechneten
+// Zins), OHNE den Zins selbst — kein Zinseszins. Verzugszins ab der
+// Erinnerung bis heute; er ersetzt den der vorherigen Mahnung
+// (zinsSollRappen nimmt immer den letzten) und fällt nie unter den bereits
+// verrechneten Zins. Festgehalten wird der Stand NACH dieser Mahnung:
+// offenes Kapital (offenRappen), bisher Bezahltes und der davon an den Zins
+// angerechnete Teil — Total = offenRappen + zinsRappen − zinsBezahltRappen.
 export function neueMahnung(rechnung, stufe, heute = heuteTag()) {
-  const offen = offenAufteilung(rechnung).kapital;
+  const basis = offenAufteilung(rechnung).kapital;
   const erinnerung = mahnungenVon(rechnung).find((m) => m.stufe === 1);
   const zinsVon = stufe > 1 && erinnerung ? erinnerung.datum : '';
   const zins = zinsVon
-    ? Math.max(verzugszinsRappen(offen, zinsVon, heute), zinsSollRappen(rechnung)) : 0;
+    ? Math.max(verzugszinsRappen(basis, zinsVon, heute), zinsSollRappen(rechnung)) : 0;
+  const nachher = offenAufteilung({ ...rechnung,
+    mahnungen: [...mahnungenVon(rechnung), { stufe, zinsRappen: zins }] });
   return {
     stufe,
     datum: heute,
-    offenRappen: offen,
+    offenRappen: nachher.kapital,
+    zinsBasisRappen: basis,
+    bezahltRappen: bezahltRappen(rechnung) + skontoRappen(rechnung),
+    zinsBezahltRappen: nachher.zinsBezahlt,
     zinsRappen: zins,
     zinsVon,
     zinsBis: zinsVon ? heute : '',
@@ -698,10 +708,12 @@ export default {
       const name = stufenName(mahnung.stufe);
       const referenz = referenzVon(rechnung);
       const b = rechnungsBetraege(rechnung);
-      const offenRp = mahnung.offenRappen;
+      const offenRp = mahnung.offenRappen; // offenes Kapital nach Art. 85 OR
       const zinsRp = mahnung.zinsRappen || 0;
-      const totalRp = offenRp + zinsRp;
-      const bezahltRp = b.bruttoRappen - offenRp;
+      const zinsBezahltRp = mahnung.zinsBezahltRappen || 0;
+      const totalRp = offenRp + zinsRp - zinsBezahltRp;
+      const bezahltRp = mahnung.bezahltRappen ?? (b.bruttoRappen - offenRp);
+      const basisRp = mahnung.zinsBasisRappen ?? offenRp;
       const fristBis = plusTage(mahnung.datum, mahnung.fristTage ?? MAHN_ZAHLUNGSFRIST_TAGE);
       const frueher = mahnungenVon(rechnung).filter((m) => m.stufe < mahnung.stufe);
       const datumVon = (stufe) => formatTag(frueher.find((m) => m.stufe === stufe)?.datum);
@@ -750,26 +762,27 @@ export default {
         untertitel: [absender[0] ? `Von: ${absender.join(', ')}` : '',
           `Datum: ${formatTag(mahnung.datum)}`].filter(Boolean).join(' · '),
         abschnitte: [
-          empfaenger.length ? { art: 'felder', titel: 'Rechnungsempfänger',
-            zeilen: [{ label: 'Adresse', wert: empfaenger.join(', ') }] } : null,
           { art: 'text', titel: name, absaetze: mahnText(MAHN_TEXTE[mahnung.stufe] || [], werte) },
           { art: 'felder', titel: 'Rechnung', zeilen: [
+            ...(empfaenger.length ? [{ label: 'Rechnungsempfänger', wert: empfaenger.join(', ') }] : []),
             { label: 'Rechnungs-Nr.', wert: rechnung.nummer },
             { label: 'Rechnungsdatum', wert: formatTag(rechnung.tag) },
             ...(rechnung.titel ? [{ label: 'Bezeichnung', wert: rechnung.titel }] : []),
             { label: b.satz > 0 ? 'Betrag inkl. MWST' : 'Betrag', wert: chf(b.brutto) },
             { label: 'Bereits bezahlt', wert: chf(bezahltRp / 100) },
-            { label: 'Offen', wert: chf(offenRp / 100) },
+            ...(zinsBezahltRp ? [{ label: 'davon an Verzugszins angerechnet (Art. 85 OR)', wert: chf(zinsBezahltRp / 100) }] : []),
+            { label: 'Offen (Kapital)', wert: chf(offenRp / 100) },
             ...(frueher.length ? [{ label: 'Bisherige Mahnstufen',
               wert: frueher.map((m) => `${stufenName(m.stufe)} ${formatTag(m.datum)}`).join(', ') }] : []),
           ] },
           { art: 'summen', titel: 'Zu bezahlen', zeilen: [
             { label: 'Offener Rechnungsbetrag', wert: chf(offenRp / 100) },
             ...(mahnung.stufe > 1 ? [{
-              label: `Verzugszins ${mahnung.zinsProzent || VERZUGSZINS_PROZENT} % p. a. vom ${formatTag(mahnung.zinsVon)} `
-                + `bis ${formatTag(mahnung.zinsBis)} (${zinsTage} Tag${zinsTage === 1 ? '' : 'e'})`,
+              label: `Verzugszins ${mahnung.zinsProzent || VERZUGSZINS_PROZENT} % p. a. auf ${chf(basisRp / 100)} `
+                + `vom ${formatTag(mahnung.zinsVon)} bis ${formatTag(mahnung.zinsBis)} (${zinsTage} Tag${zinsTage === 1 ? '' : 'e'})`,
               wert: chf(zinsRp / 100),
             }] : []),
+            ...(zinsBezahltRp ? [{ label: './. bereits bezahlter Verzugszins', wert: `− ${chf(zinsBezahltRp / 100)}` }] : []),
             { label: 'Total zu bezahlen', wert: chf(totalRp / 100), total: true },
           ] },
           { art: 'felder', titel: 'Zahlung', zeilen: [
@@ -874,7 +887,8 @@ export default {
         if (!stand.faellig) return;
         const eintrag = neueMahnung(rechnung, stand.faellig);
         const name = stufenName(eintrag.stufe);
-        const zins = eintrag.zinsRappen ? `, Verzugszins ${chf(eintrag.zinsRappen / 100)}` : '';
+        const zins = eintrag.zinsRappen ? `, Verzugszins ${chf(eintrag.zinsRappen / 100)}${
+          eintrag.zinsBezahltRappen ? ` (davon bezahlt ${chf(eintrag.zinsBezahltRappen / 100)})` : ''}` : '';
         if (!confirm(`${name} zu Rechnung ${rechnung.nummer} erstellen?\n`
           + `Offen ${chf(eintrag.offenRappen / 100)}${zins}. Die Stufe wird an der Rechnung festgehalten.`)) return;
         const gespeichert = await put(mitZahlungsStatus({ ...rechnung, mahnungen: [...liste, eintrag] }, rechnung));
