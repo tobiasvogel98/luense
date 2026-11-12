@@ -3453,3 +3453,23 @@ details.katalog-wahl > summary {
   color: var(--farbe-text-gedaempft);
   font-variant-numeric: tabular-nums;
 }
+
+/* Mahnwesen: Mahnfristen in den Firmendaten */
+.mahn-fristen {
+  border: 1px solid var(--farbe-linie);
+  border-radius: var(--radius);
+  padding: var(--abstand-2) var(--abstand-3);
+  margin: var(--abstand-3) 0;
+}
+
+.mahn-fristen legend {
+  padding: 0 var(--abstand-1);
+  font-size: var(--schrift-klein);
+  font-weight: 700;
+  color: var(--farbe-text-gedaempft);
+}
+
+.feld-reihe label.mahn-tage {
+  flex: 1 1 7rem;
+  min-width: 0;
+}

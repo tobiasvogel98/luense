@@ -75,7 +75,26 @@ export async function importiereBaustellen(jsonText) {
 
 const FIRMA_ID = 'firma:stamm';
 const FIRMA_FELDER = ['name', 'strasse', 'hausnummer', 'plz', 'ort', 'land', 'iban',
-  'telefon', 'email', 'mwstNr', 'mwstSatz'];
+  'telefon', 'email', 'mwstNr', 'mwstSatz',
+  'mahnTageErinnerung', 'mahnTageMahnung1', 'mahnTageMahnung2'];
+
+// Mahnfristen in Tagen ab Rechnungsdatum (nicht ab Fälligkeit), Entscheid
+// Tobias 12.11.2026: Zahlungserinnerung nach 30, 1. Mahnung nach 60,
+// 2. Mahnung nach 75 Tagen. In den Firmendaten änderbar; leer = Standard.
+// Gebraucht von der Firmendaten-Ansicht und module/rechnung.js.
+export const MAHN_TAGE_STANDARD = [30, 60, 75];
+const MAHN_FELDER = ['mahnTageErinnerung', 'mahnTageMahnung1', 'mahnTageMahnung2'];
+
+function mahnTageAus(wert) {
+  const text = String(wert ?? '').trim();
+  if (!/^\d{1,4}$/.test(text)) return null;
+  return Number(text);
+}
+
+// Die drei Fristen der Firma: [Zahlungserinnerung, 1. Mahnung, 2. Mahnung].
+export function mahnFristenFirma(firma) {
+  return MAHN_FELDER.map((feld, i) => mahnTageAus(firma?.[feld]) ?? MAHN_TAGE_STANDARD[i]);
+}
 
 // MWST-Satz der Firma in Prozent (leer → Standard 8.1 %). Gilt für neue
 // Rechnungen und Offerten (dort bei Erstellung festgehalten).
@@ -118,6 +137,15 @@ export async function speichereFirma(felder) {
     const satz = mwstSatzAus(doc.mwstSatz);
     if (satz === null) throw new Error('MWST-Satz ungültig — Prozent zwischen 0 und 99.9, z. B. 8.1.');
     doc.mwstSatz = String(satz);
+  }
+  for (const feld of MAHN_FELDER) {
+    if (doc[feld] && mahnTageAus(doc[feld]) === null) {
+      throw new Error('Mahnfristen: ganze Tage angeben, z. B. 30.');
+    }
+  }
+  const fristen = mahnFristenFirma(doc);
+  if (!(fristen[0] < fristen[1] && fristen[1] < fristen[2])) {
+    throw new Error('Mahnfristen müssen aufsteigen: Zahlungserinnerung < 1. Mahnung < 2. Mahnung.');
   }
   if (doc.iban && !istGueltigeIban(doc.iban)) {
     throw new Error('IBAN ungültig — Prüfziffer stimmt nicht. Bitte genau abschreiben.');
@@ -184,6 +212,19 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
           <p class="hinweis">Der MWST-Satz gilt für neue Rechnungen und Offerten und wird
             dort beim Erstellen festgehalten — bestehende behalten ihren Satz.
             0 = ohne MWST.</p>
+          <fieldset class="mahn-fristen">
+            <legend>Mahnfristen [Tage ab Rechnungsdatum]</legend>
+            <div class="feld-reihe">
+              <label class="mahn-tage">Zahlungserinnerung<input name="mahnTageErinnerung" type="number"
+                inputmode="numeric" min="1" step="1" placeholder="${MAHN_TAGE_STANDARD[0]}"></label>
+              <label class="mahn-tage">1. Mahnung<input name="mahnTageMahnung1" type="number"
+                inputmode="numeric" min="1" step="1" placeholder="${MAHN_TAGE_STANDARD[1]}"></label>
+              <label class="mahn-tage">2. Mahnung<input name="mahnTageMahnung2" type="number"
+                inputmode="numeric" min="1" step="1" placeholder="${MAHN_TAGE_STANDARD[2]}"></label>
+            </div>
+            <p class="hinweis">Ab wann eine Rechnung zur nächsten Stufe fällig wird,
+              gezählt ab Rechnungsdatum. Leer = ${MAHN_TAGE_STANDARD.join(' / ')} Tage.</p>
+          </fieldset>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Firmendaten speichern</button>
           </div>
@@ -376,6 +417,10 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
       firmaFormular.elements.mwstSatz.value = String(MWST_SATZ_STANDARD);
     }
     if (!firma) firmaFormular.elements.land.value = 'CH';
+    mahnFristenFirma(firma).forEach((tage, i) => {
+      const feld = firmaFormular.elements[MAHN_FELDER[i]];
+      if (!String(feld.value).trim()) feld.value = String(tage);
+    });
     pruefeIban();
     pruefeMwstNr();
   });
