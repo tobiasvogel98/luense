@@ -5,7 +5,7 @@
 // (Dokumente teilen, nie Code). Kacheln: Summe offen / genehmigt.
 
 import { put, abfrage, entferneDokument, holeAnhang } from '../kern/speicher.js';
-import { erstelleRechnung, rapportDirektVerrechnet } from '../kern/rechnung.js';
+import { erstelleRechnung, rapportDirektVerrechnet, betragFeldTexte } from '../kern/rechnung.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { chf, esc, formatDatumZeit, naechsteNummer } from '../kern/ui.js';
@@ -339,14 +339,15 @@ export default {
           await zeichneListe();
           return;
         }
+        const texte = await betragFeldTexte();
         const dialog = document.createElement('div');
         dialog.className = 'vollbild dialog-hintergrund';
         dialog.innerHTML = `
           <form class="karte formular dialog" data-rolle="nachtrag-rechnung">
             <h3>Rechnung aus Nachtrag ${esc(nachtrag.nummer)}</h3>
-            <label>Betrag netto exkl. MWST [CHF]<input name="betrag" type="number" inputmode="decimal"
+            <label>${esc(texte.label)}<input name="betrag" type="number" inputmode="decimal"
               step="any" min="0" value="${esc(zahl(nachtrag.summe))}"></label>
-            <p class="hinweis">Die MWST kommt auf der Rechnung dazu (Satz aus den Firmendaten).</p>
+            <p class="hinweis">${esc(texte.hinweis)}</p>
             <label>Titel<input name="titel" autocomplete="off"
               value="${esc(`Nachtrag ${nachtrag.nummer}: ${nachtrag.titel}`)}"></label>
             <div class="knopfzeile">

@@ -18,11 +18,12 @@
 // Knopf «Kontoauszug einlesen» und Zahlungs-Übersicht) — Rule of two.
 
 import { put, get, abfrage, entferneDokument } from './speicher.js';
-import { alleBaustellen, ladeFirma } from './stamm.js';
+import { alleBaustellen, ladeFirma, mwstPflichtig } from './stamm.js';
 import { chf, esc } from './ui.js';
 import {
   zahl, runde, heuteTag, formatTag, kompakt, gleicheReferenz, scorAusNummer,
   istGueltigeScor, istGueltigeQrr, offenerBetrag, kreditorWerte, zahlungen,
+  ohneMwstAnzeige, satzVon,
   statusNachZahlungen, formatIban, formatReferenz, rappen, sollRappen, bezahltSumme, skontoSumme,
   zinsSollRappen, offenAufteilung,
 } from './zahlung.js';
@@ -653,10 +654,13 @@ export function zeigeZahlungen(docId, { titel = 'Zahlungen', nachAenderung = () 
     const doc = await get(docId);
     const liste = zahlungen(doc);
     const w = doc.typ === 'kreditor' ? kreditorWerte(doc) : null;
+    // Rechnung ohne MWST (nicht pflichtige Firma, 0 %): nur «Total».
+    const sollText = doc.typ !== 'rechnung' ? 'Betrag'
+      : (ohneMwstAnzeige(satzVon(doc), mwstPflichtig(await ladeFirma())) ? 'Total' : 'Total inkl. MWST');
     dialog.innerHTML = `
       <form class="karte formular dialog" data-rolle="zahlung-formular">
         <h3>${esc(titel)}</h3>
-        <p class="hinweis">${doc.typ === 'rechnung' ? 'Total inkl. MWST' : 'Betrag'} ${chf(sollRappen(doc) / 100)}${
+        <p class="hinweis">${sollText} ${chf(sollRappen(doc) / 100)}${
           zinsSollRappen(doc) ? ` (inkl. Verzugszins ${chf(zinsSollRappen(doc) / 100)})` : ''}
           · bezahlt ${chf(bezahltSumme(doc))}${
           skontoSumme(doc) ? ` · Skonto ${chf(skontoSumme(doc))}` : ''}

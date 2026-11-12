@@ -284,11 +284,13 @@ export function zeigeRapportDruck(baustelle, rapport, t, bilder = []) {
 // Unternummern-Zeilen, Zwischentotal je Kapitel. Die Tabelle liefert
 // das Offert-Modul fertig an (gleiche Darstellung wie am Bildschirm,
 // ohne Ausmass — die Kalkulationsgrundlage bleibt intern).
+// lv.preiseText ersetzt «Preise in CHF exkl. MWST» (nicht pflichtige
+// Firma), lv.fussnote steht unter dem Zusammenzug.
 export function zeigeOffertDruck(offerte, lv) {
   druckOverlay(`
     <header class="bericht-kopf">
       <h1>Offerte ${esc(offerte.nummer)} · ${esc(offerte.objekt)}</h1>
-      <p>${esc(offerte.kunde)} · Preise in CHF exkl. MWST</p>
+      <p>${esc(offerte.kunde)} · ${esc(lv.preiseText || 'Preise in CHF exkl. MWST')}</p>
     </header>
 
     ${lv.tabelleHtml}
@@ -296,6 +298,7 @@ export function zeigeOffertDruck(offerte, lv) {
     <section class="bericht-eintrag">
       <h2>Zusammenzug</h2>
       ${lv.zusammenzug.map((z) => druckZeile(z.label, z.wert, z.total ? 'druck-total' : '')).join('')}
+      ${lv.fussnote ? `<p class="bericht-notiz">${esc(lv.fussnote)}</p>` : ''}
     </section>
 
     <div class="unterschriften">

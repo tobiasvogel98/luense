@@ -18,6 +18,12 @@
 // 8.1 % erhalten (kern/migration.js). Keine Rundung auf 5 Rappen.
 // Fehlt in den Firmendaten die MWST-Nr. bei Satz > 0, warnt das Formular
 // (blockiert nicht, MWST bleibt).
+// Nicht MWST-pflichtige Firma (Schalter in den Firmendaten, v59): neue
+// Rechnungen halten 0 % fest. Rechnungen mit 0 % zeigen dann nur «Total»
+// (keine MWST-Zeile, kein «exkl./inkl. MWST»), das PDF darunter «Nicht
+// mehrwertsteuerpflichtig.», ohne MWST-Nr. im Absender. Bestehende
+// Rechnungen mit Satz > 0 sind Belege und bleiben, wie sie sind; nur eine
+// noch nicht gestellte («offen») bietet «ohne MWST neu rechnen» an.
 //
 // Mahnwesen (Bauplan 6, Schritt 3): drei Stufen — Zahlungserinnerung,
 // 1. Mahnung, 2. Mahnung —, fällig nach Tagen ab RECHNUNGSDATUM (Firmendaten,
@@ -45,7 +51,7 @@ import {
   formatTag, scorAusNummer, formatReferenz, formatIban, offenerBetrag,
   bezahltSumme, rechnungFaellig, zahlungen, rechnungsBetraege, formatSatz,
   offenRappen, plusTage, offenAufteilung, zinsSollRappen, statusNachZahlungen,
-  bezahltRappen, skontoRappen,
+  bezahltRappen, skontoRappen, ohneMwstAnzeige, OHNE_MWST_SATZ,
 } from '../kern/zahlung.js';
 import {
   zahlteilSvg, zahlteilElemente, pruefeZahlteil, adresseVollstaendig,
@@ -55,7 +61,7 @@ import {
   oeffneKontoauszug, zeigeZahlungen, kontoauszugStand, AUSZUG_HOECHSTALTER_TAGE,
 } from '../kern/bank.js';
 import {
-  alleBaustellen, ladeFirma, mwstSatzFirma, mwstNrWarnung, mahnFristenFirma,
+  alleBaustellen, ladeFirma, mwstSatzFirma, mwstNrWarnung, mahnFristenFirma, mwstPflichtig,
 } from '../kern/stamm.js';
 import { exportiereCsv, ladeHerunter } from '../kern/export.js';
 import {
@@ -125,14 +131,42 @@ function vorherigerStatus(r) {
   return RECHNUNG_STATUS[RECHNUNG_STATUS.indexOf(r.status) - 1] || '';
 }
 
-// Betrag-Zelle: netto, MWST, zuletzt das Total inkl. MWST (fett).
-function betragZelle(r) {
+// Betrag-Zelle: netto, MWST, zuletzt das Total inkl. MWST (fett). Nicht
+// pflichtige Firma und Rechnung ohne Satz: nur das Total.
+function betragZelle(r, pflichtig = true) {
   const b = rechnungsBetraege(r);
+  if (ohneMwstAnzeige(b.satz, pflichtig)) {
+    return `<span class="mwst-stapel"><b>${chf(b.brutto)}</b></span>`;
+  }
   return `<span class="mwst-stapel">
     <small>netto ${chf(b.netto)}</small>
     ${b.satz > 0 ? `<small>MWST ${formatSatz(b.satz)} ${chf(b.mwst)}</small>`
       : '<small>ohne MWST</small>'}
     <b>${chf(b.brutto)}</b></span>`;
+}
+
+// Erste Spalte (auf dem Handy ohne seitliches Scrollen erreichbar): noch
+// nicht gestellte Rechnung mit MWST bei nicht pflichtiger Firma.
+function ohneMwstErsteSpalte(r, pflichtig) {
+  if (!neuRechnenMoeglich(r, pflichtig)) return '';
+  return `
+    <span class="mahn-faellig">mit MWST ${esc(formatSatz(rechnungsBetraege(r).satz))}, Firma nicht pflichtig</span>
+    <button type="button" class="knopf mahn-knopf" data-aktion="ohne-mwst"
+      data-id="${esc(r._id)}">ohne MWST neu rechnen</button>`;
+}
+
+// Nicht pflichtig, Rechnung noch nicht gestellt, aber mit MWST-Satz: darf
+// auf 0 % gesetzt werden. Gestellte und bezahlte Rechnungen nie.
+function neuRechnenMoeglich(r, pflichtig) {
+  return !pflichtig && r.status === 'offen' && rechnungsBetraege(r).satz > 0;
+}
+
+// Absender-Zeilen im PDF; die MWST-Nr. nur bei pflichtiger Firma.
+function absenderZeilen(firma) {
+  return firma ? [firma.name, [firma.strasse, firma.hausnummer].filter(Boolean).join(' '),
+    [firma.plz, firma.ort].filter(Boolean).join(' '),
+    [firma.telefon, firma.email].filter(Boolean).join(' · '),
+    mwstPflichtig(firma) ? firma.mwstNr : ''].filter(Boolean) : [];
 }
 
 function tageUeberfaellig(faellig, heute) {
@@ -338,6 +372,8 @@ export default {
 
   render(container, baustelle, { ziel = null } = {}) {
     let inBearbeitung = null;
+    // MWST-Pflicht der Firma, bei jedem Zeichnen frisch gelesen.
+    let pflichtig = true;
     let ansicht = 'baustelle';
     try {
       ansicht = localStorage.getItem(ANSICHT_MERKER) === 'alle' ? 'alle' : 'baustelle';
@@ -439,7 +475,7 @@ export default {
       const forderungen = alleBaustellenRechnungen.filter((r) => FORDERUNG.includes(r.status));
       const heute = heuteTag();
       const ueberfaellig = forderungen.filter((r) => tageUeberfaellig(rechnungFaellig(r), heute) > 0);
-      gesamtElement.textContent = `Beträge inkl. MWST. Offene Forderungen über alle Baustellen: ${chf(summeOffen(forderungen))}`
+      gesamtElement.textContent = `${pflichtig ? 'Beträge inkl. MWST. ' : ''}Offene Forderungen über alle Baustellen: ${chf(summeOffen(forderungen))}`
         + ` (${forderungen.length})${ueberfaellig.length
           ? ` · davon überfällig ${chf(summeOffen(ueberfaellig))} (${ueberfaellig.length})` : ''}`;
     }
@@ -465,7 +501,9 @@ export default {
       // Neue Rechnung: Satz der Firmendaten; bestehende: ihr eigener Satz.
       const firma = await ladeFirma();
       const satz = rechnung ? rechnungsBetraege(rechnung).satz : mwstSatzFirma(firma);
-      const warnung = satz > 0 ? mwstNrWarnung(firma) : '';
+      pflichtig = mwstPflichtig(firma);
+      const warnung = satz > 0 && pflichtig ? mwstNrWarnung(firma) : '';
+      const ohne = ohneMwstAnzeige(satz, pflichtig);
       formularBereich.innerHTML = `
         <form class="karte formular" data-rolle="rechnung-formular">
           <h3>${rechnung ? `Rechnung ${esc(rechnung.nummer)} bearbeiten` : 'Neue Rechnung'}</h3>
@@ -479,7 +517,7 @@ export default {
             value="${esc(rechnung?.titel ?? '')}"
             placeholder="z. B. Regiearbeiten KW 35"></label>
           <div class="feld-reihe">
-            <label>Betrag netto exkl. MWST [CHF] *<input name="betrag" type="number" required
+            <label><span data-rolle="betrag-label">${ohne ? 'Betrag' : 'Betrag netto exkl. MWST'} [CHF] *</span><input name="betrag" type="number" required
               inputmode="decimal" step="any" value="${esc(rechnung?.betrag ?? '')}"
               placeholder="0.00"></label>
             <label>Zahlungsfrist [Tage]<input name="zahlungsfrist" type="number"
@@ -488,6 +526,12 @@ export default {
           </div>
           <div class="mwst-vorschau" data-rolle="mwst-vorschau" data-satz="${esc(satz)}"></div>
           ${warnung ? `<p class="mwst-warnung" role="alert" data-rolle="mwst-nr-warnung">${esc(warnung)}</p>` : ''}
+          ${rechnung && neuRechnenMoeglich(rechnung, pflichtig) ? `
+            <p class="mwst-warnung ohne-mwst-hinweis" data-rolle="ohne-mwst-hinweis">
+              <span>Diese Rechnung rechnet noch mit MWST ${esc(formatSatz(satz))}. Die Firma ist
+                nicht mehrwertsteuerpflichtig, darum ohne MWST stellen.</span>
+              <button type="button" class="knopf" data-aktion="ohne-mwst-formular">ohne MWST neu rechnen</button>
+            </p>` : ''}
           <details class="adress-block" ${adresseVollstaendig(deb) ? '' : 'open'}>
             <summary>Rechnungsadresse (für PDF und QR-Zahlteil)</summary>
             <label>Name / Firma<input name="debName" autocomplete="off" value="${esc(deb.name ?? '')}"></label>
@@ -527,6 +571,11 @@ export default {
       const ziel = formular?.querySelector('[data-rolle="mwst-vorschau"]');
       if (!ziel) return;
       const b = rechnungsBetraege({ betrag: formular.elements.betrag.value, mwstSatz: ziel.dataset.satz });
+      if (ohneMwstAnzeige(b.satz, pflichtig)) {
+        ziel.innerHTML = `
+        <div class="mwst-total"><span>Total</span><span>${chf(b.brutto)}</span></div>`;
+        return;
+      }
       ziel.innerHTML = `
         <div><span>Total netto exkl. MWST</span><span>${chf(b.netto)}</span></div>
         <div><span>${b.satz > 0 ? `MWST ${formatSatz(b.satz)}` : 'MWST'}</span><span>${b.satz > 0 ? chf(b.mwst) : 'keine'}</span></div>
@@ -557,7 +606,7 @@ export default {
           <table class="uebersicht-tabelle">
             <thead><tr>
               <th>Nummer</th><th>Datum</th><th>Titel</th><th>Basis</th>
-              <th class="zahl">Betrag</th><th class="zahl">Offen inkl. MWST</th><th>Status</th><th>Zahlbar bis</th><th></th>
+              <th class="zahl">Betrag</th><th class="zahl">${pflichtig ? 'Offen inkl. MWST' : 'Offen'}</th><th>Status</th><th>Zahlbar bis</th><th></th>
             </tr></thead>
             <tbody>
               ${rechnungen.map((r) => {
@@ -570,11 +619,11 @@ export default {
                 return `
                   <tr>
                     <td class="kein-umbruch mahn-spalte">${esc(r.nummer)}<br>
-                      <small class="hinweis">${esc(formatReferenz(referenzVon(r)))}</small>${mahnErsteSpalte(r, stand)}</td>
+                      <small class="hinweis">${esc(formatReferenz(referenzVon(r)))}</small>${mahnErsteSpalte(r, stand)}${ohneMwstErsteSpalte(r, pflichtig)}</td>
                     <td class="kein-umbruch">${formatTag(r.tag)}</td>
                     <td class="text-spalte">${esc(r.titel)}</td>
                     <td class="kein-umbruch">${esc(basisText(r.basis))}</td>
-                    <td class="zahl">${betragZelle(r)}</td>
+                    <td class="zahl">${betragZelle(r, pflichtig)}</td>
                     <td class="zahl">${r.status === 'bezahlt' ? '-' : offenZelle(r)}</td>
                     <td class="status-spalte">${esc(r.status)}${ueberfaellig
                       ? ' <span class="ueberfaellig">überfällig</span>' : ''}${mahnVerlauf(r)}<br>
@@ -602,7 +651,7 @@ export default {
               }).join('')}
               <tr class="summen-zeile">
                 <td colspan="4"><b>Total (${rechnungen.length})</b></td>
-                <td class="zahl"><span class="mwst-stapel"><small>netto ${chf(summeNetto(rechnungen))}</small>
+                <td class="zahl"><span class="mwst-stapel">${pflichtig ? `<small>netto ${chf(summeNetto(rechnungen))}</small>` : ''}
                   <b>${chf(summe(rechnungen))}</b></span></td>
                 <td class="zahl"><b>${chf(summeOffen(rechnungen.filter((r) => r.status !== 'offen')))}</b></td>
                 <td colspan="3">davon bezahlt ${chf(summe(rechnungen.filter((r) => r.status === 'bezahlt'))
@@ -671,7 +720,7 @@ export default {
           <table class="uebersicht-tabelle">
             <thead><tr>
               <th>Rechnung · fällig</th><th>Baustelle</th><th>Titel</th>
-              <th class="zahl">Total inkl. MWST</th><th class="zahl">Offen</th><th>Status</th><th></th>
+              <th class="zahl">${pflichtig ? 'Total inkl. MWST' : 'Total'}</th><th class="zahl">Offen</th><th>Status</th><th></th>
             </tr></thead>
             <tbody>
               ${forderungen.map(({ r, faellig, tage, stand }) => {
@@ -700,7 +749,7 @@ export default {
             </tbody>
           </table>
         </div>
-        <p class="hinweis">Beträge inkl. MWST.</p>` : `<p class="hinweis">${nurFaellig
+        ${pflichtig ? '<p class="hinweis">Beträge inkl. MWST.</p>' : ''}` : `<p class="hinweis">${nurFaellig
           ? 'Keine fällige Mahnstufe.' : 'Keine offenen Forderungen, alles bezahlt.'}</p>`}`;
     }
 
@@ -710,6 +759,7 @@ export default {
         k.setAttribute('aria-selected', String(k.dataset.ansicht === ansicht));
       });
       neuKnopf.hidden = ansicht === 'alle';
+      pflichtig = mwstPflichtig(await ladeFirma());
       zeichneMahnHinweisHier();
       if (ansicht === 'alle') {
         schliesseFormular();
@@ -782,10 +832,7 @@ export default {
       const deb = rechnung.debitor || {};
       const empfaenger = [deb.name || bs.bauherr, [deb.strasse, deb.hausnummer].filter(Boolean).join(' '),
         [deb.plz, deb.ort].filter(Boolean).join(' ')].filter(Boolean);
-      const absender = firma ? [firma.name, [firma.strasse, firma.hausnummer].filter(Boolean).join(' '),
-        [firma.plz, firma.ort].filter(Boolean).join(' '),
-        [firma.telefon, firma.email].filter(Boolean).join(' · '),
-        firma.mwstNr].filter(Boolean) : [];
+      const absender = absenderZeilen(firma);
 
       const angaben = {
         firma: firma || {},
@@ -846,6 +893,8 @@ export default {
             ...(zinsBezahltRp ? [{ label: './. bereits bezahlter Verzugszins', wert: `− ${chf(zinsBezahltRp / 100)}` }] : []),
             { label: 'Total zu bezahlen', wert: chf(totalRp / 100), total: true },
           ] },
+          ohneMwstAnzeige(b.satz, mwstPflichtig(firma))
+            ? { art: 'text', titel: '', absaetze: [OHNE_MWST_SATZ] } : null,
           { art: 'felder', titel: 'Zahlung', zeilen: [
             { label: 'Zahlungsfrist', wert: `${mahnung.fristTage ?? MAHN_ZAHLUNGSFRIST_TAGE} Tage` },
             { label: 'Zahlbar bis', wert: formatTag(fristBis) },
@@ -898,14 +947,12 @@ export default {
       const referenz = referenzVon(rechnung);
       const b = rechnungsBetraege(rechnung);
       const offen = offenerBetrag(rechnung); // Total inkl. MWST + Verzugszins − Zahlungen
+      const ohne = ohneMwstAnzeige(b.satz, mwstPflichtig(firma));
       const bezahlt = bezahltSumme(rechnung);
       const deb = rechnung.debitor || {};
       const empfaenger = [deb.name || baustelle.bauherr, [deb.strasse, deb.hausnummer].filter(Boolean).join(' '),
         [deb.plz, deb.ort].filter(Boolean).join(' ')].filter(Boolean);
-      const absender = firma ? [firma.name, [firma.strasse, firma.hausnummer].filter(Boolean).join(' '),
-        [firma.plz, firma.ort].filter(Boolean).join(' '),
-        [firma.telefon, firma.email].filter(Boolean).join(' · '),
-        firma.mwstNr].filter(Boolean) : [];
+      const absender = absenderZeilen(firma);
 
       const angaben = {
         firma: firma || {},
@@ -937,10 +984,15 @@ export default {
           empfaenger.length ? { art: 'felder', titel: 'Rechnungsempfänger',
             zeilen: [{ label: 'Adresse', wert: empfaenger.join(', ') }] } : null,
           { art: 'tabelle', titel: 'Leistung',
-            spalten: ['Bezeichnung', 'Basis', 'Betrag exkl. MWST'],
+            spalten: ['Bezeichnung', 'Basis', ohne ? 'Betrag' : 'Betrag exkl. MWST'],
             zeilen: [[rechnung.titel, basisText(rechnung.basis), chf(b.netto)]] },
-          // MWST immer zuletzt: netto → MWST → Total inkl. MWST.
-          { art: 'summen', titel: 'Rechnungsbetrag', zeilen: b.satz > 0 ? [
+          // MWST immer zuletzt: netto → MWST → Total inkl. MWST. Nicht
+          // pflichtig und ohne Satz: nur das Total und der Vermerk darunter.
+          ohne ? { art: 'summen', titel: 'Rechnungsbetrag', zeilen: [
+            { label: 'Total', wert: chf(b.brutto), total: true },
+          ] } : null,
+          ohne ? { art: 'text', titel: '', absaetze: [OHNE_MWST_SATZ] } : null,
+          ohne ? null : { art: 'summen', titel: 'Rechnungsbetrag', zeilen: b.satz > 0 ? [
             { label: 'Total netto exkl. MWST', wert: chf(b.netto) },
             { label: `MWST ${formatSatz(b.satz)}`, wert: chf(b.mwst) },
             { label: 'Total inkl. MWST', wert: chf(b.brutto), total: true },
@@ -1343,8 +1395,13 @@ export default {
           r.betreibung.nummer ? `Nr. ${r.betreibung.nummer}` : '', r.betreibung.notiz].filter(Boolean).join(' · ') : '');
         exportiereCsv(
           ansicht === 'alle' ? 'luense-offene-forderungen.csv' : `luense-rechnungen-${baustelle.ktr}.csv`,
-          ['KTR', 'Nummer', 'Datum', 'Titel', 'Basis', 'Netto exkl. MWST CHF', 'MWST-Satz %',
-            'MWST CHF', 'Total inkl. MWST CHF', 'Verzugszins CHF', 'Bezahlt CHF', 'Offen CHF',
+          // Nicht pflichtig: gleiche Spalten (Excel-Vorlagen bleiben gültig),
+          // Köpfe ohne «exkl./inkl. MWST»; neue Rechnungen haben 0 % und MWST 0.
+          [...(mwstPflichtig(await ladeFirma())
+            ? ['KTR', 'Nummer', 'Datum', 'Titel', 'Basis', 'Netto exkl. MWST CHF', 'MWST-Satz %',
+              'MWST CHF', 'Total inkl. MWST CHF']
+            : ['KTR', 'Nummer', 'Datum', 'Titel', 'Basis', 'Betrag CHF', 'MWST-Satz %',
+              'MWST CHF', 'Total CHF']), 'Verzugszins CHF', 'Bezahlt CHF', 'Offen CHF',
             'davon Verzugszins CHF', 'Status', 'Zahlbar bis', 'Mahnstufe', 'Mahnstufe fällig',
             'Betreibung', 'Referenz', 'Statusverlauf'],
           rechnungen.slice().reverse().map((r) => [baustellen.get(r.baustelleId) || '', r.nummer,
@@ -1359,6 +1416,15 @@ export default {
 
     formularBereich.addEventListener('click', (klick) => {
       if (klick.target.closest('[data-aktion="abbrechen"]')) schliesseFormular();
+      if (klick.target.closest('[data-aktion="ohne-mwst-formular"]')) {
+        // Im Formular auf 0 % umstellen; gespeichert wird mit «Rechnung speichern».
+        const formular = formularBereich.querySelector('form');
+        formular.dataset.ohneMwst = '1';
+        formular.querySelector('[data-rolle="mwst-vorschau"]').dataset.satz = '0';
+        formular.querySelector('[data-rolle="betrag-label"]').textContent = 'Betrag [CHF] *';
+        formular.querySelector('[data-rolle="ohne-mwst-hinweis"]').remove();
+        zeigeMwstVorschau(formular);
+      }
     });
 
     formularBereich.addEventListener('input', (eingabe) => {
@@ -1391,7 +1457,10 @@ export default {
         }
         // Neue Rechnung: MWST-Satz festhalten. Bestehende behalten ihren
         // (alte ohne Satz bleiben ohne — sie rechnen mit dem Firmensatz).
+        // Nicht pflichtig: neue Rechnung 0 % (mwstSatzFirma), noch nicht
+        // gestellte mit Satz nur auf Knopfdruck «ohne MWST neu rechnen».
         if (!inBearbeitung) basis.mwstSatz = mwstSatzFirma(await ladeFirma());
+        else if (formular.dataset.ohneMwst && basis.status === 'offen') basis.mwstSatz = 0;
         await put({
           ...basis,
           nummer,
@@ -1447,6 +1516,15 @@ export default {
       if (!rechnung) return;
       if (knopf.dataset.aktion === 'oeffnen') {
         oeffneFormular(rechnung);
+      } else if (knopf.dataset.aktion === 'ohne-mwst') {
+        // Nur noch nicht gestellte Rechnungen (frisch gelesen) auf 0 %.
+        if (!neuRechnenMoeglich(rechnung, mwstPflichtig(await ladeFirma()))) return;
+        const vorher = rechnungsBetraege(rechnung);
+        await put({ ...rechnung, mwstSatz: 0 });
+        meldungElement.textContent = `Rechnung ${rechnung.nummer} ohne MWST neu gerechnet: `
+          + `Total ${chf(vorher.netto)} (vorher ${chf(vorher.brutto)} mit MWST ${formatSatz(vorher.satz)}).`;
+        document.dispatchEvent(new CustomEvent('luense:daten'));
+        await zeichneTabelle();
       } else if (knopf.dataset.aktion === 'pdf') {
         rechnungsPdf(rechnung);
       } else if (knopf.dataset.aktion === 'zahlungen') {

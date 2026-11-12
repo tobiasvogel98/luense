@@ -10,6 +10,10 @@
 // Total inkl. MWST, exakt in Rappen wie die Rechnungen (kern/zahlung.js),
 // ohne 5-Rappen-Rundung. Der MWST-Satz wird bei Erstellung aus den
 // Firmendaten an der Offerte festgehalten (mwstSatz); ohne Satz gilt 8.1 %.
+// Nicht MWST-pflichtige Firma (Firmendaten, v59): neue Offerten 0 %, dann
+// nur «Total» ohne MWST-Zeile, auf dem PDF «Nicht mehrwertsteuerpflichtig.».
+// Eine nicht angenommene Offerte mit Satz > 0 bietet «ohne MWST neu
+// rechnen» an; angenommene bleiben Vertragsstand.
 // «angenommen» erzeugt per Klick eine Baustelle; die Positionen gehen
 // als KOPIE ins Ausmass (dort wird gemessen, die Offerte bleibt unberührt).
 // Bewusste Ausnahme von «alle Dokumente tragen eine Baustellen-Id»:
@@ -23,8 +27,10 @@
 // Grabenrechner (kern/graben.js).
 
 import { put, get, abfrage, entferneDokument } from '../kern/speicher.js';
-import { speichereBaustelle, ladeFirma, mwstSatzFirma } from '../kern/stamm.js';
-import { rappen, prozentVonRappen, satzVon, formatSatz } from '../kern/zahlung.js';
+import { speichereBaustelle, ladeFirma, mwstSatzFirma, mwstPflichtig } from '../kern/stamm.js';
+import {
+  rappen, prozentVonRappen, satzVon, formatSatz, ohneMwstAnzeige, OHNE_MWST_SATZ,
+} from '../kern/zahlung.js';
 import { zeigeOffertDruck } from '../kern/pdf.js';
 import { chf, esc, naechsteNummer } from '../kern/ui.js';
 import { GRABENARTEN, ROHR_LABELS, berechneTeil } from '../kern/graben.js';
@@ -236,7 +242,7 @@ function mwstLabel(z) {
 // LV-Tabellenzeilen (Ansicht und Druck teilen dieselbe Darstellung).
 // interaktiv: jede Menge wird zum Knopf — Antippen öffnet ihr Ausmass
 // (bearbeiten und direkt in die Menge speichern). Der Druck bleibt schlicht.
-export function lvZeilenHtml(gliederung, { interaktiv = false, gesperrt = false } = {}) {
+export function lvZeilenHtml(gliederung, { interaktiv = false, gesperrt = false, ohneMwst = false } = {}) {
   const zeilen = [];
   let kapitelSumme = 0;
   let kapitelNr = null;
@@ -275,7 +281,7 @@ export function lvZeilenHtml(gliederung, { interaktiv = false, gesperrt = false 
   });
   zwischentotal();
   zeilen.push(`<tr class="lv-endtotal"><td></td>
-    <td colspan="4">Total Positionen exkl. MWST</td>
+    <td colspan="4">${ohneMwst ? 'Total Positionen' : 'Total Positionen exkl. MWST'}</td>
     <td class="lv-zahl">${chf(gesamt)}</td></tr>`);
   return zeilen.join('');
 }
@@ -292,12 +298,31 @@ function lvTabelleHtml(gliederung, optionen) {
     </table>`;
 }
 
-function zusammenzugZeilen(offerte) {
+// Offerte ohne MWST-Ausweis: Firma nicht pflichtig und Offerte mit 0 %.
+function ohneMwstOfferte(offerte, pflichtig) {
+  return ohneMwstAnzeige(satzVon(offerte), pflichtig);
+}
+
+// Nicht pflichtig, nicht angenommen, aber mit Satz: auf 0 % umstellbar.
+function neuRechnenMoeglich(offerte, pflichtig) {
+  return !pflichtig && !istGesperrt(offerte) && satzVon(offerte) > 0;
+}
+
+function zusammenzugZeilen(offerte, pflichtig = true) {
   const z = zusammenzug(offerte);
-  return [
-    { label: 'Total Positionen', wert: chf(z.total) },
+  const abzuege = [
     ...(z.rabatt ? [{ label: `Rabatt ${offerte.rabatt} %`, wert: `− ${chf(z.rabatt)}` }] : []),
     ...(z.skonto ? [{ label: `Skonto ${offerte.skonto} %`, wert: `− ${chf(z.skonto)}` }] : []),
+  ];
+  if (ohneMwstOfferte(offerte, pflichtig)) {
+    return [
+      ...(abzuege.length ? [{ label: 'Total Positionen', wert: chf(z.total) }, ...abzuege] : []),
+      { label: 'Total', wert: chf(z.inklMwst), total: true },
+    ];
+  }
+  return [
+    { label: 'Total Positionen', wert: chf(z.total) },
+    ...abzuege,
     { label: 'Total netto exkl. MWST', wert: chf(z.exklMwst) },
     { label: mwstLabel(z), wert: chf(z.mwst) },
     { label: 'Total inkl. MWST', wert: chf(z.inklMwst), total: true },
@@ -795,6 +820,8 @@ export default {
   // dem Mengen-Fenster der Position.
   render(container, _baustelle, optionen = {}) {
     let inBearbeitung = null;
+    // MWST-Pflicht der Firma, bei jedem Zeichnen der Liste frisch gelesen.
+    let pflichtig = true;
 
     container.innerHTML = `
       <section class="offerten">
@@ -1002,7 +1029,13 @@ export default {
       if (!formular) return;
       const offerte = sammleOfferte(formular);
       const z = zusammenzug(offerte);
-      formular.querySelector('[data-rolle="zusammenzug"]').innerHTML = `
+      if (ohneMwstOfferte(offerte, pflichtig)) {
+        formular.querySelector('[data-rolle="zusammenzug"]').innerHTML = `
+          ${z.rabatt || z.skonto ? `<div><span>Total Positionen</span><span>${chf(z.total)}</span></div>` : ''}
+          ${z.rabatt ? `<div><span>− Rabatt</span><span>${chf(z.rabatt)}</span></div>` : ''}
+          ${z.skonto ? `<div><span>− Skonto</span><span>${chf(z.skonto)}</span></div>` : ''}
+          <div class="regie-total"><span>Total</span><span>${chf(z.inklMwst)}</span></div>`;
+      } else formular.querySelector('[data-rolle="zusammenzug"]').innerHTML = `
         <div><span>Total Positionen</span><span>${chf(z.total)}</span></div>
         ${z.rabatt ? `<div><span>− Rabatt</span><span>${chf(z.rabatt)}</span></div>` : ''}
         ${z.skonto ? `<div><span>− Skonto</span><span>${chf(z.skonto)}</span></div>` : ''}
@@ -1041,7 +1074,9 @@ export default {
       const original = offerte?.kopieVon ? offerten.find((o) => o._id === offerte.kopieVon) : null;
       // MWST-Satz: neue Offerte aus den Firmendaten (festgehalten),
       // bestehende behalten ihren Satz.
-      const satz = offerte ? satzVon(offerte) : mwstSatzFirma(await ladeFirma());
+      const firma = await ladeFirma();
+      pflichtig = mwstPflichtig(firma);
+      const satz = offerte ? satzVon(offerte) : mwstSatzFirma(firma);
       formularBereich.innerHTML = `
         <form class="karte formular" data-rolle="offert-formular" data-mwst-satz="${esc(satz)}">
           <h3>${offerte ? `Offerte ${esc(offerte.nummer)} bearbeiten` : 'Neue Offerte'}</h3>
@@ -1084,8 +1119,16 @@ export default {
               value="${esc(offerte?.skonto ?? '')}" placeholder="0"></label>
           </div>
           <div class="rapport-totale" data-rolle="zusammenzug"></div>
-          <p class="hinweis">MWST-Satz ${esc(formatSatz(satz))}, ${offerte
-            ? 'an dieser Offerte festgehalten' : 'aus den Firmendaten, wird beim Speichern festgehalten'}.</p>
+          ${ohneMwstAnzeige(satz, pflichtig) ? `<p class="hinweis" data-rolle="mwst-hinweis">${OHNE_MWST_SATZ}
+            Die Offerte wird ohne MWST gerechnet.</p>`
+            : `<p class="hinweis" data-rolle="mwst-hinweis">MWST-Satz ${esc(formatSatz(satz))}, ${offerte
+            ? 'an dieser Offerte festgehalten' : 'aus den Firmendaten, wird beim Speichern festgehalten'}.</p>`}
+          ${offerte && neuRechnenMoeglich(offerte, pflichtig) ? `
+            <p class="mwst-warnung ohne-mwst-hinweis" data-rolle="ohne-mwst-hinweis">
+              <span>Diese Offerte rechnet noch mit MWST ${esc(formatSatz(satz))}. Die Firma ist
+                nicht mehrwertsteuerpflichtig.</span>
+              <button type="button" class="knopf" data-aktion="ohne-mwst-formular">ohne MWST neu rechnen</button>
+            </p>` : ''}
 
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Offerte speichern</button>
@@ -1120,6 +1163,13 @@ export default {
       const aktion = knopf.dataset.aktion;
       if (aktion === 'abbrechen') {
         schliesseFormular();
+      } else if (aktion === 'ohne-mwst-formular') {
+        // Im Formular auf 0 % umstellen; gespeichert wird mit «Offerte speichern».
+        formular.dataset.mwstSatz = '0';
+        formular.querySelector('[data-rolle="ohne-mwst-hinweis"]').remove();
+        formular.querySelector('[data-rolle="mwst-hinweis"]').textContent =
+          `${OHNE_MWST_SATZ} Die Offerte wird ohne MWST gerechnet.`;
+        aktualisiereZusammenzug();
       } else if (aktion === 'kapitel-neu') {
         zeilen.insertAdjacentHTML('beforeend', gliederungsBlock({ art: 'kapitel' }));
         aktualisiereZusammenzug();
@@ -1248,6 +1298,7 @@ export default {
     // ---------- Offerten-Liste (LV-Ansicht) ----------
     async function zeichneListe({ offenId = null } = {}) {
       const offerten = await ladeOfferten();
+      pflichtig = mwstPflichtig(await ladeFirma());
       listeElement.innerHTML = offerten.length
         ? offerten.map((o) => {
             const z = zusammenzug(o);
@@ -1274,7 +1325,12 @@ export default {
                   </span>
                 </div>
                 <p class="hinweis">${esc(o.kunde)}${o.titel ? ` · ${esc(o.objekt)}` : ''} · ${anzahl} Positionen
-                  · ${chf(z.inklMwst)} inkl. MWST</p>
+                  · ${chf(z.inklMwst)}${ohneMwstOfferte(o, pflichtig) ? '' : ' inkl. MWST'}</p>
+                ${neuRechnenMoeglich(o, pflichtig) ? `
+                  <p class="mwst-warnung ohne-mwst-hinweis"><span>Rechnet noch mit MWST
+                    ${esc(formatSatz(z.satz))}, die Firma ist nicht mehrwertsteuerpflichtig.</span>
+                    <button type="button" class="knopf" data-aktion="ohne-mwst"
+                      data-id="${esc(o._id)}">ohne MWST neu rechnen</button></p>` : ''}
                 ${gesperrt ? `<p class="hinweis">Vertragsstand${o.angenommenAm
                   ? ` seit ${datumText(o.angenommenAm)}` : ''}, nicht mehr änderbar.
                   Mengen in einer Kopie erfassen.</p>` : ''}
@@ -1283,7 +1339,8 @@ export default {
                 ${kopien.length ? `<p class="hinweis">Kopien: ${kopien.map((k) => esc(k.nummer)).join(', ')}</p>` : ''}
                 <details class="lv-details"${o._id === offenId ? ' open' : ''}>
                   <summary>Leistungsverzeichnis anzeigen</summary>
-                  <div class="tabellen-scroll">${lvTabelleHtml(gliederung, { interaktiv: true, gesperrt })}</div>
+                  <div class="tabellen-scroll">${lvTabelleHtml(gliederung, { interaktiv: true, gesperrt,
+                    ohneMwst: ohneMwstOfferte(o, pflichtig) })}</div>
                   <p class="hinweis">${gesperrt
                     ? 'Menge antippen zeigt Ausmass und Rechenweg der Position (nur Ansicht).'
                     : 'Menge antippen: direkt tippen, Rechenweg, Ausmass-Zeilen oder Grabenrechner, und direkt speichern.'}</p>
@@ -1353,6 +1410,10 @@ export default {
       try {
         if (aktion === 'oeffnen') {
           oeffneFormular(offerte);
+        } else if (aktion === 'ohne-mwst') {
+          if (!neuRechnenMoeglich(offerte, mwstPflichtig(await ladeFirma()))) return;
+          await speichereOfferte({ ...offerte, mwstSatz: 0 });
+          await zeichneListe();
         } else if (aktion === 'weiter') {
           const stufen = statusListe(offerte);
           const naechster = stufen[stufen.indexOf(offerte.status) + 1];
@@ -1378,9 +1439,12 @@ export default {
         } else if (aktion === 'pdf') {
           // Druck ohne Ausmass-Spalte (Kalkulationsgrundlage bleibt intern) —
           // Text bekommt die Breite, wie auf der Papier-Vorlage.
+          const p = mwstPflichtig(await ladeFirma());
+          const ohne = ohneMwstOfferte(offerte, p);
           zeigeOffertDruck(offerte, {
-            tabelleHtml: lvTabelleHtml(gliederungVon(offerte)),
-            zusammenzug: zusammenzugZeilen(offerte),
+            tabelleHtml: lvTabelleHtml(gliederungVon(offerte), { ohneMwst: ohne }),
+            zusammenzug: zusammenzugZeilen(offerte, p),
+            ...(ohne ? { preiseText: 'Preise in CHF', fussnote: OHNE_MWST_SATZ } : {}),
           });
         } else if (aktion === 'baustelle') {
           await erstelleBaustelle(offerte);
@@ -1402,7 +1466,9 @@ export default {
         name: offerte.objekt,
         ort: '',
         bauherr: offerte.kunde,
-        werkvertrag: `${chf(z.exklMwst)} exkl. MWST (Offerte ${offerte.nummer})`,
+        werkvertrag: ohneMwstOfferte(offerte, mwstPflichtig(await ladeFirma()))
+          ? `${chf(z.exklMwst)} (Offerte ${offerte.nummer})`
+          : `${chf(z.exklMwst)} exkl. MWST (Offerte ${offerte.nummer})`,
       });
       const positionen = nurPositionen(offerte);
       for (const p of positionen) {

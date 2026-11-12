@@ -7,7 +7,7 @@
 
 import { put, abfrage } from './speicher.js';
 import { scorAusNummer } from './zahlung.js';
-import { ladeFirma, mwstSatzFirma } from './stamm.js';
+import { ladeFirma, mwstSatzFirma, mwstPflichtig } from './stamm.js';
 
 // Ablauf von Hand. Dazu kommt «teilbezahlt» — entsteht nur aus Zahlungen
 // (Kontoauszug oder von Hand erfasst), siehe kern/zahlung.js.
@@ -36,7 +36,8 @@ export async function naechsteRechnungsnummer() {
 // Grundlage: { art: 'regierapport' | 'nachtrag' | 'manuell', id, label }.
 // «betrag» ist netto (exkl. MWST). Der MWST-Satz der Firmendaten wird an
 // der Rechnung festgehalten (mwstSatz), damit eine spätere Satzänderung
-// alte Rechnungen nicht verändert. Total inkl. MWST: kern/zahlung.js
+// alte Rechnungen nicht verändert (nicht pflichtige Firma: 0 %). Total
+// inkl. MWST: kern/zahlung.js
 // (rechnungsBetraege).
 export async function erstelleRechnung({ baustelleId, titel, betrag, basis }) {
   const nummer = await naechsteRechnungsnummer();
@@ -55,6 +56,17 @@ export async function erstelleRechnung({ baustelleId, titel, betrag, basis }) {
     status: 'offen',
     statusHistorie: [{ status: 'offen', datum: heuteTag() }],
   });
+}
+
+// Beschriftung des Betragsfelds in den Dialogen «Rechnung aus
+// Regierapport» (module/rapport.js) und «Rechnung aus Nachtrag»
+// (module/nachtrag.js): nicht pflichtige Firma ohne «netto exkl. MWST».
+export async function betragFeldTexte() {
+  return mwstPflichtig(await ladeFirma())
+    ? { label: 'Betrag netto exkl. MWST [CHF]',
+      hinweis: 'Die MWST kommt auf der Rechnung dazu (Satz aus den Firmendaten).' }
+    : { label: 'Betrag [CHF]',
+      hinweis: 'Nicht mehrwertsteuerpflichtig: die Rechnung wird ohne MWST gestellt.' };
 }
 
 // Schutz gegen Doppelverrechnung: ein Regierapport kann direkt

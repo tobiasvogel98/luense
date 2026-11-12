@@ -9,7 +9,7 @@ import {
   put, abfrage, entferneDokument, haengeAnhangAn, holeAnhang, holeMitAnhaengen,
   entferneAnhang,
 } from '../kern/speicher.js';
-import { erstelleRechnung, nachtraegeMitVerrechnung } from '../kern/rechnung.js';
+import { erstelleRechnung, nachtraegeMitVerrechnung, betragFeldTexte } from '../kern/rechnung.js';
 import { exportiereCsv, teileDatei } from '../kern/export.js';
 import { verkleinereFoto } from '../kern/kamera.js';
 import { zeigeRapportDruck, zeigeWochenDruck } from '../kern/pdf.js';
@@ -825,7 +825,8 @@ export default {
     // Regierapport direkt eine Rechnung erzeugen. Betrag = Stunden ×
     // Regieansatz, beides editierbar; der zuletzt benutzte Ansatz wird
     // gemerkt (nur UI-Zustand).
-    function oeffneRegieRechnung(rapport) {
+    async function oeffneRegieRechnung(rapport) {
+      const texte = await betragFeldTexte();
       const stunden = zahl(rapport.davonRegie);
       const ansatz = zahl(localStorage.getItem('luense.regieansatz')) || 110;
       const dialog = document.createElement('div');
@@ -839,9 +840,9 @@ export default {
             <label>Regieansatz [CHF/h]<input name="ansatz" type="number"
               inputmode="decimal" step="any" min="0" value="${esc(ansatz)}"></label>
           </div>
-          <label>Betrag netto exkl. MWST [CHF]<input name="betrag" type="number" inputmode="decimal"
+          <label>${esc(texte.label)}<input name="betrag" type="number" inputmode="decimal"
             step="any" min="0" value="${esc(Math.round(stunden * ansatz * 100) / 100)}"></label>
-          <p class="hinweis">Die MWST kommt auf der Rechnung dazu (Satz aus den Firmendaten).</p>
+          <p class="hinweis">${esc(texte.hinweis)}</p>
           <label>Titel<input name="titel" autocomplete="off"
             value="Regiearbeiten vom ${esc(formatTag(rapport.tag))}"></label>
           <div class="knopfzeile">
