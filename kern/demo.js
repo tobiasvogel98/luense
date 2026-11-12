@@ -286,6 +286,24 @@ export async function ladeBeispielbaustelle() {
       { status: 'gestellt', datum: arbeitstagZurueck(2) }],
   });
 
+  // Mahnwesen zum Vorführen: Rechnung vor 64 Tagen, Zahlungserinnerung am
+  // 31. Tag festgehalten (Zahlungsfrist 10 Tage abgelaufen) — damit ist die
+  // 1. Mahnung fällig (Standardfristen 30/60/75 Tage ab Rechnungsdatum).
+  const tMahnRechnung = plusTage(-64);
+  const tErinnerung = plusTage(-33);
+  await speichere({
+    typ: 'rechnung', baustelleId: B, nummer: 'R-DEMO-003', tag: tMahnRechnung,
+    datum: `${tMahnRechnung}T12:00:00.000Z`,
+    titel: 'Werkleitungen Etappe 1 (Beispiel)', betrag: '10000', mwstSatz: 8.1, zahlungsfristTage: 30,
+    basis: { art: 'manuell', id: '', label: '' }, status: 'gestellt',
+    statusHistorie: [{ status: 'offen', datum: tMahnRechnung },
+      { status: 'gestellt', datum: tMahnRechnung }],
+    mahnungen: [{
+      stufe: 1, datum: tErinnerung, offenRappen: 1081000, zinsRappen: 0,
+      zinsVon: '', zinsBis: '', zinsProzent: 0, fristTage: 10,
+    }],
+  });
+
   // Kreditoren.
   await speichere({
     typ: 'kreditor', baustelleId: B, lieferant: 'Kieswerk Beispiel AG (Beispiel)',
