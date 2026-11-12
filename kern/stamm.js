@@ -4,7 +4,7 @@
 import { put, get, abfrage, neueId } from './speicher.js';
 import { esc } from './ui.js';
 import {
-  istGueltigeIban, istQrIban, formatIban, kompakt, mwstSatzAus, setzeStandardMwstSatz,
+  istGueltigeIban, istQrIban, formatIban, kompakt, mwstSatzAus,
   MWST_SATZ_STANDARD,
 } from './zahlung.js';
 
@@ -78,10 +78,20 @@ const FIRMA_FELDER = ['name', 'strasse', 'hausnummer', 'plz', 'ort', 'land', 'ib
   'telefon', 'email', 'mwstNr', 'mwstSatz'];
 
 // MWST-Satz der Firma in Prozent (leer → Standard 8.1 %). Gilt für neue
-// Rechnungen (dort bei Erstellung festgehalten) und für alte Rechnungen
-// ohne eigenen Satz.
+// Rechnungen und Offerten (dort bei Erstellung festgehalten).
 export function mwstSatzFirma(firma) {
   return mwstSatzAus(firma?.mwstSatz) ?? MWST_SATZ_STANDARD;
+}
+
+// Warnung: MWST wird verrechnet (Satz > 0), aber in den Firmendaten fehlt
+// die MWST-Nr. — sie gehört auf jede Rechnung mit MWST. Blockiert nichts.
+// Gebraucht von der Firmendaten-Ansicht und module/rechnung.js.
+export function mwstNrWarnung(firma) {
+  const satz = mwstSatzFirma(firma);
+  if (satz <= 0 || String(firma?.mwstNr ?? '').trim()) return '';
+  return `⚠ MWST ${satz.toLocaleString('de-CH', { maximumFractionDigits: 4 })} % wird verrechnet, `
+    + 'aber in den Firmendaten fehlt die MWST-Nr. (CHE-…). Sie gehört auf jede '
+    + 'Rechnung mit MWST — bitte unter ⚙ Firmendaten nachtragen.';
 }
 
 export async function ladeFirma() {
@@ -91,13 +101,8 @@ export async function ladeFirma() {
   } catch {
     firma = null;
   }
-  setzeStandardMwstSatz(firma?.mwstSatz);
   return firma;
 }
-
-// Satz einmal beim Start laden, damit Beträge alter Rechnungen ohne
-// eigenen Satz von Anfang an mit dem Firmensatz rechnen.
-await ladeFirma();
 
 export async function speichereFirma(felder) {
   const vorhanden = await ladeFirma();
@@ -117,9 +122,7 @@ export async function speichereFirma(felder) {
   if (doc.iban && !istGueltigeIban(doc.iban)) {
     throw new Error('IBAN ungültig — Prüfziffer stimmt nicht. Bitte genau abschreiben.');
   }
-  const gespeichert = await put(doc);
-  setzeStandardMwstSatz(gespeichert.mwstSatz);
-  return gespeichert;
+  return put(doc);
 }
 
 // ---------- Ansicht ----------
@@ -177,9 +180,10 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
             <label class="feld-schmal">MWST [%]<input name="mwstSatz" aria-label="MWST-Satz in Prozent" type="number" inputmode="decimal"
               step="any" min="0" max="99.9" placeholder="${MWST_SATZ_STANDARD}"></label>
           </div>
-          <p class="hinweis">Der MWST-Satz gilt für neue Rechnungen und wird dort beim
-            Erstellen festgehalten — bestehende Rechnungen behalten ihren Satz.
-            0 = Rechnungen ohne MWST.</p>
+          <p class="mwst-warnung" data-rolle="mwst-nr-warnung" role="alert" hidden></p>
+          <p class="hinweis">Der MWST-Satz gilt für neue Rechnungen und Offerten und wird
+            dort beim Erstellen festgehalten — bestehende behalten ihren Satz.
+            0 = ohne MWST.</p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Firmendaten speichern</button>
           </div>
@@ -352,6 +356,17 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
       ibanPruefung.textContent = `✓ IBAN gültig: ${formatIban(iban)}`;
     }
   };
+  const mwstWarnung = firmaFormular.querySelector('[data-rolle="mwst-nr-warnung"]');
+  const pruefeMwstNr = () => {
+    const text = mwstNrWarnung({
+      mwstNr: firmaFormular.elements.mwstNr.value,
+      mwstSatz: firmaFormular.elements.mwstSatz.value,
+    });
+    mwstWarnung.textContent = text;
+    mwstWarnung.hidden = !text;
+  };
+  firmaFormular.elements.mwstNr.addEventListener('input', pruefeMwstNr);
+  firmaFormular.elements.mwstSatz.addEventListener('input', pruefeMwstNr);
   ladeFirma().then((firma) => {
     for (const feld of FIRMA_FELDER) {
       firmaFormular.elements[feld].value = feld === 'iban'
@@ -362,6 +377,7 @@ export function renderStammAnsicht(container, { onAenderung = () => {} } = {}) {
     }
     if (!firma) firmaFormular.elements.land.value = 'CH';
     pruefeIban();
+    pruefeMwstNr();
   });
   firmaFormular.elements.iban.addEventListener('input', pruefeIban);
   firmaFormular.addEventListener('submit', async (ereignis) => {

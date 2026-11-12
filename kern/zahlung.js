@@ -65,10 +65,13 @@ export function runde(n) {
 }
 
 // ---------- MWST ----------
-// Standardsatz der Firma (Firmendaten, kern/stamm.js setzt ihn beim Laden).
-// Gilt für neue Rechnungen und für alte Rechnungen ohne eigenen Satz.
+// Satz für Dokumente ohne eigenen Satz. Seit der Einführung hält jede
+// Rechnung und Offerte ihren Satz fest (mwstSatz, bei Erstellung aus den
+// Firmendaten); ältere Dokumente erhalten beim Start einmalig 8.1 %
+// (kern/migration.js). Der feste Rückfall bleibt als Sicherung — er folgt
+// bewusst NICHT dem aktuellen Firmensatz, damit sich alte Beträge nie
+// verändern.
 export const MWST_SATZ_STANDARD = 8.1;
-let standardSatz = MWST_SATZ_STANDARD;
 
 // Satz aus Text/Zahl; leer oder ungültig → null.
 export function mwstSatzAus(wert) {
@@ -78,31 +81,25 @@ export function mwstSatzAus(wert) {
   return Number.isFinite(n) && n >= 0 && n < 100 ? n : null;
 }
 
-export function setzeStandardMwstSatz(satz) {
-  standardSatz = mwstSatzAus(satz) ?? MWST_SATZ_STANDARD;
-}
-
-export function standardMwstSatz() {
-  return standardSatz;
+// Satz eines Dokuments (Rechnung, Offerte): eigener Satz, sonst 8.1 %.
+export function satzVon(doc) {
+  return mwstSatzAus(doc?.mwstSatz) ?? MWST_SATZ_STANDARD;
 }
 
 export function formatSatz(satz) {
   return `${Number(satz).toLocaleString('de-CH', { maximumFractionDigits: 4 })} %`;
 }
 
-// Beträge einer Debitoren-Rechnung: «betrag» ist netto (exkl. MWST); der
-// Satz steht seit der Einführung an der Rechnung (mwstSatz, bei Erstellung
-// festgehalten). Alte Rechnungen ohne Satz rechnen mit dem aktuellen Satz
-// der Firmendaten (satzAusFirma = true).
-export function rechnungsBetraege(doc, ersatzSatz = standardSatz) {
-  const eigenerSatz = mwstSatzAus(doc?.mwstSatz);
-  const satz = eigenerSatz ?? ersatzSatz;
+// Beträge einer Debitoren-Rechnung: «betrag» ist netto (exkl. MWST), der
+// Satz steht an der Rechnung (mwstSatz). MWST exakt in Rappen, kaufmännisch
+// auf 0.01 — keine 5-Rappen-Rundung.
+export function rechnungsBetraege(doc) {
+  const satz = satzVon(doc);
   const nettoRappen = rappen(doc?.betrag);
   const mwstRappen = satz > 0 ? prozentVonRappen(nettoRappen, satz) : 0;
   const bruttoRappen = nettoRappen + mwstRappen;
   return {
     satz,
-    satzAusFirma: eigenerSatz === null,
     nettoRappen,
     mwstRappen,
     bruttoRappen,

@@ -63,6 +63,7 @@
     import { renderBackupZeile } from './kern/export.js';
     import { renderBeispielBereich } from './kern/demo.js';
     import { zeigeUmzugHinweis } from './kern/umzug.js';
+    import { fuehreDatenNach } from './kern/migration.js';
     import ereignisModul from './module/ereignis.js';
     import pendenzenModul from './module/pendenzen.js';
     import rapportModul from './module/rapport.js';
@@ -310,6 +311,7 @@
     });
 
     async function nachDatenImport() {
+      await fuehreDatenNach(); // importierte alte Dokumente nachführen
       await aktualisiereAuswahl();
       zeigeModul();
     }
@@ -319,6 +321,9 @@
       nachImport: nachDatenImport,
     });
 
+    // Einmalige, idempotente Datennachführungen (z. B. MWST-Satz an alten
+    // Rechnungen/Offerten) — vor dem ersten Zeichnen.
+    await fuehreDatenNach();
     await aktualisiereAuswahl();
     zeigeModul(); // ohne Baustellen landet man automatisch im Stamm
 

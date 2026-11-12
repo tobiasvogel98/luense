@@ -14,8 +14,10 @@
 // MWST-Satz der Firmendaten fest (mwstSatz). Die Rechnung zeigt zuerst
 // «Total netto exkl. MWST», dann die MWST-Zeile, zuletzt das Total inkl.
 // MWST — dieses ist der geschuldete Betrag (Bildschirm, PDF, QR-Zahlteil,
-// Kontoauszug). Alte Rechnungen ohne mwstSatz rechnen mit dem aktuellen
-// Satz der Firmendaten (markiert mit *). Keine Rundung auf 5 Rappen.
+// Kontoauszug). Alte Rechnungen ohne mwstSatz haben beim Start einmalig
+// 8.1 % erhalten (kern/migration.js). Keine Rundung auf 5 Rappen.
+// Fehlt in den Firmendaten die MWST-Nr. bei Satz > 0, warnt das Formular
+// (blockiert nicht, MWST bleibt).
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import {
@@ -27,7 +29,7 @@ import {
 } from '../kern/zahlung.js';
 import { zahlteilSvg, pruefeZahlteil, adresseVollstaendig } from '../kern/qrrechnung.js';
 import { oeffneKontoauszug, zeigeZahlungen } from '../kern/bank.js';
-import { alleBaustellen, ladeFirma, mwstSatzFirma } from '../kern/stamm.js';
+import { alleBaustellen, ladeFirma, mwstSatzFirma, mwstNrWarnung } from '../kern/stamm.js';
 import { exportiereCsv } from '../kern/export.js';
 import { zeigeProtokollDruck } from '../kern/pdf.js';
 import { chf, esc } from '../kern/ui.js';
@@ -75,13 +77,10 @@ function betragZelle(r) {
   const b = rechnungsBetraege(r);
   return `<span class="mwst-stapel">
     <small>netto ${chf(b.netto)}</small>
-    ${b.satz > 0 ? `<small>MWST ${formatSatz(b.satz)}${b.satzAusFirma ? '*' : ''} ${chf(b.mwst)}</small>`
+    ${b.satz > 0 ? `<small>MWST ${formatSatz(b.satz)} ${chf(b.mwst)}</small>`
       : '<small>ohne MWST</small>'}
     <b>${chf(b.brutto)}</b></span>`;
 }
-
-const SATZ_HINWEIS = '* Rechnung ohne festgehaltenen MWST-Satz (vor der MWST-Einführung erfasst) — '
-  + 'gerechnet mit dem aktuellen Satz der Firmendaten.';
 
 function tageUeberfaellig(faellig, heute) {
   if (!faellig || faellig >= heute) return 0;
@@ -188,9 +187,10 @@ export default {
       neuZeile.hidden = true;
       const nummer = rechnung?.nummer || await naechsteRechnungsnummer();
       const deb = rechnung?.debitor || { name: baustelle.bauherr || '' };
-      // Neue Rechnung: Satz der Firmendaten; bestehende: ihr eigener Satz
-      // (alte ohne Satz: aktueller Firmensatz, nicht festgehalten).
-      const satz = rechnung ? rechnungsBetraege(rechnung).satz : mwstSatzFirma(await ladeFirma());
+      // Neue Rechnung: Satz der Firmendaten; bestehende: ihr eigener Satz.
+      const firma = await ladeFirma();
+      const satz = rechnung ? rechnungsBetraege(rechnung).satz : mwstSatzFirma(firma);
+      const warnung = satz > 0 ? mwstNrWarnung(firma) : '';
       formularBereich.innerHTML = `
         <form class="karte formular" data-rolle="rechnung-formular">
           <h3>${rechnung ? `Rechnung ${esc(rechnung.nummer)} bearbeiten` : 'Neue Rechnung'}</h3>
@@ -212,7 +212,7 @@ export default {
               value="${esc(rechnung?.zahlungsfristTage ?? ZAHLUNGSFRIST_TAGE)}"></label>
           </div>
           <div class="mwst-vorschau" data-rolle="mwst-vorschau" data-satz="${esc(satz)}"></div>
-          ${rechnung && rechnungsBetraege(rechnung).satzAusFirma ? `<p class="hinweis">${esc(SATZ_HINWEIS)}</p>` : ''}
+          ${warnung ? `<p class="mwst-warnung" role="alert" data-rolle="mwst-nr-warnung">${esc(warnung)}</p>` : ''}
           <details class="adress-block" ${adresseVollstaendig(deb) ? '' : 'open'}>
             <summary>Rechnungsadresse (für PDF und QR-Zahlteil)</summary>
             <label>Name / Firma<input name="debName" autocomplete="off" value="${esc(deb.name ?? '')}"></label>
@@ -329,9 +329,7 @@ export default {
               </tr>
             </tbody>
           </table>
-        </div>
-        ${rechnungen.some((r) => rechnungsBetraege(r).satzAusFirma)
-          ? `<p class="hinweis">${esc(SATZ_HINWEIS)}</p>` : ''}`;
+        </div>`;
     }
 
     // ---------- Offene Posten über alle Baustellen ----------

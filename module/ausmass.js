@@ -4,6 +4,9 @@
 // Fortschritt je Position in %; Menge über Vertragsmenge wird rot
 // markiert (Nachtrags-Frühwarnung). Dokumenttyp «ausmass», ein Dokument
 // je Position. JSON-Import als Probelauf mit Duplikat-Schutz.
+// «Ausgemessen» nimmt eine Zahl oder einen Rechenweg («12.5*3 + 4,2»,
+// kern/rechenweg.js) — gespeichert als menge (Ergebnis), mengeQuelle
+// 'rechenweg' und mengeFormel, sichtbar an der Position.
 
 import { put, abfrage, entferneDokument } from '../kern/speicher.js';
 import { exportiereCsv } from '../kern/export.js';
@@ -11,6 +14,7 @@ import {
   GRABENARTEN, ROHR_BIBLIOTHEK, ROHR_LABELS, berechneTeil, abschnittSvg,
 } from '../kern/graben.js';
 import { chf, esc } from '../kern/ui.js';
+import { werteMengeAus } from '../kern/rechenweg.js';
 
 function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
@@ -23,6 +27,15 @@ function mengeText(n) {
 
 function prozent(anteil) {
   return `${Math.round(anteil * 100)} %`;
+}
+
+function hatRechenweg(p) {
+  return p?.mengeQuelle === 'rechenweg' && Boolean(p.mengeFormel);
+}
+
+function quelleText(p) {
+  if (hatRechenweg(p)) return `Rechenweg ${p.mengeFormel}`;
+  return p.mengeQuelle === 'grabenrechner' ? 'Grabenrechner' : '';
 }
 
 export function positionsWerte(p) {
@@ -70,11 +83,13 @@ export default {
           <div class="feld-reihe">
             <label>Vertragsmenge<input name="vertragsmenge" type="number"
               inputmode="decimal" step="any" placeholder="0"></label>
-            <label>Ausgemessen<input name="menge" type="number"
-              inputmode="decimal" step="any" placeholder="0"></label>
+            <label>Ausgemessen (Zahl oder Rechenweg)<input name="menge" inputmode="text"
+              autocomplete="off" spellcheck="false" enterkeyhint="done" class="rechenweg-feld"
+              placeholder="z. B. 12.5*3 + 4.2"></label>
             <label>EP [CHF]<input name="ep" type="number"
               inputmode="decimal" step="any" placeholder="0.00"></label>
           </div>
+          <p class="menge-status" data-rolle="menge-status" role="status"></p>
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Position speichern</button>
             <button type="button" class="knopf" data-aktion="abbrechen" hidden>Abbrechen</button>
@@ -140,7 +155,7 @@ export default {
             const w = positionsWerte(p);
             return [p.pos, p.text, p.einheit || '', w.vertragsmenge, w.menge,
               w.ep, w.betrag, w.ueberVertrag ? 'ja' : '',
-              p.mengeQuelle === 'grabenrechner' ? 'Grabenrechner' : ''];
+              quelleText(p)];
           }),
         );
       });
@@ -153,8 +168,23 @@ export default {
       for (const feld of ['pos', 'text', 'einheit', 'vertragsmenge', 'menge', 'ep']) {
         formular.elements[feld].value = position?.[feld] ?? '';
       }
+      if (hatRechenweg(position)) formular.elements.menge.value = position.mengeFormel;
       meldung.textContent = '';
+      zeigeMengenStatus();
     }
+
+    // Rechenweg-Vorschau unter dem Feld: «= 41.90 m³ · Rechenweg» oder Fehler.
+    const mengenStatus = formular.querySelector('[data-rolle="menge-status"]');
+    function zeigeMengenStatus() {
+      const e = werteMengeAus(formular.elements.menge.value);
+      const eh = formular.elements.einheit.value.trim();
+      formular.elements.menge.setAttribute('aria-invalid', String(Boolean(e.fehler)));
+      mengenStatus.classList.toggle('rechenweg-fehler', Boolean(e.fehler));
+      mengenStatus.textContent = e.fehler ? `⚠ ${e.fehler}`
+        : e.formel ? `= ${mengeText(Number(e.menge))}${eh ? ` ${eh}` : ''} · Rechenweg` : '';
+    }
+    formular.elements.menge.addEventListener('input', zeigeMengenStatus);
+    formular.elements.einheit.addEventListener('input', zeigeMengenStatus);
 
     // Verknüpfung zur Offerte (nur über Dokumente, ohne Code des Offert-
     // Moduls): Positionen tragen offertId/offertPosNr; ältere bzw. Beispiel-
@@ -203,6 +233,9 @@ export default {
             <span>EP ${chf(w.ep)}</span>
             <span class="position-betrag">${chf(w.betrag)}</span>
           </div>
+          ${hatRechenweg(p) ? `<p class="hinweis position-rechenweg">Rechenweg: <code>${esc(p.mengeFormel)}</code>
+            = ${mengeText(w.menge)} ${esc(p.einheit || '')}</p>` : ''}
+          ${p.mengeQuelle === 'grabenrechner' ? '<p class="hinweis position-rechenweg">Menge aus dem Grabenrechner</p>' : ''}
           ${link ? `<div class="knopfzeile offert-sprung">
             <button type="button" class="knopf" data-aktion="offert-ausmass" data-id="${esc(p._id)}"
               aria-label="Offert-Ausmass der Position ${esc(p.pos)} öffnen">Offert-Ausmass öffnen ↗</button>
@@ -247,19 +280,36 @@ export default {
     formular.addEventListener('submit', async (abschicken) => {
       abschicken.preventDefault();
       const felder = Object.fromEntries(new FormData(formular));
+      const mengeEingabe = werteMengeAus(felder.menge);
+      if (mengeEingabe.fehler) {
+        meldung.textContent = mengeEingabe.fehler;
+        formular.elements.menge.focus();
+        return;
+      }
       try {
         const basis = inBearbeitung
           ? { ...inBearbeitung }
           : { typ: 'ausmass', baustelleId: baustelle.baustelleId };
-        await put({
+        const neu = {
           ...basis,
           pos: felder.pos.trim(),
           text: felder.text.trim(),
           einheit: (felder.einheit || '').trim(),
           vertragsmenge: (felder.vertragsmenge || '').trim(),
-          menge: (felder.menge || '').trim(),
+          menge: mengeEingabe.formel ? mengeEingabe.menge : (felder.menge || '').trim(),
           ep: (felder.ep || '').trim(),
-        });
+        };
+        if (mengeEingabe.formel) {
+          neu.mengeQuelle = 'rechenweg';
+          neu.mengeFormel = mengeEingabe.formel;
+        } else {
+          // Zahl getippt: ein früherer Rechenweg gilt nicht mehr; eine
+          // gleich gebliebene Menge behält ihre Quelle (z. B. Grabenrechner).
+          delete neu.mengeFormel;
+          if (neu.mengeQuelle === 'rechenweg'
+            || (neu.mengeQuelle && zahl(neu.menge) !== zahl(basis.menge))) delete neu.mengeQuelle;
+        }
+        await put(neu);
         fuelleFormular(null);
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneListe();
@@ -583,7 +633,8 @@ export default {
       }
       if (!confirm(`Mengen ins Ausmass übernehmen?\n\n${zeilen.join('\n')}`)) return;
       for (const ziel of ziele) {
-        await put({ ...ziel.position, menge: String(ziel.menge), mengeQuelle: 'grabenrechner' });
+        const { mengeFormel, ...ohneRechenweg } = ziel.position; // Rechner löst den Rechenweg ab
+        await put({ ...ohneRechenweg, menge: String(ziel.menge), mengeQuelle: 'grabenrechner' });
       }
       grabenMeldung.textContent = `${ziele.length} Position${ziele.length === 1 ? '' : 'en'} aktualisiert.`;
       document.dispatchEvent(new CustomEvent('luense:daten'));

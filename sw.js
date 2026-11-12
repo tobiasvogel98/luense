@@ -29,6 +29,8 @@ const DATEIEN = [
   './kern/zahlung.js',
   './kern/qrrechnung.js',
   './kern/bank.js',
+  './kern/rechenweg.js',
+  './kern/migration.js',
   './module/ereignis.js',
   './module/pendenzen.js',
   './module/rapport.js',

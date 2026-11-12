@@ -395,7 +395,7 @@ export async function ladeBeispielbaustelle() {
     typ: 'offerte', baustelleId: OFFERT_ID, nummer: 'O-DEMO-01',
     kunde: 'Gemeinde Musterhausen', objekt: 'Werkleitungen Musterweg (Beispiel)',
     status: 'angenommen', baustelleErstellt: true, zielBaustelleId: B,
-    rabatt: '3', skonto: '2',
+    rabatt: '3', skonto: '2', mwstSatz: 8.1,
     gliederung: [
       { art: 'kapitel', nr: '113', titel: 'Baustelleneinrichtung' }, lvPos('113.111'),
       { art: 'kapitel', nr: '151', titel: 'Abbrüche' }, lvPos('151.111'),

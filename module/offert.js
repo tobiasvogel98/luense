@@ -6,7 +6,10 @@
 // Kalkulationsgrundlage — sie bleiben in der Offerte gespeichert und
 // sind hinter der Menge versteckt (Antippen öffnet sie im Fenster, dort
 // erfassen und direkt in die Menge speichern).
-// Zusammenzug wie das Alt-Tool: Total → −Rabatt → −Skonto → +MwSt.
+// Zusammenzug: Total → −Rabatt → −Skonto → netto exkl. MWST → MWST →
+// Total inkl. MWST, exakt in Rappen wie die Rechnungen (kern/zahlung.js),
+// ohne 5-Rappen-Rundung. Der MWST-Satz wird bei Erstellung aus den
+// Firmendaten an der Offerte festgehalten (mwstSatz); ohne Satz gilt 8.1 %.
 // «angenommen» erzeugt per Klick eine Baustelle; die Positionen gehen
 // als KOPIE ins Ausmass (dort wird gemessen, die Offerte bleibt unberührt).
 // Bewusste Ausnahme von «alle Dokumente tragen eine Baustellen-Id»:
@@ -16,19 +19,27 @@
 // unveränderlich (kein Entsperren). Gearbeitet wird in einer Kopie
 // («Kopie erstellen», kopieVon = Original) — dort werden Mengen erfasst.
 // Menge je Position: direkt als Zahl oder als Rechenweg («12.5*3 + 4.2»,
-// eigener kleiner Parser, kein eval), aus Ausmasszeilen oder mit dem
+// Parser in kern/rechenweg.js, kein eval), aus Ausmasszeilen oder mit dem
 // Grabenrechner (kern/graben.js).
 
 import { put, get, abfrage, entferneDokument } from '../kern/speicher.js';
-import { speichereBaustelle } from '../kern/stamm.js';
+import { speichereBaustelle, ladeFirma, mwstSatzFirma } from '../kern/stamm.js';
+import { rappen, prozentVonRappen, satzVon, formatSatz } from '../kern/zahlung.js';
 import { zeigeOffertDruck } from '../kern/pdf.js';
 import { chf, esc, naechsteNummer } from '../kern/ui.js';
 import { GRABENARTEN, ROHR_LABELS, berechneTeil } from '../kern/graben.js';
+import { istRechenweg, rechneRechenweg } from '../kern/rechenweg.js';
 
 const KATALOG_ID = 'katalog';
 const OFFERT_ID = 'offertwesen';
-const MWST_PROZENT = 8.1;
 const OFFERT_STATUS = ['Entwurf', 'eingereicht', 'angenommen'];
+// Eine Kopie ist Arbeitsversion (Ausmass), nie Vertragsstand: sie kann
+// nicht angenommen und damit nicht gesperrt werden.
+const KOPIE_STATUS = ['Entwurf', 'eingereicht'];
+
+function statusListe(offerte) {
+  return offerte?.kopieVon ? KOPIE_STATUS : OFFERT_STATUS;
+}
 
 function zahl(wert) {
   const n = parseFloat(String(wert ?? '').replace(/['’\s]/g, '').replace(',', '.'));
@@ -39,91 +50,6 @@ function mengeText(n) {
   return (n || 0).toLocaleString('de-CH', {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   });
-}
-
-// ---------- Rechenweg ----------
-// Eine Menge ist entweder eine Zahl («12.5», «1'250,5») oder ein
-// Rechenweg mit + − × / und Klammern («12.5*3 + 4,2*2»). Ausgewertet
-// mit einem kleinen rekursiven Parser — bewusst ohne eval/Function.
-// Mal: * × x ·   Geteilt: / : ÷   Dezimal: Punkt oder Komma.
-const NUR_ZAHL = /^[+-]?\d[\d'’]*(?:[.,]\d+)?$/;
-
-export function istRechenweg(text) {
-  const t = String(text ?? '').replace(/\s/g, '');
-  return t !== '' && !NUR_ZAHL.test(t);
-}
-
-export function rechneRechenweg(text) {
-  const quelle = String(text ?? '');
-  let i = 0;
-  const fehler = (meldung) => { throw new Error(meldung); };
-  const zeichen = () => {
-    while (i < quelle.length && /\s/.test(quelle[i])) i++;
-    return quelle[i] ?? '';
-  };
-  const unerwartet = () => (i >= quelle.length
-    ? 'Der Rechenweg endet mitten in der Rechnung.'
-    : `Unerwartetes Zeichen «${quelle[i]}» an Stelle ${i + 1}.`);
-  function zahlLesen() {
-    zeichen();
-    let ziffern = '';
-    let dezimal = false;
-    while (i < quelle.length) {
-      const c = quelle[i];
-      if (c >= '0' && c <= '9') ziffern += c;
-      else if ((c === '.' || c === ',') && !dezimal && /\d/.test(ziffern)) {
-        dezimal = true;
-        ziffern += '.';
-      } else if ((c === "'" || c === '’') && /\d/.test(ziffern) && !dezimal) {
-        // Tausender-Hochkomma (1'250) — zählt nicht
-      } else break;
-      i++;
-    }
-    if (!/\d/.test(ziffern)) fehler(unerwartet());
-    return Number(ziffern);
-  }
-  function faktor() {
-    const c = zeichen();
-    if (c === '+') { i++; return faktor(); }
-    if (c === '-' || c === '−') { i++; return -faktor(); }
-    if (c === '(') {
-      i++;
-      const wert = summe();
-      if (zeichen() !== ')') fehler('Klammer «)» fehlt.');
-      i++;
-      return wert;
-    }
-    return zahlLesen();
-  }
-  function produkt() {
-    let wert = faktor();
-    for (;;) {
-      const c = zeichen();
-      if (c && '*×xX·'.includes(c)) {
-        i++;
-        wert *= faktor();
-      } else if (c && '/:÷'.includes(c)) {
-        i++;
-        const teiler = faktor();
-        if (teiler === 0) fehler('Division durch null.');
-        wert /= teiler;
-      } else return wert;
-    }
-  }
-  function summe() {
-    let wert = produkt();
-    for (;;) {
-      const c = zeichen();
-      if (c === '+') { i++; wert += produkt(); }
-      else if (c === '-' || c === '−') { i++; wert -= produkt(); }
-      else return wert;
-    }
-  }
-  if (!quelle.trim()) fehler('Der Rechenweg ist leer.');
-  const wert = summe();
-  if (zeichen()) fehler(quelle[i] === ')' ? 'Klammer «(» fehlt.' : unerwartet());
-  if (!Number.isFinite(wert)) fehler('Das Ergebnis ist keine Zahl.');
-  return Math.round(wert * 1000) / 1000;
 }
 
 // Direkte Eingabe (Zahl oder Rechenweg) → Felder der Position.
@@ -195,6 +121,14 @@ function inhalt(offerte) {
 // Offerte lässt sich inhaltlich nicht mehr ändern — auch nicht über
 // einen veralteten Bildschirmstand.
 async function speichereOfferte(offerte) {
+  if (offerte.kopieVon && istGesperrt(offerte)) {
+    let altKopie = null;
+    try { altKopie = offerte._id ? await get(offerte._id) : null; } catch { altKopie = null; }
+    if (!istGesperrt(altKopie)) {
+      throw new Error('Eine Kopie ist Arbeitsversion und kann nicht angenommen werden — '
+        + 'Vertragsstand bleibt das Original.');
+    }
+  }
   if (offerte._id) {
     let alt = null;
     try { alt = await get(offerte._id); } catch { alt = null; }
@@ -271,31 +205,32 @@ function nurPositionen(offerte) {
   return gliederungVon(offerte).filter((z) => z.art === 'position');
 }
 
-// Zusammenzug wie im Alt-Tool: Total → −Rabatt → −Skonto → exkl. → +MwSt.
+// Zusammenzug in ganzen Rappen: Positionen ungerundet summiert, das
+// Total auf den Rappen; Rabatt, Skonto und MWST je kaufmännisch auf den
+// Rappen (prozentVonRappen). Total inkl. MWST = netto + MWST, exakt.
 export function zusammenzug(offerte) {
-  const total = nurPositionen(offerte)
+  const summe = nurPositionen(offerte)
     .reduce((s, p) => s + zahl(p.menge) * zahl(p.ep), 0);
-  const rabatt = total * zahl(offerte.rabatt) / 100;
-  const nachRabatt = total - rabatt;
-  const skonto = nachRabatt * zahl(offerte.skonto) / 100;
-  const exklMwst = nachRabatt - skonto;
-  const mwst = exklMwst * MWST_PROZENT / 100;
-  // Rappenrundung nur auf dem Endbetrag (auf 0.05 CHF, kaufmännisch);
-  // Positionen bleiben ungerundet. Basis sind die angezeigten Beträge
-  // (exkl. und MwSt. je auf Rappen), damit der Zusammenzug aufgeht:
-  // exkl. + MwSt. + Rundung = Total inkl. MwSt.
-  const rappen = Math.round(exklMwst * 100) + Math.round(mwst * 100);
-  const inklMwst = (Math.round(rappen / 5) * 5) / 100;
-  const rundung = inklMwst - rappen / 100;
+  const satz = satzVon(offerte);
+  const totalRp = rappen(summe);
+  const rabattRp = prozentVonRappen(totalRp, offerte.rabatt || 0);
+  const nachRabattRp = totalRp - rabattRp;
+  const skontoRp = prozentVonRappen(nachRabattRp, offerte.skonto || 0);
+  const exklRp = nachRabattRp - skontoRp;
+  const mwstRp = satz > 0 ? prozentVonRappen(exklRp, satz) : 0;
   return {
-    total, rabatt, skonto, exklMwst, mwst, inklMwst,
-    rundung: Math.abs(rundung) < 0.001 ? 0 : rundung,
+    satz,
+    total: totalRp / 100,
+    rabatt: rabattRp / 100,
+    skonto: skontoRp / 100,
+    exklMwst: exklRp / 100,
+    mwst: mwstRp / 100,
+    inklMwst: (exklRp + mwstRp) / 100,
   };
 }
 
-// Rundungsbetrag mit Vorzeichen, z. B. «− CHF 0.02» / «+ CHF 0.01».
-function rundungText(rundung) {
-  return `${rundung < 0 ? '−' : '+'} ${chf(Math.abs(rundung))}`;
+function mwstLabel(z) {
+  return z.satz > 0 ? `MWST ${formatSatz(z.satz)}` : 'MWST (ohne)';
 }
 
 // LV-Tabellenzeilen (Ansicht und Druck teilen dieselbe Darstellung).
@@ -340,7 +275,7 @@ export function lvZeilenHtml(gliederung, { interaktiv = false, gesperrt = false 
   });
   zwischentotal();
   zeilen.push(`<tr class="lv-endtotal"><td></td>
-    <td colspan="4">Total Positionen exkl. MwSt.</td>
+    <td colspan="4">Total Positionen exkl. MWST</td>
     <td class="lv-zahl">${chf(gesamt)}</td></tr>`);
   return zeilen.join('');
 }
@@ -363,10 +298,9 @@ function zusammenzugZeilen(offerte) {
     { label: 'Total Positionen', wert: chf(z.total) },
     ...(z.rabatt ? [{ label: `Rabatt ${offerte.rabatt} %`, wert: `− ${chf(z.rabatt)}` }] : []),
     ...(z.skonto ? [{ label: `Skonto ${offerte.skonto} %`, wert: `− ${chf(z.skonto)}` }] : []),
-    { label: 'Total exkl. MwSt.', wert: chf(z.exklMwst) },
-    { label: `MwSt. ${MWST_PROZENT} %`, wert: chf(z.mwst) },
-    ...(z.rundung ? [{ label: 'Rundung', wert: rundungText(z.rundung) }] : []),
-    { label: 'Total inkl. MwSt.', wert: chf(z.inklMwst) },
+    { label: 'Total netto exkl. MWST', wert: chf(z.exklMwst) },
+    { label: mwstLabel(z), wert: chf(z.mwst) },
+    { label: 'Total inkl. MWST', wert: chf(z.inklMwst), total: true },
   ];
 }
 
@@ -797,7 +731,8 @@ function oeffneAusmassFenster({
     ziel.innerHTML = `
       <div class="ausmass-baustelle">
         <span>Ausgemessene Menge auf der Baustelle${treffer.ktr ? ` ${esc(treffer.ktr)}` : ''}:
-          <strong>${mengeText(zahl(treffer.menge))}${esc(treffer.einheit ? ` ${treffer.einheit}` : '')}</strong></span>
+          <strong>${mengeText(zahl(treffer.menge))}${esc(treffer.einheit ? ` ${treffer.einheit}` : '')}</strong>${
+            treffer.formel ? ` <small>(Rechenweg ${esc(treffer.formel)})</small>` : ''}</span>
         ${treffer.onOeffnen ? '<button type="button" class="knopf" data-aktion="zur-baustelle">zum Baustellen-Ausmass →</button>' : ''}
       </div>`;
     ziel.querySelector('[data-aktion="zur-baustelle"]')
@@ -842,6 +777,7 @@ async function baustellenPosition(offerte, position, alleOfferten = []) {
   if (!baustelle) return null;
   return {
     menge: treffer.menge, einheit: treffer.einheit, ktr: baustelle.ktr,
+    formel: treffer.mengeQuelle === 'rechenweg' ? treffer.mengeFormel || '' : '',
     onOeffnen: baustelle.archiviert ? null : () => {
       document.dispatchEvent(new CustomEvent('luense:modulWechseln', {
         detail: { name: 'Ausmass', fokusId: treffer._id, baustelleId: treffer.baustelleId },
@@ -1044,6 +980,7 @@ export default {
         kunde: formular.elements.kunde.value.trim(),
         objekt: formular.elements.objekt.value.trim(),
         status: formular.elements.status.value,
+        mwstSatz: Number(formular.dataset.mwstSatz),
         rabatt: formular.elements.rabatt.value.trim(),
         skonto: formular.elements.skonto.value.trim(),
         gliederung: [...formular.querySelectorAll('[data-rolle="lv-zeile"]')].map((block) => {
@@ -1069,10 +1006,9 @@ export default {
         <div><span>Total Positionen</span><span>${chf(z.total)}</span></div>
         ${z.rabatt ? `<div><span>− Rabatt</span><span>${chf(z.rabatt)}</span></div>` : ''}
         ${z.skonto ? `<div><span>− Skonto</span><span>${chf(z.skonto)}</span></div>` : ''}
-        <div><span>Total exkl. MwSt.</span><span>${chf(z.exklMwst)}</span></div>
-        <div><span>MwSt. ${MWST_PROZENT} %</span><span>${chf(z.mwst)}</span></div>
-        ${z.rundung ? `<div><span>Rundung</span><span>${rundungText(z.rundung)}</span></div>` : ''}
-        <div class="regie-total"><span>Total inkl. MwSt.</span><span>${chf(z.inklMwst)}</span></div>`;
+        <div><span>Total netto exkl. MWST</span><span>${chf(z.exklMwst)}</span></div>
+        <div><span>${mwstLabel(z)}</span><span>${chf(z.mwst)}</span></div>
+        <div class="regie-total"><span>Total inkl. MWST</span><span>${chf(z.inklMwst)}</span></div>`;
       let lauf = 0;
       formular.querySelectorAll('[data-rolle="lv-zeile"][data-art="position"] [data-rolle="tab-nr"]')
         .forEach((el) => { el.textContent = `Position ${++lauf}`; });
@@ -1103,8 +1039,11 @@ export default {
       const nummer = offerte?.nummer || naechsteNummer(offerten.map((o) => o.nummer), `O-${jahr}-`);
       const gliederung = offerte ? gliederungVon(offerte) : [{ art: 'position' }];
       const original = offerte?.kopieVon ? offerten.find((o) => o._id === offerte.kopieVon) : null;
+      // MWST-Satz: neue Offerte aus den Firmendaten (festgehalten),
+      // bestehende behalten ihren Satz.
+      const satz = offerte ? satzVon(offerte) : mwstSatzFirma(await ladeFirma());
       formularBereich.innerHTML = `
-        <form class="karte formular" data-rolle="offert-formular">
+        <form class="karte formular" data-rolle="offert-formular" data-mwst-satz="${esc(satz)}">
           <h3>${offerte ? `Offerte ${esc(offerte.nummer)} bearbeiten` : 'Neue Offerte'}</h3>
           ${hinweis ? `<p class="hinweis kopie-hinweis" role="status">${esc(hinweis)}</p>` : ''}
           ${offerte?.kopieVon ? `<p class="hinweis">Kopie von Offerte ${esc(original?.nummer || '(gelöscht)')}${
@@ -1112,9 +1051,11 @@ export default {
           <div class="feld-reihe">
             <label>Nummer *<input name="nummer" required value="${esc(nummer)}" autocomplete="off"></label>
             <label>Status<select name="status">
-              ${OFFERT_STATUS.map((s) => `<option${(offerte?.status || 'Entwurf') === s ? ' selected' : ''}>${s}</option>`).join('')}
+              ${statusListe(offerte).map((s) => `<option${(offerte?.status || 'Entwurf') === s ? ' selected' : ''}>${s}</option>`).join('')}
             </select></label>
           </div>
+          ${offerte?.kopieVon ? `<p class="hinweis">Kopie = Arbeitsversion: Status nur Entwurf oder
+            eingereicht — annehmen (sperren) lässt sich nur das Original.</p>` : ''}
           <label>Bezeichnung (Name der Offerte, z. B. für die Ausmass-Version)
             <input name="titel" autocomplete="off" value="${esc(offerte?.titel ?? '')}"
               placeholder="leer = Objekt"></label>
@@ -1143,6 +1084,8 @@ export default {
               value="${esc(offerte?.skonto ?? '')}" placeholder="0"></label>
           </div>
           <div class="rapport-totale" data-rolle="zusammenzug"></div>
+          <p class="hinweis">MWST-Satz ${esc(formatSatz(satz))} — ${offerte
+            ? 'an dieser Offerte festgehalten' : 'aus den Firmendaten, wird beim Speichern festgehalten'}.</p>
 
           <div class="knopfzeile">
             <button type="submit" class="knopf knopf-primaer">Offerte speichern</button>
@@ -1280,6 +1223,10 @@ export default {
       if (name === null) return null;
       const jahr = new Date().getFullYear();
       const kopie = JSON.parse(JSON.stringify(original));
+      // Tiefe Kopie (JSON): Ausmasszeilen, Rechenweg und alle Graben-
+      // rechnungen (graben samt Teilen) gehen eigenständig mit — Änderungen
+      // an der Kopie berühren das Original nie.
+      const gliederung = gliederungVon(kopie);
       delete kopie._id;
       delete kopie._rev;
       delete kopie._attachments;
@@ -1288,7 +1235,7 @@ export default {
       delete kopie.datum; // die Kopie bekommt ihr eigenes Erfassungsdatum
       const neu = await speichereOfferte({
         ...kopie,
-        gliederung: gliederungVon(original).map((z) => ({ ...z })),
+        gliederung,
         nummer: naechsteNummer(offerten.map((o) => o.nummer), `O-${jahr}-`),
         titel: name.trim() || vorschlag,
         status: 'Entwurf',
@@ -1306,8 +1253,8 @@ export default {
             const z = zusammenzug(o);
             const gliederung = gliederungVon(o);
             const anzahl = gliederung.filter((g) => g.art === 'position').length;
-            const index = OFFERT_STATUS.indexOf(o.status);
-            const naechster = OFFERT_STATUS[index + 1];
+            const stufen = statusListe(o);
+            const naechster = stufen[stufen.indexOf(o.status) + 1];
             const gesperrt = istGesperrt(o);
             const original = o.kopieVon ? offerten.find((x) => x._id === o.kopieVon) : null;
             const kopien = offerten.filter((x) => x.kopieVon === o._id);
@@ -1327,7 +1274,7 @@ export default {
                   </span>
                 </div>
                 <p class="hinweis">${esc(o.kunde)}${o.titel ? ` · ${esc(o.objekt)}` : ''} · ${anzahl} Positionen
-                  · ${chf(z.inklMwst)} inkl. MwSt.</p>
+                  · ${chf(z.inklMwst)} inkl. MWST</p>
                 ${gesperrt ? `<p class="hinweis">Vertragsstand${o.angenommenAm
                   ? ` seit ${datumText(o.angenommenAm)}` : ''} — nicht mehr änderbar.
                   Mengen in einer Kopie erfassen.</p>` : ''}
@@ -1407,7 +1354,8 @@ export default {
         if (aktion === 'oeffnen') {
           oeffneFormular(offerte);
         } else if (aktion === 'weiter') {
-          const naechster = OFFERT_STATUS[OFFERT_STATUS.indexOf(offerte.status) + 1];
+          const stufen = statusListe(offerte);
+          const naechster = stufen[stufen.indexOf(offerte.status) + 1];
           if (!naechster) return;
           if (naechster === 'angenommen' && !confirm(`Offerte ${offerte.nummer} als angenommen `
             + 'markieren? Danach ist sie gesperrt und lässt sich nicht mehr ändern '
@@ -1454,7 +1402,7 @@ export default {
         name: offerte.objekt,
         ort: '',
         bauherr: offerte.kunde,
-        werkvertrag: `${chf(z.exklMwst)} exkl. MwSt. (Offerte ${offerte.nummer})`,
+        werkvertrag: `${chf(z.exklMwst)} exkl. MWST (Offerte ${offerte.nummer})`,
       });
       const positionen = nurPositionen(offerte);
       for (const p of positionen) {
@@ -1478,23 +1426,34 @@ export default {
     }
 
     // ---------- Sprung aus dem Baustellen-Ausmass ----------
-    // Ziel ist die Arbeitsversion: die neueste ungesperrte Offerte, die
-    // von der verknüpften Offerte abstammt (Kopie) — sonst die Offerte
-    // selbst (gesperrt: nur Ansicht, mit Hinweis auf «Kopie erstellen»).
+    // Ziel ist eine Arbeitsversion (Kopie), die von der verknüpften Offerte
+    // abstammt und die Position enthält:
+    //   keine Kopie   → die Offerte selbst (gesperrt: nur Ansicht),
+    //   genau eine    → direkt dorthin,
+    //   mehrere       → Auswahl (Nummer, Name, Datum; Original zuletzt).
     async function springeZuPosition({ offertId, posNr }) {
       const offerten = await ladeOfferten();
       const familie = offerten.filter((o) => abstammung(o, offerten).has(offertId));
       if (!familie.length) {
         alert('Die verknüpfte Offerte gibt es nicht mehr.');
+        zeichneListe();
         return;
       }
-      const mitPosition = (o) => gliederungVon(o)
-        .some((z) => z.art === 'position' && String(z.nr ?? '').trim() === String(posNr ?? '').trim());
-      const arbeit = familie.filter((o) => !istGesperrt(o) && mitPosition(o))
-        .sort((a, b) => String(b.kopieErstelltAm || '').localeCompare(String(a.kopieErstelltAm || '')));
-      const ziel = arbeit[0] || familie.find((o) => o._id === offertId) || familie[0];
-      const index = gliederungVon(ziel)
-        .findIndex((z) => z.art === 'position' && String(z.nr ?? '').trim() === String(posNr ?? '').trim());
+      const nr = String(posNr ?? '').trim();
+      const posIndex = (o) => gliederungVon(o)
+        .findIndex((z) => z.art === 'position' && String(z.nr ?? '').trim() === nr);
+      const original = familie.find((o) => o._id === offertId) || familie[0];
+      const kopien = familie.filter((o) => o._id !== original._id && posIndex(o) >= 0)
+        .sort((a, b) => String(b.kopieErstelltAm || b.datum || '')
+          .localeCompare(String(a.kopieErstelltAm || a.datum || '')));
+      let ziel = original;
+      if (kopien.length === 1) ziel = kopien[0];
+      else if (kopien.length > 1) {
+        await zeichneListe();
+        ziel = await waehleKopie(kopien, original, nr);
+        if (!ziel) return;
+      }
+      const index = posIndex(ziel);
       await zeichneListe({ offenId: ziel._id });
       const karte = listeElement.querySelector(`[data-offerte="${CSS.escape(ziel._id)}"]`);
       karte?.scrollIntoView({ block: 'start' });
@@ -1505,6 +1464,53 @@ export default {
         return;
       }
       await oeffnePositionsFenster(ziel._id, index);
+    }
+
+    // Auswahl der Kopie (grosse Knöpfe, Handschuh-tauglich). Ergebnis:
+    // gewählte Offerte oder null (Abbrechen / Escape / daneben tippen).
+    function waehleKopie(kopien, original, posNr) {
+      return new Promise((fertig) => {
+        const dialog = document.createElement('div');
+        dialog.className = 'vollbild dialog-hintergrund';
+        const eintrag = (o, zusatz = '') => `
+          <button type="button" class="knopf kopie-wahl" data-wahl="${esc(o._id)}">
+            <strong>${esc(o.nummer)} · ${esc(offertName(o) || '(ohne Namen)')}</strong>
+            <span>${o.kopieVon ? `Kopie vom ${esc(datumText(o.kopieErstelltAm || o.datum))}` : ''}${
+              zusatz} · ${esc(o.status)}</span>
+          </button>`;
+        dialog.innerHTML = `
+          <div class="karte formular dialog kopie-wahl-dialog" role="dialog" aria-modal="true"
+            aria-labelledby="kopie-wahl-titel" data-rolle="kopie-wahl">
+            <h3 id="kopie-wahl-titel">Welche Kopie öffnen?</h3>
+            <p class="hinweis">Offerte ${esc(original.nummer)} hat ${kopien.length} Kopien mit
+              Position ${esc(posNr)}. Neueste zuoberst.</p>
+            <div class="kopie-wahl-liste">
+              ${kopien.map((k) => eintrag(k)).join('')}
+              ${eintrag(original, istGesperrt(original) ? 'Original · gesperrt, nur Ansicht' : 'Original')}
+            </div>
+            <div class="knopfzeile">
+              <button type="button" class="knopf" data-wahl="">Abbrechen</button>
+            </div>
+          </div>`;
+        const ende = (wert) => {
+          document.removeEventListener('keydown', taste);
+          dialog.remove();
+          fertig(wert);
+        };
+        function taste(ereignis) {
+          if (ereignis.key === 'Escape') ende(null);
+        }
+        document.addEventListener('keydown', taste);
+        dialog.addEventListener('click', (klick) => {
+          if (klick.target === dialog) { ende(null); return; }
+          const knopf = klick.target.closest('[data-wahl]');
+          if (!knopf) return;
+          const id = knopf.dataset.wahl;
+          ende(id ? [...kopien, original].find((o) => o._id === id) : null);
+        });
+        document.body.append(dialog);
+        dialog.querySelector('[data-wahl]')?.focus();
+      });
     }
 
     container.querySelector('[data-aktion="neu"]')

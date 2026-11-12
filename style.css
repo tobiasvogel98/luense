@@ -3294,6 +3294,8 @@ details.katalog-wahl > summary {
   padding-top: var(--abstand-2);
   border-top: 1.5px solid var(--farbe-text);
   font-weight: 700;
+}
+
 /* Offerte: Sperre nach Annahme, Kopie, Menge direkt/Rechenweg/Grabenrechner */
 .offert-gesperrt {
   border-left: 4px solid var(--tag-fortschritt);
@@ -3410,4 +3412,44 @@ details.katalog-wahl > summary {
 .feld-reihe .lv-menge-feld {
   flex: 2 1 17rem;
   min-width: 0;
+}
+
+/* MWST-Nr. fehlt bei MWST-pflichtigen Beträgen: deutliche Warnung,
+   blockiert nichts (Firmendaten und Rechnungsformular). */
+.mwst-warnung {
+  margin: var(--abstand-2) 0;
+  padding: var(--abstand-2) var(--abstand-3);
+  font-size: var(--schrift-klein);
+  font-weight: 600;
+  color: var(--farbe-text);
+  background: var(--farbe-hintergrund);
+  border: 1px solid var(--farbe-akzent);
+  border-left: 4px solid var(--farbe-akzent);
+  border-radius: var(--radius);
+}
+
+/* Offerte: Auswahl der Kopie beim Sprung aus dem Baustellen-Ausmass */
+.kopie-wahl-liste {
+  display: grid;
+  gap: var(--abstand-2);
+  margin: var(--abstand-3) 0;
+}
+
+.kopie-wahl-liste .knopf.kopie-wahl {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 56px;
+  padding: var(--abstand-2) var(--abstand-3);
+  text-align: left;
+}
+
+.kopie-wahl-liste .kopie-wahl span {
+  display: block;
+  font-weight: 400;
+  font-size: var(--schrift-klein);
+  color: var(--farbe-text-gedaempft);
+  font-variant-numeric: tabular-nums;
 }

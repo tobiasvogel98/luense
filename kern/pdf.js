@@ -288,14 +288,14 @@ export function zeigeOffertDruck(offerte, lv) {
   druckOverlay(`
     <header class="bericht-kopf">
       <h1>Offerte ${esc(offerte.nummer)} · ${esc(offerte.objekt)}</h1>
-      <p>${esc(offerte.kunde)} · Preise in CHF exkl. MwSt.</p>
+      <p>${esc(offerte.kunde)} · Preise in CHF exkl. MWST</p>
     </header>
 
     ${lv.tabelleHtml}
 
     <section class="bericht-eintrag">
       <h2>Zusammenzug</h2>
-      ${lv.zusammenzug.map((z) => druckZeile(z.label, z.wert)).join('')}
+      ${lv.zusammenzug.map((z) => druckZeile(z.label, z.wert, z.total ? 'druck-total' : '')).join('')}
     </section>
 
     <div class="unterschriften">
