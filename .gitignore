@@ -7,3 +7,6 @@ desktop.ini
 # Kopien der Alt-Tools (koennen echte Daten enthalten — nie committen)
 altbestand/
 dist/
+
+# Python-Bibliotheken für die QR-Prüfung der Tests (lokal, z. B. zxing-cpp)
+tests/pylib/
