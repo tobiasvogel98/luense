@@ -13,7 +13,8 @@
 // Nicht MWST-pflichtige Firma (Firmendaten, v59): neue Offerten 0 %, dann
 // nur «Total» ohne MWST-Zeile, auf dem PDF «Nicht mehrwertsteuerpflichtig.».
 // Eine nicht angenommene Offerte mit Satz > 0 bietet «ohne MWST neu
-// rechnen» an; angenommene bleiben Vertragsstand.
+// rechnen» an; angenommene bleiben Vertragsstand. «Kopie erstellen» setzt
+// bei nicht pflichtiger Firma sofort 0 % (v60).
 // «angenommen» erzeugt per Klick eine Baustelle; die Positionen gehen
 // als KOPIE ins Ausmass (dort wird gemessen, die Offerte bleibt unberührt).
 // Bewusste Ausnahme von «alle Dokumente tragen eine Baustellen-Id»:
@@ -1283,6 +1284,9 @@ export default {
       delete kopie.angenommenAm;
       delete kopie.positionen;
       delete kopie.datum; // die Kopie bekommt ihr eigenes Erfassungsdatum
+      // Nicht pflichtige Firma: die Kopie rechnet sofort ohne MWST (0 %).
+      // Pflichtig: Satz des Originals bleibt.
+      if (!mwstPflichtig(await ladeFirma())) kopie.mwstSatz = 0;
       const neu = await speichereOfferte({
         ...kopie,
         gliederung,

@@ -24,6 +24,8 @@
 // mehrwertsteuerpflichtig.», ohne MWST-Nr. im Absender. Bestehende
 // Rechnungen mit Satz > 0 sind Belege und bleiben, wie sie sind; nur eine
 // noch nicht gestellte («offen») bietet «ohne MWST neu rechnen» an.
+// Wird eine Rechnung mit Satz > 0 bei nicht pflichtiger Firma auf
+// «gestellt» gesetzt, fragt ein Dialog nach (Art. 27 MWSTG, v60).
 //
 // Mahnwesen (Bauplan 6, Schritt 3): drei Stufen — Zahlungserinnerung,
 // 1. Mahnung, 2. Mahnung —, fällig nach Tagen ab RECHNUNGSDATUM (Firmendaten,
@@ -1512,7 +1514,7 @@ export default {
         return;
       }
       const rechnungen = await ladeRechnungen();
-      const rechnung = rechnungen.find((r) => r._id === knopf.dataset.id);
+      let rechnung = rechnungen.find((r) => r._id === knopf.dataset.id);
       if (!rechnung) return;
       if (knopf.dataset.aktion === 'oeffnen') {
         oeffneFormular(rechnung);
@@ -1537,12 +1539,33 @@ export default {
         if (!naechster) return;
         if (naechster === 'bezahlt' && zahlungen(rechnung).length && offenerBetrag(rechnung) > 0
           && !confirm(`Noch offen: ${chf(offenerBetrag(rechnung))}. Trotzdem als bezahlt abschliessen?`)) return;
+        // Stellen mit MWST bei nicht pflichtiger Firma (frisch gelesen): Rückfrage.
+        let ohneMwstText = '';
+        if (naechster === 'gestellt' && rechnungsBetraege(rechnung).satz > 0
+          && !mwstPflichtig(await ladeFirma())) {
+          const b = rechnungsBetraege(rechnung);
+          const wahl = await auswahlDialog({
+            titel: `Rechnung ${rechnung.nummer} stellen?`,
+            text: 'Diese Rechnung weist MWST aus, Ihre Firma ist aber nicht mehrwertsteuerpflichtig. '
+              + 'Ausgewiesene MWST ist trotzdem geschuldet (Art. 27 MWSTG).',
+            hinweis: `MWST ${formatSatz(b.satz)}: ${chf(b.mwst)}. Ohne MWST: Total ${chf(b.netto)} statt ${chf(b.brutto)}.`,
+            knoepfe: [['neu', 'Ohne MWST neu rechnen und stellen', true], ['trotzdem', 'Trotzdem stellen'],
+              ['abbrechen', 'Abbrechen']],
+          });
+          if (wahl !== 'neu' && wahl !== 'trotzdem') return;
+          if (wahl === 'neu') {
+            const vorher = rechnungsBetraege(rechnung);
+            rechnung = { ...rechnung, mwstSatz: 0 };
+            ohneMwstText = ` Ohne MWST neu gerechnet: Total ${chf(vorher.netto)} `
+              + `(vorher ${chf(vorher.brutto)} mit MWST ${formatSatz(vorher.satz)}).`;
+          }
+        }
         const doc = mitHistorie(rechnung, naechster);
         if (naechster === 'bezahlt') doc.bezahltAm = heuteTag();
         await put(doc);
         let zusatz = '';
         if (naechster === 'gestellt') zusatz = await stelleGrundlageVerrechnet(rechnung);
-        meldungElement.textContent = `Rechnung ${rechnung.nummer} → ${naechster}.${zusatz}`;
+        meldungElement.textContent = `Rechnung ${rechnung.nummer} → ${naechster}.${ohneMwstText}${zusatz}`;
         document.dispatchEvent(new CustomEvent('luense:daten'));
         await zeichneTabelle();
       } else if (knopf.dataset.aktion === 'zurueck') {
