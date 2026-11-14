@@ -44,7 +44,7 @@ camt-Dateien sind synthetisch.
 
 | Test | Inhalt |
 | --- | --- |
-| `rauchtest` | Beispielbaustelle laden, alle 12 Module und der Stamm auf Handy 390 × 844 (hell) und Laptop (dunkel): Inhalt da, keine horizontale Scrollbar, Touch-Ziele mindestens 44 px, kein «–», «—», «ß», keine Konsolenfehler |
+| `rauchtest` | Beispielbaustelle laden, alle 12 Module und der Stamm auf Handy 390 × 844 (hell) und Laptop (dunkel): Inhalt da, keine horizontale Scrollbar, Touch-Ziele mindestens 44 px, keine Gedankenstriche und kein scharfes S, keine Konsolenfehler |
 | `offerte` | Migration MWST-Satz, Warnung MWST-Nr. fehlt, Sperre der angenommenen Offerte, PDF exakt, Kopie als Arbeitsversion (nie annehmbar), Rechenweg, Grabenrechner, Sprung aus dem Ausmass mit Kopienwahl, Rechenweg im Baustellen-Ausmass |
 | `rechnung-mwst` | Firma MWST-pflichtig: Vorschau, festgehaltener Satz, Tabelle, Rechnungs-PDF, QR-Betrag dekodiert, Handy dunkel |
 | `mwst-pflicht` | Schalter «MWST-pflichtig» aus: Rechnung, Offerte, Mahnung nur mit Total und Vermerk, QR-Betrag, Entwürfe neu rechnen, Kreditoren ohne Vorsteuer, Controlling, Schalter wieder ein |
